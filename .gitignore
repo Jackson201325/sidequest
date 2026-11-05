@@ -1,0 +1,29 @@
+# Personal configuration and credentials
+.env
+.env.*
+config.json
+config.local.json
+*.pem
+*.key
+*.p12
+*.pfx
+.netrc
+# Runtime output, databases, local tools and historical copies
+*.sqlite*
+*.db
+*.log
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+.cache/
+.claude/
+.codex/
+.serena/
+.opencode/
+snapshots/
+reports/
+out/
+state/
+*.bak
+*.before-*

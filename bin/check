@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Offline verification; temporary runtime data and mocked external services only."""
+import ast
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+
+ROOT = Path(__file__).resolve().parents[1]
+failed = False
+with tempfile.TemporaryDirectory() as folder:
+    env = {key: value for key, value in os.environ.items() if not key.startswith(('SIDEQUEST_', 'TW_'))}
+    env.update(PYTHONDONTWRITEBYTECODE='1', SIDEQUEST_CONFIG=str(ROOT / 'tests/fixture-config.json'),
+               HOME=folder, XDG_DATA_HOME=folder + '/data', XDG_STATE_HOME=folder + '/state',
+               XDG_CONFIG_HOME=folder + '/config', TERM='xterm-256color')
+    for suite in ('tests', 'ticket-tui'):
+        result = subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', suite], cwd=ROOT, env=env)
+        failed |= result.returncode != 0
+for path in ROOT.rglob('*.py'):
+    if '.git' not in path.parts:
+        try:
+            ast.parse(path.read_text(), filename=str(path))
+        except (ValueError, SyntaxError, UnicodeError) as exc:
+            print(str(exc), file=sys.stderr)
+            failed = True
+for name in ('sidequest-data', 'sidequest', 'check'):
+    if not os.access(ROOT / 'bin' / name, os.X_OK):
+        print('Entry point is not executable: ' + name, file=sys.stderr)
+        failed = True
+if (ROOT / '.git').exists():
+    failed |= subprocess.run(['git', 'diff', '--check'], cwd=ROOT).returncode != 0
+print('Standalone checks ' + ('FAILED' if failed else 'passed'))
+raise SystemExit(1 if failed else 0)

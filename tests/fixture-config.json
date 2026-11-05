@@ -1,0 +1,5 @@
+{
+  "identity": {"display_name": "Example Developer", "git_author": "Example Developer", "timezone": "America/Asuncion"},
+  "github": {"username": "example-developer"},
+  "workspace": {"tmux_session": "example-project"}
+}

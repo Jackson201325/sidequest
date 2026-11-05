@@ -1,0 +1,27 @@
+{
+  "identity": {
+    "display_name": "Your Name",
+    "git_author": "Your Git Author Name",
+    "timezone": "UTC"
+  },
+  "jira": {
+    "site": "https://your-company.atlassian.net",
+    "email": "you@example.com",
+    "account_id": "",
+    "cloud_id": "",
+    "projects": ["APP"]
+  },
+  "github": {
+    "repository": "your-org/your-repository",
+    "username": "your-github-login"
+  },
+  "heroku": {
+    "pipeline": ""
+  },
+  "workspace": {
+    "repository": "",
+    "plans_dir": "",
+    "tmux_session": "sidequest",
+    "browser": ""
+  }
+}

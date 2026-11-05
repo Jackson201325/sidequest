@@ -1,0 +1,14 @@
+#!/usr/bin/env python3
+"""Launch the personal ticket queue (workflow/ticket-tui) from any working directory."""
+
+import runpy
+import sys
+from pathlib import Path
+
+app = Path(__file__).resolve().parents[1] / "ticket-tui" / "tui.py"
+sys.path.insert(0, str(app.parent))
+try:
+    runpy.run_path(str(app), run_name="__main__")
+except (ValueError, RuntimeError) as exc:
+    print('sidequest: ' + str(exc), file=sys.stderr)
+    raise SystemExit(2)
