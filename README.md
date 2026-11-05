@@ -5,6 +5,31 @@ them. Sidequest shows whose turn it is, what changed, and what needs attention.
 It also bundles optional agent skills and scripts for planning, local worktrees,
 QA screenshots, review feedback and preparing PRs.
 
+## Minimum requirements
+
+For the GitHub + Jira dashboard, you need:
+
+- A macOS or Linux terminal with Python 3.9+.
+- Git and the GitHub CLI (`gh`), signed in with your own account.
+- Your Jira site/email settings and your own API token in `SIDEQUEST_JIRA_TOKEN`.
+
+Curses and SQLite are included with the supported Python installation; there are
+no pip packages or separate database server to install for Sidequest.
+
+**You do not need tmux, Neovim, `glow`, or custom commands such as `edge` and
+`nvimc`. No macOS Keychain or clipboard setup is required for the dashboard.**
+You can use your normal shell, editor and browser. Opening ticket/PR links uses
+the operating system's default browser, or the command in `workspace.browser`.
+
+An AI assistant is required only when you choose to run an agent workflow; its
+CLI is configurable. Chrome, Chromium or Edge is required only for automated QA
+screenshots, without any custom browser alias. Heroku authentication is used only
+for the Heroku integration. Docker, Rails and application test tools belong to
+the project you are working on and are not dashboard requirements.
+
+On systems without macOS `pbcopy`, use `./bin/sidequest --standup` to print the
+standup for normal terminal copying. The demo works without service credentials.
+
 ## Try it first
 
 You need Python 3.9+ and a macOS or Linux terminal. The application uses only
@@ -56,9 +81,9 @@ load current Jira and GitHub evidence. Configured Heroku status can load separat
 If a source fails, its last good data and timestamp remain visible with an error;
 failure never becomes an apparently successful empty queue.
 
-No scripts from another checkout, private agent skills or personal shell aliases
-are required. Git, the GitHub CLI, Heroku CLI, tmux, Claude Code and a Chromium
-browser are needed only for the integrations or optional actions that use them.
+All dashboard helpers are bundled. Scripts from another checkout, private agent
+skills and personal shell aliases are not needed. Additional tools are tied to
+the particular action you choose:
 
 | Action | Tools it needs |
 | --- | --- |

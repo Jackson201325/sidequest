@@ -85,3 +85,12 @@ fixtures use temporary Git repositories; no service writes or personal shell
 configuration changes are made.
 Verification: bin/check passed 56 helper/service tests and 122 UI tests (178
 total, including two optional browser checks skipped in the offline gate).
+
+2026-11-05: minimum requirements documentation.
+
+The README now states the basic Python/Git/gh/Jira setup explicitly. It clarifies
+that tmux, personal editor/browser aliases, Neovim, glow and macOS credential or
+clipboard setup are not dashboard requirements. Screenshot browsers, agent CLIs,
+Heroku authentication and application runtimes are described per action. This is
+a documentation-only clarification; no commands, credentials or runtime behavior
+changed. The normal bin/check gate still applies before committing and pushing.

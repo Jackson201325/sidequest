@@ -64,6 +64,11 @@ is restricted to the HTTPS Heroku host discovered for the PR.
 
 The README owns adopter onboarding: demo, direct service connections, credentials,
 first refresh, component dependencies, skill installation and supported commands.
+Its Minimum requirements section explicitly separates the GitHub/Jira dashboard
+from action-specific tools. Personal editor/report aliases, tmux and macOS-only
+credential/clipboard setup are not installation requirements. Browser links use
+the OS opener or configured browser; screenshots and agent workflows need their
+respective tools only when invoked.
 Project Docker booking, automatic cleanup, attachment download, Jira custom fields
 and status transitions are not copied. Skills use the target project's commands
 and require remote-action authorization from that user.
