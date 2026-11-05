@@ -27,3 +27,7 @@ out/
 state/
 *.bak
 *.before-*
+tickets/
+qa/
+qa-review/
+.sidequest-skill-state.json

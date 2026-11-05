@@ -21,6 +21,7 @@
   "workspace": {
     "repository": "",
     "plans_dir": "",
+    "worktrees_dir": "",
     "tmux_session": "sidequest",
     "browser": ""
   }

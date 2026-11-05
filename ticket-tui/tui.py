@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sidequest.snapshots import SnapshotStore
 from sidequest.access import access_error
 from sidequest import config
+from sidequest import qa
 
 from core import KEY, Store, now, parse_time, rank, tickets_from
 from environments import fetch_environments
@@ -41,7 +42,7 @@ TABS = [("a", "Activity", "Activity"), ("p", "Plan", "Plan"), ("v", "Overview", 
         ("s", "Work log", "Work log"), ("f", "Flow", "Workflow"), ("u", "Standup", "Standup")]
 TAB_KEYS = {key: name for key, _, name in TABS}
 # Optional per-ticket plans stay outside this source tree.
-PLANS = Path(config.get('workspace', 'plans_dir') or config.STATE_DIR / 'tickets').expanduser()
+PLANS = qa.tickets_dir()
 # Bottom bar. On narrow terminals descriptions shorten first, then MOVE is dropped, then DO.
 # (key, description, short description used when the terminal is narrow)
 FOOTER = [("MOVE", [("j/k", "tickets", ""), ("h/l", "pane", ""), ("1-4", "lane", ""), ("/", "search", "search")]),
@@ -74,14 +75,23 @@ def source_age(value):
 # Space s: open Claude Code beside the ticket's tmux window, using self-contained prompts.
 # (label, phrase, optional metadata); no company skills are loaded.
 AGENT_TASKS = [
-    ("Review PR feedback", "Review the PR feedback for {key} and explain the changes needed", None),
+    ("Review PR feedback", "Review the PR feedback for {key} and explain the changes needed", 'sidequest-feedback'),
     ("Review this branch", "Review the branch for {key} and report correctness issues", None),
+    ("Plan or start ticket", "Start {key}", 'sidequest-start'),
+    ("QA locally", "QA {key} locally", 'sidequest-qa-local'),
+    ("QA review app", "QA {key} on its review app", 'sidequest-qa-review-app'),
+    ("Ship ticket", "Prepare {key} for shipping", 'sidequest-ship'),
+    ("Triage an error", "Investigate the error reported for {key}", 'sidequest-triage'),
     ("Custom prompt...", None, None),
 ]
 
 
 def agent_prompt(key, phrase, skill):
-    return phrase.format(key=key)
+    prompt = phrase.format(key=key)
+    if skill:
+        from sidequest.skills import render
+        prompt += '\n\n' + render(WORKFLOW / 'agents/skills' / skill / 'SKILL.md')
+    return prompt
 
 
 def run(args, timeout=45):
@@ -989,7 +999,7 @@ class App:
                  "  'updated' stamp doesn't say what changed).",
                  "",
                  "OPEN  (press Space, then)",
-                 "  j Jira   o PR   w go to tmux window   s Claude Code beside it (feedback / review / custom)",
+                 "  j Jira   o PR   w go to tmux window   s Claude Code workflows / custom prompt",
                  "",
                  "DATA",
                  "  r refresh Jira + GitHub via sidequest-data   e recheck Heroku   o / O choose / reverse sort",

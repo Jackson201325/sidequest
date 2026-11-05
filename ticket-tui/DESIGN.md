@@ -24,3 +24,8 @@ session name. Original queue rendering and keyboard navigation are retained.
 
 2026-11-05: Sidequest names the application, CLI, help and header. Sample tickets
 use fictional DEMO keys. The stacked layout, focus and keyboard controls remain.
+
+2026-11-05: Space s also offers the six bundled project-neutral workflows.
+The selected skill is rendered with this clone's helper paths, so a global
+installation is optional. The queue's own collection remains read-only. Planning
+and screenshot artifacts share the same external directory as the CLI helpers.

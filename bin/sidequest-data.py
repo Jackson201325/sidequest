@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only helpers bundled with the standalone TUI."""
+"""Bundled collection and workflow helpers; local changes require explicit commands."""
 import argparse
 import json
 from pathlib import Path
@@ -11,10 +11,24 @@ from sidequest.collector import DEFAULT_OUT, collect
 from sidequest.jira import client
 from sidequest.snapshots import SnapshotStore
 
+LOCAL = {'branch-name': 'sidequest-workspace.py', 'worktree': 'sidequest-worktree.py',
+         'workspace': 'sidequest-workspace-create.py', 'plan-init': 'sidequest-plan-init.py',
+         'pr-body-check': 'sidequest-pr-body-check.py', 'ship-check': 'sidequest-ship-check.py',
+         'qa-shot': 'sidequest-qa-shot.py', 'review-app': 'sidequest-review-app.py',
+         'pr-feedback': 'sidequest-feedback.py', 'skills': 'sidequest-skills.py'}
+
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] in LOCAL:
+        import runpy
+        script = Path(__file__).with_name(LOCAL[sys.argv[1]])
+        sys.argv = [str(script), *sys.argv[2:]]
+        runpy.run_path(str(script), run_name='__main__')
+        return 0
     parser = argparse.ArgumentParser(prog='sidequest-data', description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
+    for name in LOCAL:
+        commands.add_parser(name, add_help=False, help='Bundled workflow helper; use ' + name + ' --help')
     for command in ('collect', 'snapshot'):
         sub = commands.add_parser(command)
         sub.add_argument('--out', type=Path, default=DEFAULT_OUT)

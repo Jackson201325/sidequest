@@ -44,3 +44,25 @@ were renamed together. Company-specific ticket prefixes and real teammate names
 were removed from fixtures. Publication uses a fresh initial Git history.
 Verification: bin/check passed 21 standalone/service/branding tests and 118 UI
 tests (139 total), including real terminal input and fixture-only service calls.
+
+2026-11-05: portable workflows and README onboarding.
+
+Command tests first failed for the missing workflow commands. The package now
+includes branch naming, live worktree lookup, preview/apply worktree creation,
+non-overwriting plans, pre-PR checks, paginated PR feedback, local/review-app QA
+capture, and explicit skill installation. Ported helper checks use temporary Git
+repositories and process/service fixtures. Skills are installed to temporary
+folders in tests; drift is detected and user edits are never overwritten.
+
+Six skills share project-neutral rules and use the bundled helper. Browser QA
+has no shared login defaults or Keychain dependency, and checks the current host
+after redirects before supplying credentials. Both dashboard plans and CLI evidence
+use the same external folder. The README explains setup, data flow, daily use,
+credentials, optional workflows and remaining project-specific responsibilities.
+
+bin/check passed 55 helper/service/branding tests and 118 UI tests (173 total;
+two browser fixture tests skipped by default). No real service writes, personal
+skill installation, shared Docker operations or production access are used.
+The five QA-helper checks also passed separately with Microsoft Edge against
+temporary localhost pages, including successful login/capture and failure evidence.
+All six rendered skill packages passed skill-creator's quick_validate validator.

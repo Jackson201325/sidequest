@@ -8,7 +8,9 @@ Read AGENTS.md, HARDENING.md and ticket-tui/DESIGN.md each iteration. Preserve
 existing unrelated work. Use Python 3.9+ and the standard library only.
 
 `bin/sidequest` launches curses or the list/standup modes. The bundled `bin/sidequest-data`
-supports read-only `collect`, `snapshot` and `ticket` helpers. TUI refresh calls
+supports read-only `collect`, `snapshot` and `ticket` helpers, plus independent
+workflow commands for naming, lookup, plans, PR feedback/checks, QA and skills.
+TUI refresh calls
 the bundled dispatcher by its absolute location, never a global personal command.
 `sidequest/config.py` reads optional external JSON configuration; all services are
 disabled until configured. Identity defaults contain no account identifiers.
@@ -27,8 +29,12 @@ Optional local Git scans use the configured repository and never fetch or mutate
 
 The queue's original sorting, business-hour clocks, ownership rules, stacked panes,
 keyboard navigation and saved divider remain. Company ticket-start actions and
-company agent skills are excluded. Explicit tmux/Claude/browser actions remain
-optional. No scheduler, check-in tool or application/database management is included.
+company-specific agent assumptions are excluded. Six reusable `sidequest-*` skills
+are bundled under agents/skills/<name>/SKILL.md. The dashboard's agent menu renders
+the selected canonical skill; the optional installer binds absolute helper paths
+for Codex/Claude, checks drift and preserves user edits. `agents/RULES.md` supplies
+shared workflow rules. Explicit tmux/Claude/browser actions remain optional.
+No scheduler, check-in tool or application/database management is included.
 
 Use ./bin/check for all checks. It runs both suites with an external test-only
 configuration, temporary HOME/XDG folders and no service credentials. Test fixtures
@@ -41,3 +47,17 @@ The public project is named Sidequest. Its commands are `bin/sidequest` and
 use `SIDEQUEST_`, and configuration, caches and snapshots use the `sidequest`
 namespace. Example ticket keys use DEMO or APP. The personal workflow is a
 separate installation and is never modified when developing or publishing this one.
+
+`workspace` previews local worktree creation; --apply explicitly creates it after
+live lookup. It never removes worktrees, switches an existing checkout, fetches
+or copies credentials. `plan-init` never overwrites a plan. Artifact paths are
+shared with the dashboard and remain outside repositories. QA login has no default
+account or Keychain fallback; credentials come from explicit environment variables.
+The browser's actual host is checked before login after redirects. Review-app QA
+is restricted to the HTTPS Heroku host discovered for the PR.
+
+The README owns adopter onboarding: demo, direct service connections, credentials,
+first refresh, component dependencies, skill installation and supported commands.
+Project Docker booking, automatic cleanup, attachment download, Jira custom fields
+and status transitions are not copied. Skills use the target project's commands
+and require remote-action authorization from that user.
