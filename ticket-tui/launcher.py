@@ -3,6 +3,7 @@
 import shlex
 import sys
 from sidequest import config
+from sidequest.terminal import agent_argv, agent_display_name
 
 from core import KEY
 
@@ -29,13 +30,13 @@ def find_tw_window(panes, ticket):
 
 
 def agent_command(window_id, path, prompt):
-    """tmux command that splits the ticket's window and starts Claude Code in its worktree."""
-    return ["tmux", "split-window", "-h", "-t", window_id, "-c", path, "claude " + shlex.quote(prompt)]
+    """tmux command that starts the configured agent in the ticket's worktree."""
+    return ["tmux", "split-window", "-h", "-t", window_id, "-c", path, shlex.join(agent_argv(prompt))]
 
 
 def new_window_command(key, path, prompt, session_exists=True):
     """No tmux window yet: open one named after the ticket in the configured session."""
-    claude = "claude " + shlex.quote(prompt)
+    claude = shlex.join(agent_argv(prompt))
     if session_exists:
         return ["tmux", "new-window", "-t", SESSION + ":", "-n", key, "-c", path, claude]
     return ["tmux", "new-session", "-d", "-s", SESSION, "-n", key, "-c", path, claude]
@@ -78,7 +79,7 @@ def start_agent(run, ticket, prompt, inside):
         run(new_window_command(ticket.key, path, prompt, session_exists), timeout=5)
         run(["tmux", "select-window", "-t", SESSION + ":" + ticket.key], timeout=5)
         title = ticket.key + " (new window)"
-    return switch_client(run, inside) or f"Claude Code started in {title}: {prompt}"
+    return switch_client(run, inside) or f"{agent_display_name()} started in {title}: {prompt}"
 
 
 def open_in_edge(run, url):

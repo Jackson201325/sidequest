@@ -21,6 +21,7 @@ from sidequest.snapshots import SnapshotStore
 from sidequest.access import access_error
 from sidequest import config
 from sidequest import qa
+from sidequest import terminal
 
 from core import KEY, Store, now, parse_time, rank, tickets_from
 from environments import fetch_environments
@@ -46,10 +47,11 @@ PLANS = qa.tickets_dir()
 # Bottom bar. On narrow terminals descriptions shorten first, then MOVE is dropped, then DO.
 # (key, description, short description used when the terminal is narrow)
 FOOTER = [("MOVE", [("j/k", "tickets", ""), ("h/l", "pane", ""), ("1-4", "lane", ""), ("/", "search", "search")]),
-          ("DO", [("Space", "open menu", "menu"), ("w", "go to window", "window"), ("r", "refresh", "refresh"),
+          ("DO", [("Space", "open menu", "menu"), ("w", "go to worktree", "work"), ("r", "refresh", "refresh"),
                   ("o", "sort", "sort"), ("+/-", "resize sections", "size")]),
           ("", [("?", "help", "help"), ("q", "quit", "quit")])]
-SPACE_MENU = [("Open", [("j", "Jira"), ("o", "PR"), ("w", "window"), ("s", "Claude Code")])]
+SPACE_MENU = [("Open", [("j", "Jira"), ("o", "PR"), ("w", "worktree"), ("s", "agent")]),
+              ("Work", [("n", "create/open local worktree")])]
 DETAIL_WORKERS = 4
 PLAN_HEADING = "\x00"          # marks a markdown heading in the Plan tab; stripped before drawing
 
@@ -72,7 +74,7 @@ def source_age(value):
     return "just now" if minutes < 1 else f"{minutes}m ago" if minutes < 60 else f"{minutes // 60}h ago" if minutes < 1440 else f"{minutes // 1440}d ago"
 
 
-# Space s: open Claude Code beside the ticket's tmux window, using self-contained prompts.
+# Space s: run the configured agent in the ticket's worktree, using bundled prompts.
 # (label, phrase, optional metadata); no company skills are loaded.
 AGENT_TASKS = [
     ("Review PR feedback", "Review the PR feedback for {key} and explain the changes needed", 'sidequest-feedback'),
@@ -186,6 +188,7 @@ class App:
         self.jobs = {}
         self.refresh_errors = store.source("refresh_errors").get("messages", [])
         self.attach_target = None
+        self.foreground_target = None
         self.dirty = True
         self.styles = {}
         self.plan_cache = {}
@@ -328,15 +331,15 @@ class App:
         if self.demo:
             self.message = "Demo: agent launch disabled"
             return
-        choice = self.choose(f"CLAUDE CODE FOR {ticket.key}",
+        choice = self.choose(f"AGENT WORKFLOW FOR {ticket.key}",
                              [f"{i + 1}  {label}" for i, (label, *_) in enumerate(AGENT_TASKS)],
-                             "Opens beside the ticket's tmux window, in its worktree · j/k · Enter · Esc cancel")
+                             "Runs in the ticket's worktree; exit returns here · j/k · Enter · Esc cancel")
         if choice is None:
             self.message = "Agent launch cancelled"
             return
         _, template, skill = AGENT_TASKS[choice]
         if template is None:
-            text = self.prompt(f"Prompt for Claude ({ticket.key})")
+            text = self.prompt(f"Agent prompt ({ticket.key})")
             if not text or not text.strip():
                 self.message = "Agent launch cancelled"
                 return
@@ -350,13 +353,48 @@ class App:
             return
         inside = bool(os.environ.get("TMUX"))
 
+        if not inside:
+            self.foreground_target = terminal.agent_request(path, prompt)
+            self.dirty = True
+            return
+
         def launch():
             return start_agent(run, ticket, prompt, inside)
 
-        self.background("agent", "Starting Claude Code for " + ticket.key, launch, "message" if inside else "attach")
+        self.background("agent", "Starting agent for " + ticket.key, launch, "message")
 
     def start_work(self, ticket):
-        self.message = "This standalone queue is read-only; create branches and move tickets with your own tools"
+        if self.demo:
+            self.message = 'Demo: creating worktrees is disabled'
+            return
+        if not config.get('workspace', 'repository'):
+            self.message = 'Configure workspace.repository first; Jira stays read-only'
+            return
+        if ticket.key.startswith('PR-') and not any(row.get('key') == ticket.key for row in self.jira.get('tickets', [])):
+            self.message = 'Use the PR branch checkout; creating a ticket worktree needs a Jira key'
+            return
+        def task():
+            from sidequest.workspace import prepare
+            ready = prepare(ticket.key, ticket.title, base=config.get('workspace', 'base_ref') or 'origin/main', apply=True)
+            action = terminal.shell_request(ready['path'])
+            action['key'] = ticket.key
+            return action
+        self.background('workspace', 'Opening local worktree for ' + ticket.key, task, 'foreground')
+
+    def run_foreground(self, action):
+        """Temporarily hand this terminal to a shell/agent and restore curses."""
+        curses.def_prog_mode()
+        curses.endwin()
+        try:
+            status = terminal.run_request(action)
+            self.message = action['label'] + (' closed; back in Sidequest' if status == 0 else ' exited with status ' + str(status))
+        except (OSError, RuntimeError) as exc:
+            self.message = 'Could not start ' + Path(action['argv'][0]).name + '; check the command and worktree'
+        finally:
+            curses.reset_prog_mode()
+            self.screen.clear()
+            self.dirty = True
+        self.load_worktrees()
 
     def background(self, name, label, task, event="message"):
         if name in self.jobs:
@@ -511,6 +549,11 @@ class App:
                 self.notify(data)
             elif name == "attach":
                 self.attach_target = data
+            elif name == 'foreground':
+                self.foreground_target = data
+                if data.get('key'):
+                    self.windows[data['key']] = data['cwd']
+                    changed = True
             elif name == "started":
                 text, target = data
                 self.notify(text)
@@ -685,7 +728,7 @@ class App:
             mtime = path.stat().st_mtime
         except OSError:
             return [f"No plan yet for {ticket.key}.", "",
-                    f'Space s → Custom: "start {ticket.key} and write the plan" has Claude write it to',
+                    f'Space s → Custom: "start {ticket.key} and write the plan" asks your agent to write it to',
                     str(path)]
         cached = self.plan_cache.get(ticket.key)
         if not cached or cached[0] != mtime:
@@ -955,6 +998,14 @@ class App:
             return
         inside = bool(os.environ.get("TMUX"))
 
+        if not inside:
+            if not ticket.worktree:
+                self.message = 'No local worktree yet; Space n creates or reuses it'
+                return
+            self.foreground_target = terminal.shell_request(ticket.worktree)
+            self.dirty = True
+            return
+
         def locate():
             return jump_to_window(run, ticket, inside)
 
@@ -999,16 +1050,18 @@ class App:
                  "  'updated' stamp doesn't say what changed).",
                  "",
                  "OPEN  (press Space, then)",
-                 "  j Jira   o PR   w go to tmux window   s Claude Code workflows / custom prompt",
+                 "  j Jira   o PR   w worktree shell   s agent workflows / custom prompt",
+                 "  n create/reuse a local ticket worktree and open a shell; exit returns here",
                  "",
                  "DATA",
                  "  r refresh Jira + GitHub via sidequest-data   e recheck Heroku   o / O choose / reverse sort",
-                 "  w / gw  go to the ticket's tmux window   ? help   q / Ctrl-q quit",
+                 "  w / gw  open the worktree (uses an existing window when already in tmux)",
+                 "  ? help   q / Ctrl-q quit",
                  "",
                  "Text fields: Enter saves, Esc cancels, Ctrl-a/e move, Ctrl-u clears to start.",
                  f"Waiting stays one lane; reminders after {self.stale_days} business days, escalation after {self.escalate_days}.",
                  "Limits: assigned Jira inventory is paginated; 100 open PRs is an explicit limit. No Jira/GitHub writes from this tool;",
-                 "Space s explicitly launches Claude Code in a local worktree with the prompt you choose.",
+                 "Agent command: workspace.agent_command (default claude; configure your preferred CLI).",
                  "", "Press any key to return."]
         height, _ = self.screen.getmaxyx()
         for y, line in enumerate(lines[:height - 1]):
@@ -1052,6 +1105,10 @@ class App:
                     curses.reset_prog_mode()
                     screen.clear()
                     self.dirty = True
+                continue
+            if self.foreground_target:
+                action, self.foreground_target = self.foreground_target, None
+                self.run_foreground(action)
                 continue
             if self.deferred_message and time.monotonic() - self.user_message_at >= 4:
                 self.message, self.deferred_message = self.deferred_message, None

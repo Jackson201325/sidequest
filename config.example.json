@@ -22,6 +22,8 @@
     "repository": "",
     "plans_dir": "",
     "worktrees_dir": "",
+    "base_ref": "origin/main",
+    "agent_command": "claude",
     "tmux_session": "sidequest",
     "browser": ""
   }

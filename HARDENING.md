@@ -70,3 +70,18 @@ All six rendered skill packages passed skill-creator's quick_validate validator.
 The initial GitHub Actions run failed before tests: ubuntu-latest resolved to
 Ubuntu 26.04, where setup-python has no Python 3.9 build. CI now pins Ubuntu 22.04
 so the minimum supported Python version can be tested on an available image.
+
+2026-11-05: plain-terminal workspaces.
+
+Four public-boundary regressions failed first: workspace --open was missing,
+workspace/agent actions still called tmux outside a session, and the local-start
+action did not create/reuse a worktree. The CLI and dashboard now open a shell
+in the selected checkout and return on exit, with no tmux requirement. The agent
+CLI is configurable and receives the same terminal handoff. Existing in-tmux
+navigation remains. A real pseudo-terminal test creates a worktree, enters the
+shell, accepts input and restores a working dashboard after exit. CLI tests prove
+reuse and that the caller's main checkout stays on its original branch. All
+fixtures use temporary Git repositories; no service writes or personal shell
+configuration changes are made.
+Verification: bin/check passed 56 helper/service tests and 122 UI tests (178
+total, including two optional browser checks skipped in the offline gate).

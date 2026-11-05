@@ -34,6 +34,9 @@ are bundled under agents/skills/<name>/SKILL.md. The dashboard's agent menu rend
 the selected canonical skill; the optional installer binds absolute helper paths
 for Codex/Claude, checks drift and preserves user edits. `agents/RULES.md` supplies
 shared workflow rules. Explicit tmux/Claude/browser actions remain optional.
+Outside tmux, workspace and agent actions hand the current terminal to a child
+shell or the configured agent, then restore the dashboard on exit. tmux is not
+required. `workspace.agent_command` selects the agent CLI (default claude).
 No scheduler, check-in tool or application/database management is included.
 
 Use ./bin/check for all checks. It runs both suites with an external test-only
@@ -49,7 +52,10 @@ namespace. Example ticket keys use DEMO or APP. The personal workflow is a
 separate installation and is never modified when developing or publishing this one.
 
 `workspace` previews local worktree creation; --apply explicitly creates it after
-live lookup. It never removes worktrees, switches an existing checkout, fetches
+live lookup. --open creates/reuses it and opens the user's shell there. Space n
+delegates to the same helper and opens a shell; w opens an existing worktree.
+The base ref is configurable with workspace.base_ref. The helper never removes
+worktrees, switches an existing checkout, fetches
 or copies credentials. `plan-init` never overwrites a plan. Artifact paths are
 shared with the dashboard and remain outside repositories. QA login has no default
 account or Keychain fallback; credentials come from explicit environment variables.

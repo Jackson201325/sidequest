@@ -40,7 +40,7 @@ flowchart LR
   Cache --> Queue[Sidequest dashboard]
   Heroku[Optional Heroku review apps] --> Queue
   Git[Optional local Git history] --> Queue
-  Queue --> Actions[Explicit browser, tmux and agent actions]
+  Queue --> Actions[Explicit browser, worktree shell and agent actions]
 ```
 
 There are three parts:
@@ -59,6 +59,15 @@ failure never becomes an apparently successful empty queue.
 No scripts from another checkout, private agent skills or personal shell aliases
 are required. Git, the GitHub CLI, Heroku CLI, tmux, Claude Code and a Chromium
 browser are needed only for the integrations or optional actions that use them.
+
+| Action | Tools it needs |
+| --- | --- |
+| GitHub + Jira dashboard | Python, Git, gh, and your Jira API token |
+| Create/open a worktree | Git and your normal terminal shell; tmux is not required |
+| Run an agent workflow | Your chosen agent CLI, configured with workspace.agent_command |
+| Capture QA screenshots | Chrome, Chromium or Edge and your test application's setup |
+| Inspect Heroku review apps | Heroku CLI login or an explicit API token |
+| Run application tests | That application's own tools; Sidequest does not supply a Docker stack |
 
 ## Connect your own accounts
 
@@ -203,9 +212,12 @@ test commands, branch conventions and environment booking rules.
 | `sidequest-feedback` | Read complete review threads, fix issues and draft replies |
 | `sidequest-triage` | Investigate a supplied error and reproduce it with fixtures |
 
-In the dashboard, Space `s` launches a selected workflow through Claude Code in a
-ticket's local worktree. Those instructions are bundled and do not require a
-global skill installation. tmux and Claude Code are needed for this launcher.
+In the dashboard, Space `s` runs a selected workflow through your configured agent
+in the ticket's local worktree. Without tmux, the dashboard hands its terminal to
+the agent and returns when it exits. The command defaults to `claude`; set
+`workspace.agent_command` to `codex`, or another CLI command that accepts the prompt
+as its final argument. Those instructions are bundled; global skill installation
+is not required. When already inside tmux, existing window/pane navigation remains.
 
 For direct use in Codex or Claude Code, preview an installation, then install:
 
@@ -228,6 +240,7 @@ The helper scripts are available without an agent:
 ./bin/sidequest-data worktree APP-123 --json
 ./bin/sidequest-data workspace APP-123 --summary "Validate input" --base origin/main
 # Repeat with --apply only to create the previewed local worktree
+./bin/sidequest-data workspace APP-123 --summary "Validate input" --base origin/main --open
 ./bin/sidequest-data plan-init APP-123 --summary "Validate input"
 ./bin/sidequest-data pr-feedback 42 --json --activity
 ./bin/sidequest-data ship-check --no-fetch --base origin/main --json
@@ -238,6 +251,20 @@ Run Git/PR checks inside the application's ticket checkout, invoking Sidequest's
 helper by its absolute path if needed. Use the target project's actual base ref.
 The workspace helper uses live Git state, previews by default, reuses existing
 checkouts, and never removes worktrees or copies secret files.
+
+### Work in a plain terminal
+
+You do not need tmux. Set `workspace.repository` to your application checkout.
+In the dashboard, Space `n` creates or reuses the selected ticket's worktree and
+opens your normal shell there. `w` opens a shell in an existing ticket worktree.
+Run your editor, test commands or coding assistant as usual. Type `exit` to return
+to Sidequest. Starting a local worktree does not move the Jira ticket.
+
+The CLI's `workspace ... --open` command creates/reuses the checkout and opens a
+shell there as well. It uses `workspace.base_ref` (default `origin/main`) unless you
+pass --base. A child program cannot change the caller's shell directory; --open
+therefore starts a shell in the worktree. To change your current shell instead,
+omit --open and use `cd` with the printed DIR path.
 
 Sidequest does not bundle a company Docker stack, shared database booking service,
 automatic worktree cleanup, Jira custom-field mapping or board-specific status
@@ -291,8 +318,9 @@ No screenshots are uploaded automatically. Re-capture when UI changes make them 
 | `+/-`, `=` | Resize sections or reset the split |
 | `r`, `e` | Refresh Jira/GitHub, or optional Heroku status |
 | Space `j/o` | Open the ticket or PR in your configured/default browser |
-| `w` | Jump to a ticket window in the configured tmux session |
-| Space `s` | Launch a bundled workflow or custom prompt through Claude Code |
+| `w` | Open a shell in the worktree; inside tmux, jump to its existing window |
+| Space `n` | Create/reuse a local ticket worktree and open a shell there |
+| Space `s` | Run a bundled workflow or custom prompt with the configured agent |
 | `y` | Copy standup with macOS pbcopy; --standup prints it on any platform |
 | `?`, `q` | Help, quit |
 

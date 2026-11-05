@@ -29,3 +29,9 @@ use fictional DEMO keys. The stacked layout, focus and keyboard controls remain.
 The selected skill is rendered with this clone's helper paths, so a global
 installation is optional. The queue's own collection remains read-only. Planning
 and screenshot artifacts share the same external directory as the CLI helpers.
+
+2026-11-05: tmux is no longer a prerequisite for workspace/agent actions. Outside
+tmux, w opens a worktree shell and Space s runs the configured agent in place.
+Space n explicitly creates/reuses a local ticket worktree and opens a shell.
+The dashboard restores its terminal state after the child exits; passive reads
+stay read-only. Users already inside tmux retain existing window/pane navigation.
