@@ -39,6 +39,8 @@ def load(path):
         if parts.scheme != 'https' or not parts.hostname or parts.username or parts.password or parts.path not in ('', '/') or parts.query or parts.fragment:
             raise ValueError('jira.site must be an HTTPS origin without credentials or a path')
     repository = data.get('github', {}).get('repository', '')
+    if data.get('workspace', {}).get('terminal', 'auto') not in ('auto', 'shell', 'tmux', 'herdr'):
+        raise ValueError('workspace.terminal must be auto, shell, tmux or herdr')
     if repository and not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
         raise ValueError('github.repository must look like owner/repository')
     for section, key in (('jira', 'cloud_id'), ('heroku', 'pipeline')):

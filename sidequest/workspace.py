@@ -1,37 +1,93 @@
-"""Preview or create one local worktree from live Git evidence; never remove one."""
-import os
+"""One owner for local Git workspace planning and execution. No terminal or HTTP I/O."""
+from dataclasses import dataclass
 from pathlib import Path
 import subprocess
-from sidequest import config
+from typing import Optional
+
 from sidequest.workspaces import branch_name
 from sidequest.worktrees import lookup
 
 
-def prepare(key, summary, issue_type='', prefix=None, base='origin/main', apply=False):
-    repo = Path(os.environ.get('SIDEQUEST_REPO') or config.get('workspace', 'repository') or '.').expanduser().resolve()
-    def git(*args, required=True):
-        result = subprocess.run(['git', '-C', str(repo), *args], text=True, capture_output=True)
+@dataclass(frozen=True)
+class WorkspacePlan:
+    repository: str
+    key: str
+    summary: str
+    issue_type: str
+    prefix: Optional[str]
+    base_ref: str
+    state: str
+    path: str
+    branch: str
+    base: str = ''
+    revision: str = ''
+    local: bool = False
+
+    def result(self, created=False):
+        result = {'state': 'worktree' if created else self.state, 'path': self.path,
+                  'branch': self.branch, 'created': created}
+        if self.base:
+            result['base'] = self.base
+        return result
+
+
+class GitWorkspace:
+    def __init__(self, repository, worktrees_dir=None, base_ref='origin/main'):
+        self.repository = Path(repository).expanduser().resolve()
+        self.worktrees_dir = Path(worktrees_dir).expanduser().resolve() if worktrees_dir else None
+        self.base_ref = base_ref
+
+    def _git(self, *args, required=True):
+        result = subprocess.run(['git', '-C', str(self.repository), *args], text=True, capture_output=True)
         if required and result.returncode:
             raise RuntimeError('Git command failed; check the repository and base ref')
         return result
-    repo = Path(git('rev-parse', '--show-toplevel').stdout.strip())
-    names = git('for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes/origin').stdout.splitlines()
-    branches = [name.removeprefix('refs/heads/').removeprefix('refs/remotes/origin/') for name in names]
-    existing = lookup(key.upper(), git('worktree', 'list', '--porcelain').stdout, branches)
-    if existing['state'] in ('worktree', 'main-checkout'):
-        return dict(existing, created=False)
-    branch = existing.get('branch') or branch_name(key, summary, issue_type, prefix)
-    folder = Path(config.get('workspace', 'worktrees_dir') or repo.parent).expanduser() / branch.split('/', 1)[-1]
-    if folder.exists():
-        raise RuntimeError('Destination already exists; refusing to overwrite it')
-    local = git('show-ref', '--verify', '--quiet', 'refs/heads/' + branch, required=False).returncode == 0
-    remote = git('show-ref', '--verify', '--quiet', 'refs/remotes/origin/' + branch, required=False).returncode == 0
-    source = branch if local else 'origin/' + branch if remote else base
-    git('rev-parse', '--verify', '--end-of-options', source + '^{commit}')
-    result = {'state': 'preview', 'path': str(folder), 'branch': branch, 'base': source, 'created': False}
-    if apply:
-        folder.parent.mkdir(parents=True, exist_ok=True)
-        args = ['worktree', 'add'] + ([] if local else ['-b', branch]) + [str(folder), branch if local else source]
-        git(*args)
-        result.update(state='worktree', created=True)
-    return result
+
+    def preview(self, key, summary, issue_type='', prefix=None, base=None):
+        """Inspect current local evidence without fetching, creating or switching anything."""
+        key = key.upper()
+        proposed = branch_name(key, summary, issue_type, prefix)
+        base = base or self.base_ref
+        repo = self._git('rev-parse', '--show-toplevel').stdout.strip()
+        names = self._git('for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes/origin').stdout.splitlines()
+        branches = [name.removeprefix('refs/heads/').removeprefix('refs/remotes/origin/') for name in names]
+        existing = lookup(key, self._git('worktree', 'list', '--porcelain').stdout, branches)
+        intent = dict(repository=repo, key=key, summary=summary, issue_type=issue_type,
+                      prefix=prefix, base_ref=base)
+        if existing['state'] in ('worktree', 'main-checkout'):
+            return WorkspacePlan(**intent, **existing)
+        branch = existing.get('branch') or proposed
+        folder = (self.worktrees_dir or Path(repo).parent) / branch.split('/', 1)[-1]
+        if folder.exists() or folder.is_symlink():
+            raise RuntimeError('Destination already exists; refusing to overwrite it')
+        local = self._git('show-ref', '--verify', '--quiet', 'refs/heads/' + branch, required=False).returncode == 0
+        remote = self._git('show-ref', '--verify', '--quiet', 'refs/remotes/origin/' + branch, required=False).returncode == 0
+        source = branch if local else 'origin/' + branch if remote else base
+        revision = self._git('rev-parse', '--verify', '--end-of-options', source + '^{commit}').stdout.strip()
+        return WorkspacePlan(**intent, state='preview', path=str(folder), branch=branch,
+                             base=source, revision=revision, local=local)
+
+    def apply(self, plan):
+        """Reinspect before executing a plan; changed evidence requires a new preview."""
+        current = self.preview(plan.key, plan.summary, plan.issue_type, plan.prefix, plan.base_ref)
+        if current != plan:
+            raise RuntimeError('Workspace changed since preview; preview again before applying')
+        if current.state != 'preview':
+            return current.result()
+        Path(current.path).parent.mkdir(parents=True, exist_ok=True)
+        # Keep Git's normal upstream setup for remote-tracking bases. The revision
+        # above detects stale plans; Git rejects concurrent path/branch conflicts.
+        args = ['worktree', 'add'] + ([] if current.local else ['-b', current.branch])
+        self._git(*args, current.path, current.branch if current.local else current.base)
+        return current.result(created=True)
+
+
+def prepare(key, summary, issue_type='', prefix=None, base='origin/main', apply=False):
+    """Compatibility adapter; new CLI/TUI callers use WorkspaceWorkflow."""
+    import os
+    from sidequest import config
+    values = config.SETTINGS.get('workspace', {})
+    workspace = GitWorkspace(os.environ.get('SIDEQUEST_REPO') or values.get('repository') or '.',
+                             values.get('worktrees_dir'))
+    plan = workspace.preview(key, summary, issue_type, prefix, base)
+    return workspace.apply(plan) if apply else plan.result()

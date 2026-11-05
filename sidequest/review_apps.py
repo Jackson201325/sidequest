@@ -3,13 +3,11 @@ import json
 import os
 import re
 import subprocess
-import sys
 import urllib.parse
-from pathlib import Path
 from sidequest import config
 from sidequest.access import access_error
+from sidequest.environments import fetch_environments
 
-WORKFLOW = Path(__file__).resolve().parents[1]
 REVIEW_HOST = re.compile(r"^[a-z0-9][a-z0-9-]*\.herokuapp\.com$")
 
 
@@ -55,8 +53,7 @@ def find_pr(key=None, number=None, run=_run):
 def review_app(number, run=_run, fetch=None):
     """Heroku's view of the PR's review app: {status, phase, app, url, warning}."""
     if fetch is None:
-        sys.path.insert(0, str(WORKFLOW / "ticket-tui"))
-        from environments import fetch_environments as fetch
+        fetch = fetch_environments
     try:
         data = fetch([number], run, config.get('heroku', 'pipeline'))
     except RuntimeError as exc:

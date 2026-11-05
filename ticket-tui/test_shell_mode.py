@@ -1,4 +1,5 @@
 import os
+import subprocess
 from pathlib import Path
 import tempfile
 import time
@@ -60,16 +61,19 @@ class PlainTerminalTests(unittest.TestCase):
 
     def test_local_start_creates_or_reuses_then_opens_without_jira_changes(self):
         from sidequest import config
-        ready = {'state': 'worktree', 'path': str(self.path), 'branch': 'feature/DEMO-901-test', 'created': False}
-        with patch.object(config, 'SETTINGS', {'workspace': {'repository': str(self.path), 'base_ref': 'main'}}), \
-                patch('sidequest.workspace.prepare', return_value=ready) as prepare, patch('tui.run') as run:
-            self.app.start_work(self.ticket)
-            drain(self.app)
-        prepare.assert_called_once()
-        self.assertTrue(prepare.call_args.kwargs['apply'])
-        self.assertEqual(prepare.call_args.kwargs['base'], 'main')
+        for args in (['init', '-q', '-b', 'main'], ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                                                  'commit', '--allow-empty', '-qm', 'Base']):
+            subprocess.run(['git', '-C', str(self.path), *args], check=True)
+        settings = {'workspace': {'repository': str(self.path), 'base_ref': 'main',
+                                  'worktrees_dir': str(self.path / 'worktrees')}}
+        with patch.object(config, 'SETTINGS', settings), patch('tui.run') as run:
+            for _ in range(2):
+                self.app.start_work(self.ticket)
+                drain(self.app)
+                self.assertTrue((Path(self.app.foreground_target['cwd']) / '.git').is_file())
         run.assert_not_called()
-        self.assertEqual(self.app.foreground_target['cwd'], str(self.path))
+        self.assertEqual(Path(self.app.foreground_target['cwd']).parent, self.path / 'worktrees')
+        self.assertEqual(subprocess.check_output(['git', '-C', str(self.path), 'branch', '--show-current'], text=True).strip(), 'main')
 
 
 if __name__ == '__main__':

@@ -7,6 +7,23 @@ not install into another workflow or import scripts from an adjacent checkout.
 Read AGENTS.md, HARDENING.md and ticket-tui/DESIGN.md each iteration. Preserve
 existing unrelated work. Use Python 3.9+ and the standard library only.
 
+ARCHITECTURE.md owns module responsibilities and current migration limits.
+specs/workspace-integrations.md defines implemented behavior and future Herdr,
+startup and deployment acceptance criteria. Its executable specs run in bin/check.
+WorkspaceWorkflow in sidequest/application.py is shared by CLI and TUI actions.
+It receives GitWorkspace and a terminal adapter; build_workflow captures explicit
+settings/environment once per workflow. The dashboard accepts a workflow factory
+and schedules actions in background jobs. Only its event loop changes UI state
+and performs curses handoffs. Shell/tmux policy no longer lives in App.
+GitWorkspace owns read-only preview and live revalidation before apply. A stale
+plan is refused; Git still guards concurrent branch/path conflicts. No fetch,
+reset or deletion is added. Terminal adapters only open selected directories or
+launch argument vectors. The compatibility launcher functions delegate to the
+package implementation. Heroku reading now lives in sidequest/environments.py;
+headless QA lookup never imports the UI or changes sys.path. Provider-specific
+UI cache keys, global configuration in older collection modules and the existing
+CLI dispatcher remain; whole-application multi-profile support is not implemented.
+
 `bin/sidequest` launches curses or the list/standup modes. The bundled `bin/sidequest-data`
 supports read-only `collect`, `snapshot` and `ticket` helpers, plus independent
 workflow commands for naming, lookup, plans, PR feedback/checks, QA and skills.
@@ -72,3 +89,28 @@ respective tools only when invoked.
 Project Docker booking, automatic cleanup, attachment download, Jira custom fields
 and status transitions are not copied. Skills use the target project's commands
 and require remote-action authorization from that user.
+
+2026-11-05: Herdr terminal adapter. sidequest/herdr.py implements the existing
+launch interface against verified Herdr 0.9.5 CLI responses. Configuration/env
+select auto/shell/tmux/herdr; auto preserves active tmux priority. Herdr requires
+managed context and confines discovery/controls to the inherited workspace. It
+uses private self-removing launch scripts for large agent prompts. No Git policy
+or native-session bootstrap is embedded in the dashboard. The offline gate
+strips HERDR_* so tests cannot inherit a live control socket. Full startup/sync,
+cross-server routing and other deployment providers remain separate work.
+
+2026-11-05: disabled-source retention and zsh. Refresh no longer replaces active
+cached Jira/PR data when configuration disappears; it retains the source and its
+timestamp, marks the missing setting, and bypasses max-age reuse for that state.
+First-use disabled services remain optional without credential access; successful
+configured empty results still clear old rows. Herdr requires zsh on PATH and uses
+it for foreground shells. Managed tabs follow Herdr's terminal.default_shell; set
+that to zsh. Local account/Keychain bridging belongs outside this public repository.
+
+2026-11-05: separate Plan and Updates tabs. ticket-tui/plan_document.py owns the
+read-only Markdown section partition and readable rendering. App caches both
+views together and rereads them on file edits. p selects planning; d selects
+explicit update/progress/result sections and their children; u remains Standup.
+Fenced code is not parsed as headings, and unrecognized sections stay in Plan.
+Tests exercise rendered views, no document writes, reload behavior and real PTY
+keyboard navigation at the approved TUI interface.

@@ -22,9 +22,10 @@ from sidequest.access import access_error
 from sidequest import config
 from sidequest import qa
 from sidequest import terminal
+from sidequest.application import build_workflow
 
 from core import KEY, Store, now, parse_time, rank, tickets_from
-from environments import fetch_environments
+from sidequest.environments import fetch_environments
 from worklog import collect_worklog, daily_summary
 from workflow import next_owner, ownership, stage_context, workflow_path, workflow_strip
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
@@ -34,12 +35,13 @@ from launcher import (agent_command, find_tw_window, jump_to_window, new_window_
 from layout import (DAY_RULE, EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, pr_glyph_offset,
                     relative, scroll_label, table_header, table_row, timeline, panel_rects)
 import standup
+from plan_document import document_views
 
 WORKFLOW = Path(__file__).resolve().parents[1]
 ROOT = Path(config.get('workspace', 'repository') or WORKFLOW).expanduser().resolve()
 VIEWS = ["All", "Needs me", "Waiting", "Clarify"]
 # Right-pane views: key, tab label, internal name.
-TABS = [("a", "Activity", "Activity"), ("p", "Plan", "Plan"), ("v", "Overview", "Overview"),
+TABS = [("a", "Activity", "Activity"), ("p", "Plan", "Plan"), ("d", "Updates", "Updates"), ("v", "Overview", "Overview"),
         ("s", "Work log", "Work log"), ("f", "Flow", "Workflow"), ("u", "Standup", "Standup")]
 TAB_KEYS = {key: name for key, _, name in TABS}
 # Optional per-ticket plans stay outside this source tree.
@@ -167,8 +169,10 @@ def demo_sources():
 
 
 class App:
-    def __init__(self, store, snapshots, demo=False, stale_days=2, escalate_days=5, standup_time=standup.DEFAULT_TIME):
+    def __init__(self, store, snapshots, demo=False, stale_days=2, escalate_days=5, standup_time=standup.DEFAULT_TIME,
+                 workflow_factory=None):
         self.store, self.snapshots, self.demo = store, snapshots, demo
+        self.workflow_factory = workflow_factory or (lambda: build_workflow(config.SETTINGS, os.environ, run))
         self.standup_time = standup_time
         self.stale_days, self.escalate_days = stale_days, escalate_days
         self.view, self.query, self.index, self.offset = "All", "", 0, 0
@@ -187,7 +191,6 @@ class App:
         self.refresh_started = 0
         self.jobs = {}
         self.refresh_errors = store.source("refresh_errors").get("messages", [])
-        self.attach_target = None
         self.foreground_target = None
         self.dirty = True
         self.styles = {}
@@ -351,17 +354,9 @@ class App:
         if not path:
             self.message = f"{ticket.key} has no worktree yet; configure workspace.repository and create or select a local worktree"
             return
-        inside = bool(os.environ.get("TMUX"))
-
-        if not inside:
-            self.foreground_target = terminal.agent_request(path, prompt)
-            self.dirty = True
-            return
-
-        def launch():
-            return start_agent(run, ticket, prompt, inside)
-
-        self.background("agent", "Starting agent for " + ticket.key, launch, "message")
+        workflow = self.workflow_factory()
+        self.background('agent', 'Starting agent for ' + ticket.key,
+                        lambda: workflow.agent(ticket.key, path, prompt), 'launch')
 
     def start_work(self, ticket):
         if self.demo:
@@ -373,13 +368,9 @@ class App:
         if ticket.key.startswith('PR-') and not any(row.get('key') == ticket.key for row in self.jira.get('tickets', [])):
             self.message = 'Use the PR branch checkout; creating a ticket worktree needs a Jira key'
             return
-        def task():
-            from sidequest.workspace import prepare
-            ready = prepare(ticket.key, ticket.title, base=config.get('workspace', 'base_ref') or 'origin/main', apply=True)
-            action = terminal.shell_request(ready['path'])
-            action['key'] = ticket.key
-            return action
-        self.background('workspace', 'Opening local worktree for ' + ticket.key, task, 'foreground')
+        workflow = self.workflow_factory()
+        self.background('workspace', 'Opening local worktree for ' + ticket.key,
+                        lambda: workflow.start(ticket.key, ticket.title), 'launch')
 
     def run_foreground(self, action):
         """Temporarily hand this terminal to a shell/agent and restore curses."""
@@ -547,21 +538,14 @@ class App:
                 self.environment_error = data
                 self.store.source("heroku_error", {"message": data, "at": now().isoformat()})
                 self.notify(data)
-            elif name == "attach":
-                self.attach_target = data
-            elif name == 'foreground':
-                self.foreground_target = data
-                if data.get('key'):
-                    self.windows[data['key']] = data['cwd']
-                    changed = True
-            elif name == "started":
-                text, target = data
-                self.notify(text)
-                if target:
-                    self.attach_target = target
-                self.load_worktrees()
-                if not self.refreshing:
-                    self.refresh()                       # pick up the new Jira status
+            elif name == 'launch':
+                if data.foreground is not None:
+                    self.foreground_target = data.foreground
+                    if data.key:
+                        self.windows[data.key] = data.foreground['cwd']
+                        changed = True
+                if data.message:
+                    self.notify(data.message)
             elif name == "done":
                 self.refreshing = False
                 self.refresh_status = ""
@@ -653,8 +637,8 @@ class App:
                                       f"git {source_age(self.worklog.get('generated_at'))}")
         if not ticket:
             return ["No tickets in this view.", "Press r to refresh, / to search, or 1 for All."]
-        if self.detail_tab == "Plan":
-            return self.plan_lines(ticket)
+        if self.detail_tab in ("Plan", "Updates"):
+            return self.plan_lines(ticket, self.detail_tab)
         if self.detail_tab == "Activity":
             events = ticket_activity(ticket)
             comments = ("Jira comments not loaded yet (r)" if ticket.jira_comment_total is None else
@@ -721,12 +705,14 @@ class App:
                   "w / gw: open the existing tmux ticket window"]
         return lines
 
-    def plan_lines(self, ticket):
-        """The ticket's plan, re-read only when the file changes (draw runs many times a second)."""
+    def plan_lines(self, ticket, view="Plan"):
+        """Read the selected document view; cache both views until the file changes."""
         path = PLANS / ticket.key / "plan.md"
         try:
             mtime = path.stat().st_mtime
         except OSError:
+            if view == "Updates":
+                return [f"No updates recorded yet for {ticket.key}.", "", str(path)]
             return [f"No plan yet for {ticket.key}.", "",
                     f'Space s → Custom: "start {ticket.key} and write the plan" asks your agent to write it to',
                     str(path)]
@@ -736,21 +722,13 @@ class App:
                 text = path.read_text(errors="replace")
             except OSError as exc:
                 return [f"Couldn't read {path}: {exc.strerror}"]
-            lines = []
-            for line in text.splitlines():
-                stripped = line.lstrip()
-                if stripped.startswith("#"):
-                    line = PLAN_HEADING + stripped.lstrip("#").strip().upper()
-                line = re.sub(r"^(\s*)[-*] \[ \] ", r"\1☐ ", line)
-                line = re.sub(r"^(\s*)[-*] \[[xX]\] ", r"\1☑ ", line)
-                line = re.sub(r"^(\s*)[-*] ", r"\1• ", line)
-                lines.append(line.replace("**", "").replace("`", ""))
-            cached = (mtime, lines)
+            cached = (mtime, document_views(text, PLAN_HEADING))
             self.plan_cache[ticket.key] = cached
         stamp = datetime.fromtimestamp(cached[0], tz=now().tzinfo).isoformat()
         age = relative(stamp, now())
         edited = "edited just now" if age == "now" else f"edited {age} ago"
-        return [f"{path.parent.parent.name}/{path.parent.name}/{path.name} · {edited}", ""] + cached[1]
+        lines = cached[1][view] or [f"No {view.lower()} recorded yet for {ticket.key}."]
+        return [f"{path.parent.parent.name}/{path.parent.name}/{path.name} · {edited}", ""] + lines
 
     def style(self, name):
         return self.styles.get(name, 0)
@@ -996,21 +974,9 @@ class App:
         if self.demo:
             self.message = "Demo: workspace jumps disabled"
             return
-        inside = bool(os.environ.get("TMUX"))
-
-        if not inside:
-            if not ticket.worktree:
-                self.message = 'No local worktree yet; Space n creates or reuses it'
-                return
-            self.foreground_target = terminal.shell_request(ticket.worktree)
-            self.dirty = True
-            return
-
-        def locate():
-            return jump_to_window(run, ticket, inside)
-
-        self.background("workspace", "Finding " + ticket.key + " workspace", locate,
-                        "message" if inside else "attach")
+        workflow = self.workflow_factory()
+        self.background('workspace', 'Finding ' + ticket.key + ' workspace',
+                        lambda: workflow.open(ticket.key, ticket.worktree), 'launch')
 
     def action(self, key):
         ticket = self.selected()
@@ -1043,7 +1009,7 @@ class App:
                  "  Mon–Fri 09–17 in your configured timezone; 8h = 1d. Missing history uses labeled observed wait.",
                  "VIEWS (details pane)",
                  "  a Activity (Jira + GitHub events only; opens first)   p Plan (tickets/DEMO-###/plan.md)",
-                 "  v Overview",
+                 "  d Updates (progress and recorded results)   v Overview",
                  "  s Work log   f Flow   u Standup (y copies it)",
                  "  The card on top: lane · stage · whose turn · waiting; PR + CI; dates; → your next step.",
                  "  Activity marks: ✓ approved ✗ changes requested ✎ comment • commit ↻ updated (a bare",
@@ -1055,13 +1021,14 @@ class App:
                  "",
                  "DATA",
                  "  r refresh Jira + GitHub via sidequest-data   e recheck Heroku   o / O choose / reverse sort",
-                 "  w / gw  open the worktree (uses an existing window when already in tmux)",
+                 "  w / gw  open the worktree through shell, tmux or Herdr",
                  "  ? help   q / Ctrl-q quit",
                  "",
                  "Text fields: Enter saves, Esc cancels, Ctrl-a/e move, Ctrl-u clears to start.",
                  f"Waiting stays one lane; reminders after {self.stale_days} business days, escalation after {self.escalate_days}.",
                  "Limits: assigned Jira inventory is paginated; 100 open PRs is an explicit limit. No Jira/GitHub writes from this tool;",
                  "Agent command: workspace.agent_command (default claude; configure your preferred CLI).",
+                 "Terminal: workspace.terminal or SIDEQUEST_TERMINAL (auto, shell, tmux, herdr).",
                  "", "Press any key to return."]
         height, _ = self.screen.getmaxyx()
         for y, line in enumerate(lines[:height - 1]):
@@ -1095,17 +1062,6 @@ class App:
                 self.draw()
                 self.dirty = False
                 last_spinner = frame
-            if self.attach_target:
-                target, self.attach_target = self.attach_target, None
-                curses.def_prog_mode()
-                curses.endwin()
-                try:
-                    subprocess.run(["tmux", "attach-session", "-t", target], check=False)
-                finally:
-                    curses.reset_prog_mode()
-                    screen.clear()
-                    self.dirty = True
-                continue
             if self.foreground_target:
                 action, self.foreground_target = self.foreground_target, None
                 self.run_foreground(action)

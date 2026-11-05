@@ -2,7 +2,8 @@
 
 This is an attention queue and optional local launcher. It explains whose turn a
 ticket is, how long it has waited and what evidence supports the next action.
-It is read-only toward Jira, GitHub and Heroku. Worktree creation, ticket changes,
+It is read-only toward Jira, GitHub and Heroku. Explicit local workspace actions
+use the shared WorkspaceWorkflow; refresh never mutates Git. Ticket changes,
 shipping, application management and scheduled reporting belong to other tools.
 
 Keep the ticket list above details at every width with at least 18 rows. Smaller
@@ -35,3 +36,26 @@ tmux, w opens a worktree shell and Space s runs the configured agent in place.
 Space n explicitly creates/reuses a local ticket worktree and opens a shell.
 The dashboard restores its terminal state after the child exits; passive reads
 stay read-only. Users already inside tmux retain existing window/pane navigation.
+
+2026-11-05: workspace/agent actions now submit intent to WorkspaceWorkflow and
+receive LaunchResult through the UI event queue. App no longer chooses a terminal
+or constructs Git/tmux operations. It retains input, eligibility messages, worker
+scheduling and curses handoff. The injected workflow factory supports isolated
+tests and future terminal adapters. Headless deployment lookup lives in the Python
+package. See ../ARCHITECTURE.md and ../specs/workspace-integrations.md.
+
+2026-11-05: Herdr is another terminal adapter behind WorkspaceWorkflow. The UI
+still receives LaunchResult and owns only its foreground curses handoff; provider
+selection, tab/pane discovery and agent launch stay outside App. Auto preserves
+active tmux priority; explicit Herdr selection requires a real managed pane.
+
+2026-11-05: an unconfigured refresh retains existing queue evidence and reports
+the missing service setting. Herdr foreground handoffs require zsh; no UI-specific
+shell policy or credential bridge is added to App.
+
+2026-11-05: Plan (p) shows planning sections; Updates (d) shows explicit Updates,
+progress/implementation notes and recorded QA/test/verification results from the
+same plan.md. Heading hierarchy keeps nested update entries together and returns
+peer planning sections to Plan. Fenced examples stay literal. Unknown headings
+stay in Plan so content is never silently discarded. The file is never rewritten;
+both views share its mtime cache. Existing Standup (u) is unchanged.

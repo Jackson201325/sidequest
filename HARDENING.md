@@ -94,3 +94,92 @@ clipboard setup are not dashboard requirements. Screenshot browsers, agent CLIs,
 Heroku authentication and application runtimes are described per action. This is
 a documentation-only clarification; no commands, credentials or runtime behavior
 changed. The normal bin/check gate still applies before committing and pushing.
+
+2026-11-05: workspace integration foundations and specifications.
+
+New executable specs first failed because the shared workflow, Git plan/executor
+and terminal adapters did not exist. Further failing checks exposed an empty
+workspace path opening the current directory, and headless review-app lookup
+loading UI modules through sys.path. These now fail explicitly or use a headless
+package reader. The dashboard and CLI share WorkspaceWorkflow; shell/tmux use one
+launch interface. Legacy helper interfaces delegate to the same implementations.
+
+Temporary-Git specs cover read-only preview, create/reuse, unchanged caller branch,
+existing branch commits, stale source commits, concurrent checkout/destination
+changes, dangling symlinks, foreign-repository plans and normal upstream tracking.
+An extraction regression initially dropped upstream setup by passing a commit ID;
+the failing spec caught it and symbolic-base behavior was restored. Terminal specs
+cover literal argv, configured-session isolation, explicit foreground behavior,
+missing folders and surfaced failures. A dashboard spec exercises an injected
+workflow, and subprocess specs verify headless imports and explicit settings
+independent of process-global configuration. Existing CLI/PTY tests remain.
+
+ARCHITECTURE.md records current ownership and limits. The integration spec
+distinguishes implemented behavior from planned Herdr, startup and deployment
+criteria. Revalidation is not an atomic lock against all Git processes. No fetch,
+reset, removal, automatic sync, Herdr control or new deployment provider is added.
+Other collection modules retain global configuration and Heroku-specific UI cache
+labels; whole-application multi-profile support is not claimed. No live service
+writes, private workflow changes or production access are used for verification.
+Verification: bin/check passed 80 helper/service/spec tests and 123 UI tests
+(203 total; two optional browser checks skipped). Existing real PTY handoffs and
+navigation passed. All 111 recorded original-workflow source hashes were unchanged.
+No native Herdr/tmux or live service integration was exercised.
+
+2026-11-05: Herdr 0.9.5 support.
+
+Failing specs first reproduced the missing adapter and managed-terminal selection.
+Further failing checks cover native response contracts and timeout uncertainty.
+The adapter guards managed context, validates response types and discovered IDs,
+scopes controls to the caller workspace, creates/reuses tabs and splits agents
+according to pane geometry. Agent prompts use mode-600 external launch scripts
+which remove themselves before exec. Failed/uncertain submissions are never
+retried automatically; unconsumed scripts remain for inspection.
+
+An isolated native named-session smoke test ran its controller inside an actual
+Herdr pane. It created/focused a worktree tab, split a pane, and delivered a large
+multiline quoted prompt to a fixture agent with unchanged argv/cwd. Native testing
+caught tab focus returning tab_info and pane run succeeding with empty stdout;
+fixtures and parsing now follow those observed 0.9.5 contracts. Both test sessions
+were stopped from their own managed shells. No existing user session was touched.
+No real coding assistant, Jira/GitHub/Heroku writes or production operations were
+used. Native validation covers macOS Herdr 0.9.5 only. Auto keeps tmux priority;
+explicit selection overrides it for an invocation.
+Verification: bin/check passed 99 helper/service/spec tests and 123 UI tests
+(222 total; two optional browser tests skipped). The native smoke delivered a
+14,000-character prompt with 500 newlines unchanged. A separate local preview uses
+fictional tickets, a disposable Git repository and isolated configuration; no
+credentials or runtime data enter the source tree. Its macOS runtime path is kept
+short enough for Unix sockets. All 111 original-workflow source hashes remain
+unchanged. Desktop inspection was unavailable; startup was verified by the actual
+managed dashboard process and the native adapter smoke test.
+
+2026-11-05: empty queue after unconfigured refresh; Herdr zsh requirement.
+
+A command-boundary reproduction returned an empty preview queue. Four new specs
+then reproduced active Jira/PR snapshots being replaced by disabled empty sources,
+including the max-age shortcut. Refresh now retains active evidence and source
+timestamps while identifying missing configuration. Fresh unused integrations do
+not fail, and real successful empty responses still replace data. The CLI test
+requires the ticket to remain visible after refresh with an incomplete exit status.
+Two Herdr specs also failed because foreground shells used inherited sh and absent
+zsh was accepted. Composition now requires zsh before any workspace action and
+selects it for Herdr foreground shells. Local tabs must also configure zsh in
+Herdr's own settings. Tests use fixtures and temporary repositories only.
+Verification: bin/check passed 105 helper/service/spec tests and 123 UI tests
+(228 total; two optional browser checks skipped). Separately authorized local setup
+reused existing authentication through a private external launcher and completed a
+read-only live Jira/GitHub refresh. The real queue rendered through both CLI and
+a native Herdr client. Collapsing the local sidebar supplied enough width at 80
+columns. Local Herdr panes use zsh and the requested Ctrl+Space prefix. No credentials
+or real snapshots enter this repository; the original workflow remains unchanged.
+
+2026-11-05: Plan/Updates separation.
+
+A failing rendered-view regression first showed recorded progress mixed into the
+plan. Further failures reproduced implementation/QA sections remaining in Plan
+and code examples being interpreted as live update headings. p and d now show
+separate read-only views of the same document; hierarchy, fenced examples, empty
+states, source bytes and edit-driven reloads are covered. The real PTY navigation
+script switches between both tabs and observes their distinct content. No ticket
+documents, services, worktrees or shared databases are modified by these checks.

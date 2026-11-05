@@ -44,19 +44,29 @@ def collect(directory=DEFAULT_OUT, max_age=0):
         fcntl.flock(lock, fcntl.LOCK_EX)
         store = SnapshotStore(directory)
         previous = store.read()
-        if max_age and not previous.get('failures') and {'jira', 'prs'} <= set(previous['sources']):
+        disabled = {name for name, enabled in (('jira', bool(config.get('jira', 'site'))),
+                                               ('prs', bool(identity.GITHUB_REPO))) if not enabled}
+        retained_disabled = {name for name in disabled if name in previous['sources']
+                             and previous['sources'][name].get('enabled') is not False}
+        if max_age and not retained_disabled and not previous.get('failures') and {'jira', 'prs'} <= set(previous['sources']):
             dates = [datetime.fromisoformat(previous['sources'][name]['generated_at']) for name in ('jira', 'prs')]
             if all(0 <= (datetime.now(identity.TZ) - date).total_seconds() < max_age for date in dates):
                 return previous
         updates, failures = {}, {}
+        def retain_or_update(name, source):
+            if source.get('enabled') is False and name in retained_disabled:
+                label, setting = ('Jira', 'jira.site') if name == 'jira' else ('GitHub', 'github.repository')
+                failures[name] = label + ' is not configured; configure ' + setting + '. Previous data retained.'
+            else:
+                updates[name] = dict(source, generated_at=stamp())
         try:
-            updates['prs'] = dict(collect_prs(), generated_at=stamp())
+            retain_or_update('prs', collect_prs())
         except (OSError, RuntimeError, ValueError, SystemExit) as exc:
             failures['prs'] = access_error('GitHub', str(exc))
         prs = updates.get('prs', previous['sources'].get('prs', {}))
         try:
             keys = [pr['ticket'] for pr in prs.get('open_prs', []) if pr.get('ticket')]
-            updates['jira'] = dict(collect_jira(keys), generated_at=stamp())
+            retain_or_update('jira', collect_jira(keys))
         except (OSError, RuntimeError, ValueError, SystemExit, KeyError) as exc:
             failures['jira'] = access_error('Jira', str(exc))
         return store.publish(updates, failures)

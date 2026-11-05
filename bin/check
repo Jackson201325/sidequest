@@ -10,7 +10,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[1]
 failed = False
 with tempfile.TemporaryDirectory() as folder:
-    env = {key: value for key, value in os.environ.items() if not key.startswith(('SIDEQUEST_', 'TW_', 'GIT_', 'GH_', 'GITHUB_', 'HEROKU_', 'ATLASSIAN_'))}
+    env = {key: value for key, value in os.environ.items() if not key.startswith(('SIDEQUEST_', 'TW_', 'GIT_', 'GH_', 'GITHUB_', 'HEROKU_', 'HERDR_', 'ATLASSIAN_'))}
     env.update(PYTHONDONTWRITEBYTECODE='1', SIDEQUEST_CONFIG=str(ROOT / 'tests/fixture-config.json'),
                HOME=folder, XDG_DATA_HOME=folder + '/data', XDG_STATE_HOME=folder + '/state',
                XDG_CONFIG_HOME=folder + '/config', TERM='xterm-256color')

@@ -12,6 +12,7 @@ For the GitHub + Jira dashboard, you need:
 - A macOS or Linux terminal with Python 3.9+.
 - Git and the GitHub CLI (`gh`), signed in with your own account.
 - Your Jira site/email settings and your own API token in `SIDEQUEST_JIRA_TOKEN`.
+- zsh is required when using the Herdr integration (already included on macOS).
 
 Curses and SQLite are included with the supported Python installation; there are
 no pip packages or separate database server to install for Sidequest.
@@ -213,8 +214,12 @@ Jira details for tickets named in those PRs. It separates work into:
 | Waiting | Jira assignment or a handoff points to another owner |
 | Clarify | The available evidence does not establish who acts next |
 
-Activity shows Jira/GitHub events. Work log shows dated commit evidence. Plan reads
-the ticket's external plan file. Flow summarizes the current workflow stage.
+Activity shows Jira/GitHub events. Work log shows dated commit evidence. Plan (`p`)
+shows planning sections from the external plan file; Updates (`d`) shows explicit
+Updates, implementation progress and recorded QA/test results from that same file.
+Nested sections stay with their parent, fenced examples stay literal, and unknown
+headings remain in Plan. Editing the file refreshes both views without rewriting it.
+Flow summarizes the current workflow stage.
 Standup drafts from evidence rather than estimating hours or inventing progress.
 
 WAIT counts Monday–Friday, 09:00–17:00 in your configured timezone; one day means
@@ -238,11 +243,11 @@ test commands, branch conventions and environment booking rules.
 | `sidequest-triage` | Investigate a supplied error and reproduce it with fixtures |
 
 In the dashboard, Space `s` runs a selected workflow through your configured agent
-in the ticket's local worktree. Without tmux, the dashboard hands its terminal to
+in the ticket's local worktree. In shell mode, the dashboard hands its terminal to
 the agent and returns when it exits. The command defaults to `claude`; set
 `workspace.agent_command` to `codex`, or another CLI command that accepts the prompt
 as its final argument. Those instructions are bundled; global skill installation
-is not required. When already inside tmux, existing window/pane navigation remains.
+is not required. tmux uses windows/panes; Herdr uses tabs/panes in the caller's workspace.
 
 For direct use in Codex or Claude Code, preview an installation, then install:
 
@@ -296,6 +301,70 @@ automatic worktree cleanup, Jira custom-field mapping or board-specific status
 transitions. The skills use the project's own setup and ask before remote actions
 unless already authorized. Nothing merges, deploys or sends messages on refresh.
 
+### Work in Herdr
+
+Herdr 0.9.5 is supported through the same terminal interface as shell/tmux. Install
+it with `brew install herdr` on macOS, or follow [Herdr installation](https://github.com/herdrdev/herdr#install).
+Install zsh if it is absent (`brew install zsh` on macOS or your Linux package
+manager). In Herdr's `config.toml`, set `[terminal]` `default_shell` to your zsh
+executable, such as `/bin/zsh`. Sidequest also requires zsh for foreground Herdr
+worktree shells and reports an error if it cannot find it.
+Set your account settings as described in [Connect your own accounts](#connect-your-own-accounts).
+For worktree/agent actions, set `workspace.repository` to your local application
+clone and choose `workspace.agent_command` if you use an assistant. Start `herdr`,
+then export your Jira token **inside the pane where Sidequest will run**. Starting
+a new client does not retrofit new variables into an existing server's processes.
+Run Sidequest there:
+
+```sh
+SIDEQUEST_TERMINAL=herdr /path/to/sidequest/bin/sidequest --refresh
+```
+
+The public entry point is `bin/sidequest`. A `sidequest-herdr` shortcut is a
+user-owned wrapper outside this repository. Each adopter supplies their own
+accounts; Herdr keybindings and theme remain their local settings.
+
+For an 80-column terminal, collapse Herdr's sidebar so Sidequest has at least
+64 columns. You can merge this into Herdr's existing config sections:
+
+```toml
+[terminal]
+default_shell = "/bin/zsh"
+
+[ui]
+sidebar_start_collapsed = true
+```
+
+If the dashboard is monochrome, check whether `NO_COLOR` is set. To enable colors,
+run `unset NO_COLOR` in that pane and restart Sidequest. Explicit `NO_COLOR` is
+still supported for users who prefer monochrome output.
+
+`w` focuses a matching worktree tab, creating a tab when needed. Space `s` starts the configured assistant in a new
+pane/tab. Space `n` and CLI `workspace --open` keep their foreground shell behavior;
+exit returns to the dashboard. Herdr never creates Git worktrees on Sidequest's
+behalf. Full automatic `tw` startup/sync/cleanup is not included.
+
+`workspace.terminal` accepts `auto` (default), `shell`, `tmux` or `herdr`.
+`SIDEQUEST_TERMINAL` overrides it for one invocation. Auto prefers active tmux,
+then active Herdr, then shell. This preserves tmux when both contexts are present;
+explicitly select Herdr when nesting it inside tmux. Managed modes require their
+actual caller context; installing a binary alone does not enable controls.
+
+Herdr controls stay within the caller's workspace and use discovered IDs. A
+reported error may follow a partially applied layout change or admitted command;
+inspect the session before retrying. Large prompts use mode-600 launch files in
+the external Sidequest state directory (`launches/`), deleted when consumed. An
+uncertain submission leaves its file for inspection; remove an unused file only
+after confirming that the command is not queued/running. No prompt enters this
+repository or is placed directly on Herdr's shell input line.
+
+Herdr itself is a multiplexer; it does not connect Jira/GitHub or populate tickets.
+The dashboard needs the account configuration above. Demo launchers can provide
+fictional tickets, but do not automatically connect your real accounts. If a
+previously configured integration becomes unconfigured, refresh keeps its cached
+data and original source time and reports the missing setting. A successful live
+empty response still clears old data normally.
+
 ### QA screenshots
 
 Start the target app with its documented command and install Chrome, Chromium or
@@ -338,12 +407,12 @@ No screenshots are uploaded automatically. Re-capture when UI changes make them 
 | `h/l`, Enter | Switch between the list and details |
 | `1`–`4` | All, Needs me, Waiting, Clarify |
 | `/` | Search |
-| `a/p/v/s/f/u` | Activity, Plan, Overview, Work log, Flow, Standup |
+| `a/p/d/v/s/f/u` | Activity, Plan, Updates, Overview, Work log, Flow, Standup |
 | `o/O` | Choose or reverse a sort |
 | `+/-`, `=` | Resize sections or reset the split |
 | `r`, `e` | Refresh Jira/GitHub, or optional Heroku status |
 | Space `j/o` | Open the ticket or PR in your configured/default browser |
-| `w` | Open a shell in the worktree; inside tmux, jump to its existing window |
+| `w` | Open the worktree through the selected shell, tmux window or Herdr tab |
 | Space `n` | Create/reuse a local ticket worktree and open a shell there |
 | Space `s` | Run a bundled workflow or custom prompt with the configured agent |
 | `y` | Copy standup with macOS pbcopy; --standup prints it on any platform |
@@ -390,6 +459,12 @@ and exits 3. There is no scheduler or check-in service.
 | Native Windows | Use a macOS or Linux environment; native Windows curses is unsupported |
 
 ## Development and limits
+
+Workspace actions share a coordinator with separate Git planning/execution and
+shell/tmux/Herdr adapters. See [ARCHITECTURE.md](ARCHITECTURE.md) for module ownership
+and [integration specs](specs/workspace-integrations.md) for behavior and planned
+Herdr/deployment integration requirements. Executable specs run in the normal
+test suite. The full portable `tw` startup workflow is not implemented.
 
 ```sh
 ./bin/check

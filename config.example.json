@@ -24,6 +24,7 @@
     "worktrees_dir": "",
     "base_ref": "origin/main",
     "agent_command": "claude",
+    "terminal": "auto",
     "tmux_session": "sidequest",
     "browser": ""
   }

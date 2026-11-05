@@ -30,6 +30,11 @@ class TerminalTests(unittest.TestCase):
             master, slave = pty.openpty()
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 32, 145, 0, 0))
             env = dict(os.environ, TERM="xterm-256color", PYTHONDONTWRITEBYTECODE="1")
+            plans = folder / 'plans'
+            plan = plans / 'DEMO-901' / 'plan.md'
+            plan.parent.mkdir(parents=True)
+            plan.write_text('# Plan\n## Approach\nPlan view only.\n## Updates\nUpdate view only.\n')
+            env['SIDEQUEST_TICKETS_DIR'] = str(plans)
             process = subprocess.Popen([sys.executable, str(Path(__file__).with_name("tui.py")),
                                         "--data-dir", str(folder / "data"), "--snapshots", str(snapshots)],
                                        stdin=slave, stdout=slave, stderr=slave, env=env)
@@ -54,6 +59,10 @@ class TerminalTests(unittest.TestCase):
 
             try:
                 until("DEMO-901")
+                send("d")
+                until("Update view only.")
+                send("p")
+                until("Plan view only.")
                 send("/no-match\n")
                 until("No matching tickets")
                 send("\x1b")
