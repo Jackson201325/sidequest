@@ -66,3 +66,7 @@ skill installation, shared Docker operations or production access are used.
 The five QA-helper checks also passed separately with Microsoft Edge against
 temporary localhost pages, including successful login/capture and failure evidence.
 All six rendered skill packages passed skill-creator's quick_validate validator.
+
+The initial GitHub Actions run failed before tests: ubuntu-latest resolved to
+Ubuntu 26.04, where setup-python has no Python 3.9 build. CI now pins Ubuntu 22.04
+so the minimum supported Python version can be tested on an available image.
