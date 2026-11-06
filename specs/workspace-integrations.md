@@ -68,7 +68,7 @@ label. Agent launch splits a matching window or creates a window/session. The
 command is quoted once. Explicit starts retain foreground shell behavior.
 
 Executable specs: `tests/test_terminal_specs.py`, `test_application_specs.py`,
-`ticket-tui/test_launcher.py`, `test_workspace_coordinator.py`, existing UI action
+`tests/test_tmux_launch.py`, `ticket-tui/test_workspace_coordinator.py`, existing UI action
 tests and real PTY handoff/navigation tests. An injected terminal demonstrates that
 another adapter needs no changes to Git or the dashboard.
 

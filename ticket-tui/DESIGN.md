@@ -65,3 +65,9 @@ source, validates refresh output with the snapshot publisher's own check, merges
 and saves updates, and records which sources failed as data. App keeps input,
 drawing, background scheduling and curses handoff; the header no longer reads
 error text to decide which source failed.
+
+2026-11-06: App.loop reads keys, runs timers, draws and performs handoffs; App.press
+applies one key and returns False to quit. Prefix state (Space, g) lives on App, and
+prompts or menus run through App.blocking, which skips screen timeouts without a
+screen. Key rules are tested by pressing keys on a demo App. The UI imports tmux,
+Heroku and browser opening from the package; its pass-through shims are removed.

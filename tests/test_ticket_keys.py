@@ -117,8 +117,9 @@ class HelperKeyTests(unittest.TestCase):
 
     def worktree(self, target, projects):
         repo = self.root / 'repo'
-        repo.mkdir(exist_ok=True)
-        subprocess.run(['git', 'init', '-q', '-b', 'main'], cwd=repo, check=True)
+        if not repo.exists():
+            repo.mkdir()
+            subprocess.run(['git', 'init', '-q', '-b', 'main'], cwd=repo, check=True)
         return subprocess.run([sys.executable, str(ROOT / 'bin/sidequest-worktree.py'), target], cwd=repo,
                               env=self.environment(projects), text=True, capture_output=True, check=True).stdout.splitlines()[0]
 

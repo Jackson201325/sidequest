@@ -5,7 +5,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core import Store, Ticket
-from tui import App, find_tw_window, readable_date
+from sidequest.tmux import find_window
+from tui import App, readable_date
+
+
+def find_tw_window(panes, ticket):
+    return find_window(panes, ticket.key, ticket.worktree, "example-project")
 
 
 class WorkspaceTests(unittest.TestCase):

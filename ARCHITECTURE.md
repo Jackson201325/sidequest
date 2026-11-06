@@ -72,8 +72,9 @@ status reaches the caller.
 Workspace CLI flags/output, default preview, configured base and explicit `--open`
 remain. Space n and CLI `--open` keep opening foreground shells even inside tmux.
 Other in-tmux navigation and agent launches keep their existing behavior.
-Compatibility helpers in `workspace.py`, `ticket-tui/launcher.py` and
-`ticket-tui/environments.py` delegate to package implementations. Headless modules
+Compatibility helpers in `workspace.py` delegate to package implementations.
+The dashboard imports tmux, Heroku and browser opening from the package directly;
+the former `ticket-tui/launcher.py` and `ticket-tui/environments.py` are removed. Headless modules
 never import those UI shims.
 
 Herdr 0.9.5 is implemented with managed-context checks and explicit selection.

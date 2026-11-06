@@ -254,3 +254,19 @@ and drive failures through collect and finish_refresh. CLI list and standup mode
 still collect worktrees and the work log without saving them.
 Verification: bin/check passed 135 helper/service/spec tests and 156 UI tests
 (two optional browser checks skipped).
+
+2026-11-06: Key handling and UI shims.
+
+Eighteen key tests written first failed until App.press existed. The key chain
+moved out of App.loop unchanged, except that prefix state is stored on App and
+prompts use App.blocking. The tests cover movement, paging, gg/G, gl/gL lane
+jumps, views, focus, Escape, detail tabs, search, the Space menu, resize, command
+keys, sort order, standup copy, quit, unknown keys and action errors.
+ticket-tui/launcher.py and ticket-tui/environments.py only forwarded calls; no
+skill, script or document outside their tests imported them. Their tests moved
+to tests/ against sidequest.tmux and sidequest.environments, and both files were
+removed. The one real function, the browser opener, is sidequest.terminal.
+open_browser. It takes the browser command as an argument, because a headless
+spec forbids the workspace layer from reading global configuration.
+Verification: bin/check passed 151 helper/service/spec tests and 160 UI tests
+(two optional browser checks skipped), with no git re-init warnings.
