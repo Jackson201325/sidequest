@@ -436,3 +436,17 @@ Fixes from the same review: a missing file line no longer hides a real cause in 
 same output, and an interpreter given as a path counts as missing. Loop rule (user):
 code review continues until a round finds no behavior bug; style-only findings get
 one cleanup pass.
+
+2026-11-06: Review of the failure-text change.
+
+Six behavior bugs, each with a failing test first. JiraError has a permanent flag
+for a bad key, an unsupported path, the read-only refusal, missing jira.site and a
+moved issue; only those skip "Press r to try again", so temporary Jira errors ask
+for a retry again. A moved issue names its new key only when the response gives a
+valid ticket key, so the dashboard shows only Sidequest's own text. A Python
+traceback is classified only by known tool names, and every missing file name in
+the output is checked for gh and heroku. The terminal adds only an OSError's own
+reason, never other exception text that may repeat commands or response bodies.
+describe_failure clips dashboard text to the dashboard's 300-character limit, and
+any AccessFailure keeps its own advice. Known limit: the dashboard raises a plain
+RuntimeError for a failed sidequest-data run; no caller branches on its type.

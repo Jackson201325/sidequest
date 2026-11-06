@@ -24,9 +24,10 @@ STATUS_CAUSES = {301: 'not_found', 401: 'login', 403: 'denied', 404: 'not_found'
 class JiraError(RuntimeError):
     service = 'Jira'
 
-    def __init__(self, message, status=None, cause=None, note=None):
+    def __init__(self, message, status=None, cause=None, note=None, permanent=False):
         super().__init__(message)
         self.note = note  # see sidequest.access.NOTES
+        self.permanent = permanent  # retrying cannot help (bad input, configuration or a moved issue)
         self.status = status  # HTTP status when the error came from a Jira response
         # Jira raises every error itself, so its cause is always known: never guessed from wording.
         self.cause = cause or STATUS_CAUSES.get(status) or ('server' if status and status >= 500 else 'unknown')
@@ -42,11 +43,11 @@ def _auth():
 
 def jira(method, path, body=None):
     if method != 'GET' and not (method == 'POST' and path == '/rest/api/3/search/jql'):
-        raise JiraError('Jira adapter is read-only')
+        raise JiraError('Jira adapter is read-only', permanent=True)
     if not path.startswith('/rest/api/3/') or '..' in path or '\\' in path:
-        raise JiraError('Unsupported Jira request path')
+        raise JiraError('Unsupported Jira request path', permanent=True)
     if not BASES:
-        raise JiraError('Configure jira.site before refreshing Jira')
+        raise JiraError('Configure jira.site before refreshing Jira', permanent=True)
     rejected = False
     for base in ([_base[0]] if _base[0] else BASES):
         request = urllib.request.Request(base + path, method=method,
@@ -239,11 +240,12 @@ def name(v):
 
 def fetch_one(key, include_activity=False, account_id=None):
     if not re.fullmatch(r'[A-Z][A-Z0-9_]*-\d+', key):
-        raise JiraError('Expected a Jira key such as APP-123')
+        raise JiraError('Expected a Jira key such as APP-123', permanent=True)
     fields = 'summary,status,assignee,priority,created,updated,description'
     issue = jira('GET', '/rest/api/3/issue/%s?fields=%s' % (key, fields))
     if isinstance(issue.get('key'), str) and issue['key'] != key:
-        raise JiraError('Jira issue %s moved to %s; previous data retained' % (key, issue['key']), 301)
+        new = issue['key'] if re.fullmatch(r'[A-Z][A-Z0-9_]*-\d+', issue['key']) else 'another key'
+        raise JiraError('Jira issue %s moved to %s; previous data retained' % (key, new), 301, permanent=True)
     if issue.get('key') != key or not isinstance(issue.get('fields'), dict):
         raise JiraError('Invalid Jira issue response; previous data retained')
     f = issue['fields']
