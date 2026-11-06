@@ -115,13 +115,18 @@ class HelperKeyTests(unittest.TestCase):
         env = {k: v for k, v in __import__('os').environ.items() if not k.startswith('GIT_')}
         return dict(env, SIDEQUEST_CONFIG=str(config))
 
-    def test_worktree_prints_any_project_key_in_capitals(self):
+    def worktree(self, target, projects):
         repo = self.root / 'repo'
-        repo.mkdir()
+        repo.mkdir(exist_ok=True)
         subprocess.run(['git', 'init', '-q', '-b', 'main'], cwd=repo, check=True)
-        result = subprocess.run([sys.executable, str(ROOT / 'bin/sidequest-worktree.py'), 'app-9'], cwd=repo,
-                                env=self.environment([]), text=True, capture_output=True, check=True)
-        self.assertEqual(result.stdout.splitlines()[0], 'APP-9: none')
+        return subprocess.run([sys.executable, str(ROOT / 'bin/sidequest-worktree.py'), target], cwd=repo,
+                              env=self.environment(projects), text=True, capture_output=True, check=True).stdout.splitlines()[0]
+
+    def test_worktree_capitalises_only_trusted_ticket_keys(self):
+        self.assertEqual(self.worktree('app-9', ['APP']), 'APP-9: none')
+        self.assertEqual(self.worktree('APP-9', []), 'APP-9: none')
+        self.assertEqual(self.worktree('release-2', ['APP']), 'release-2: none')
+        self.assertEqual(self.worktree('utf-8', []), 'utf-8: none')
 
     def review_app(self, argument, projects):
         return subprocess.run([sys.executable, '-B', str(ROOT / 'bin/sidequest-review-app.py'), argument, '--json'],
@@ -133,19 +138,68 @@ class HelperKeyTests(unittest.TestCase):
         self.assertIn('gh is not installed', self.review_app('123', ['APP']).stderr)
         self.assertIn('ticket key must look like APP-123', self.review_app('not a key', ['APP']).stderr)
 
-    def test_review_app_finds_a_pr_by_the_queue_rule(self):
+    def find(self, key, searched, listed=(), projects=()):
         from sidequest import review_apps
-        def run(prs):
-            return lambda args: json.dumps(prs)
-        pr = lambda number, title, head='x': {'number': number, 'title': title, 'headRefName': head}
-        self.assertEqual(review_apps.find_pr('APP-12', run=run([pr(1, '[APP-12] Totals'), pr(2, 'APP-120 Other')]))['number'], 1)
-        self.assertEqual(review_apps.find_pr('APP-12', run=run([pr(3, 'Py fixes', 'fix/app-12-py')]))['number'], 3)
-        with self.assertRaises(review_apps.ReviewAppError):
-            review_apps.find_pr('APP-12', run=run([pr(2, 'APP-120 Other')]))
         calls = []
-        review_apps.find_pr('APP-12', run=lambda args: calls.append(args) or json.dumps([pr(3, 'Py fixes', 'fix/APP-12-py')]))
-        self.assertNotIn('--search', calls[0], 'GitHub search ignores branch names')
 
+        def run(args):
+            calls.append(args)
+            return json.dumps(list(searched if '--search' in args else listed))
+        with __import__('unittest.mock').mock.patch.object(review_apps.config, 'SETTINGS', {'jira': {'projects': list(projects)}}):
+            try:
+                return review_apps.find_pr(key, run=run)['number'], calls
+            except review_apps.ReviewAppError as exc:
+                return str(exc), calls
+
+    @staticmethod
+    def pr(number, title, head='x'):
+        return {'number': number, 'title': title, 'headRefName': head}
+
+    def test_review_app_search_finds_title_matches_of_any_age_in_one_call(self):
+        number, calls = self.find('APP-12', [self.pr(1, '[APP-12] Totals'), self.pr(2, 'APP-120 Other')])
+        self.assertEqual(number, 1)
+        self.assertEqual(len(calls), 1)
+        self.assertIn('APP-12', calls[0][calls[0].index('--search') + 1])
+
+    def test_review_app_falls_back_to_branches_when_search_misses(self):
+        branch_pr = self.pr(3, 'Revert APP-5 totals', 'feature/APP-12-revert')
+        number, calls = self.find('APP-12', [], [self.pr(2, 'APP-120 Other'), branch_pr])
+        self.assertEqual(number, 3)
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn('--search', calls[1])
+
+    def test_review_app_uses_every_configured_project_like_the_queue(self):
+        other = self.pr(4, 'OPS-3 follow-up for APP-12')
+        self.assertIn('no open PR for APP-12', self.find('APP-12', [other], [other], ['APP', 'OPS'])[0])
+
+    def test_review_app_accepts_a_lowercase_key(self):
+        self.assertEqual(self.find('app-12', [self.pr(1, 'APP-12 Totals')])[0], 1)
+
+    def test_review_app_says_when_the_branch_fallback_hit_its_limit(self):
+        from sidequest import review_apps
+        full = [self.pr(n, 'Other work') for n in range(review_apps.BRANCH_SCAN_LIMIT)]
+        message = self.find('APP-12', [], full)[0]
+        self.assertIn('pass --pr N', message)
+
+    def test_review_app_without_a_key_needs_a_ticket_branch(self):
+        import shutil
+        repo, tools = self.root / 'repo', self.root / 'tools'
+        repo.mkdir()
+        tools.mkdir()
+        (tools / 'git').symlink_to(shutil.which('git'))
+        subprocess.run(['git', 'init', '-q', '-b', 'main'], cwd=repo, check=True)
+        env = dict(self.environment(['APP']), PATH=str(tools))
+        script = [sys.executable, '-B', str(ROOT / 'bin/sidequest-review-app.py')]
+        result = subprocess.run(script, cwd=repo, env=env, text=True, capture_output=True)
+        self.assertIn('give the ticket key', result.stderr)
+        subprocess.run(['git', 'checkout', '-qb', 'fix/APP-7-totals'], cwd=repo, check=True)
+        result = subprocess.run(script, cwd=repo, env=env, text=True, capture_output=True)
+        self.assertIn('gh is not installed', result.stderr)
+
+    def test_helper_usage_text_has_no_demo_only_keys(self):
+        for name in ('sidequest-qa-shot.py', 'sidequest-review-app.py', 'sidequest-worktree.py'):
+            with self.subTest(name=name):
+                self.assertNotIn('DEMO-###', (ROOT / 'bin' / name).read_text())
 
 if __name__ == '__main__':
     unittest.main()

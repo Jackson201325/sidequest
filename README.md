@@ -395,7 +395,8 @@ executable when discovery is insufficient.
 ```
 
 `review-app 123` (a bare number) works only when `jira.projects` names exactly one
-project. It finds the open PR with the same ticket rule as the queue: title, then branch.
+project. Without a key or `--pr`, it uses the ticket in the current branch name. It
+searches open PR titles for the key, then the newest 500 open PR branches.
 
 Review-app login uses `SIDEQUEST_REVIEW_EMAIL` and `SIDEQUEST_REVIEW_PASSWORD`,
 only on the HTTPS Heroku host discovered for that PR. Screenshots and manifests

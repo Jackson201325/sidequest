@@ -223,6 +223,19 @@ Verification: bin/check passed 126 helper/service/spec tests and 146 UI tests
 Failing tests first showed three DEMO-only rules. review-app turned a bare number
 into DEMO-###; it now uses the one project in jira.projects, or asks for the full
 key. review_apps.find_pr only matched titles that start with the key; it now uses
-pr_ticket over the title and branch, as the queue does. GitHub search ignores
-branch names, so it lists up to 200 open PRs and filters them locally. worktree printed only DEMO and OPS keys in
+the title or branch ticket (see the next entry). worktree printed only DEMO and OPS keys in
 capitals; it now uses is_key. Tests use a temporary config and no gh binary.
+
+2026-11-06: Review of the helper key change.
+
+A code review found that find_pr trusted only the key's own project, missed PRs
+beyond the newest 200, ignored the branch when the title named another ticket,
+and failed on lower-case keys. Failing tests reproduced each case. find_pr now
+searches open PR titles for the key first, so a PR of any age is found in one
+call. Only when that misses does it list the newest 500 open PRs to match
+branches, and it asks for --pr N when that list is full. A PR matches when its
+title ticket or branch ticket is the key, using every configured project. Without
+a key or --pr, review-app uses the current branch's ticket instead of whatever PR
+the branch has. worktree capitalises a target only when it is a trusted key, so
+release-2 stays as typed. qa-shot help no longer shows DEMO-only keys. Lookup of
+a key-shaped branch name such as release-2 still uses the ticket-key segment rule.
