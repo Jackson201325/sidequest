@@ -2,16 +2,18 @@
 
 STAGES = ("Backlog", "Build", "Review", "QA", "Approved", "Done")
 STAGE_LABELS = ("Not started", "Implementation", "Code review", "QA testing", "Approved", "Done")
+REWORK = ("qa failed", "reopened", "fixing revisions")
 ALIASES = {
+    **dict.fromkeys(REWORK, 1),
     "backlog": 0, "to do": 0, "open": 0, "ready for development": 0,
-    "in progress": 1, "development": 1, "in development": 1, "qa failed": 1, "reopened": 1,
+    "in progress": 1, "development": 1, "in development": 1,
     "ready for code review": 2, "code review": 2, "in review": 2, "in code review": 2,
     "qa": 3, "in qa": 3, "ready for qa": 3, "testing": 3, "in testing": 3,
     "approved": 4, "ready for production": 4, "ready to deploy": 4,
     "done": 5, "closed": 5, "resolved": 5,
     # The DEMO board's own status names (Backlog → In Design → Ready for Dev → In Dev → …).
     "in design": 0, "ready for dev": 0,
-    "in dev": 1, "fixing revisions": 1,
+    "in dev": 1,
     "ready for stakeholder review": 4, "in stakeholder review": 4,
     "archived": 5,
 }

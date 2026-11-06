@@ -93,7 +93,8 @@ class ServiceTests(unittest.TestCase):
         with patch.object(collector.config, 'SETTINGS', settings), patch.object(collector.identity, 'JIRA_ACCOUNT_ID', 'me'), \
                 patch.object(client, 'search', return_value=[{'key': 'APP-1'}]), \
                 patch.object(client, 'fetch_one', side_effect=fetch) as fetch_one:
-            result = collector.collect_jira(['APP-1', 'APP-2', 'APP-404', 'PYTHON-3'])
+            prs = [{'title': t} for t in ('APP-1 a', 'APP-2 b', 'APP-404 c', 'Bump PYTHON-3 image')]
+            result = collector.collect_jira(prs)
         self.assertEqual([t['key'] for t in result['tickets']], ['APP-1', 'APP-2'])
         self.assertNotIn('PYTHON-3', [call.args[0] for call in fetch_one.call_args_list])
 
@@ -104,6 +105,57 @@ class ServiceTests(unittest.TestCase):
                 patch.object(client, 'fetch_one', side_effect=client.JiraError('Jira HTTP 404', 404)):
             with self.assertRaises(client.JiraError):
                 collector.collect_jira([])
+
+    def jira_keys_fetched_for(self, prs, settings):
+        with patch.object(collector.config, 'SETTINGS', settings), patch.object(collector.identity, 'JIRA_ACCOUNT_ID', 'me'), \
+                patch.object(client, 'search', return_value=[{'key': 'APP-1'}]), \
+                patch.object(client, 'fetch_one', side_effect=lambda key, **_: {'key': key}) as fetch_one:
+            collector.collect_jira(prs)
+        return [call.args[0] for call in fetch_one.call_args_list]
+
+    def test_collector_and_queue_agree_on_pr_ticket_keys(self):
+        import core
+        settings = {'jira': {'site': 'https://example.atlassian.net'}}
+        prs = [{'number': 1, 'title': 'Fix python 3.12 for APP-5', 'branch': 'fix/py'},
+               {'number': 2, 'title': 'Py3 fixes', 'branch': 'fix/app-9-py3'},
+               {'number': 3, 'title': 'Bump python 3.12 image', 'branch': 'chore/python-3-bump'}]
+        fetched = self.jira_keys_fetched_for(prs, settings)
+        self.assertEqual(sorted(fetched), ['APP-1', 'APP-5', 'APP-9'])
+        jira = {'tickets': [{'key': key} for key in fetched]}
+        queue_keys = sorted(t.key for t in core.tickets_from(jira, {'open_prs': prs}))
+        self.assertEqual(queue_keys, ['APP-1', 'APP-5', 'APP-9', 'PR-3'])
+
+    def test_moved_pr_derived_jira_issue_does_not_fail_collection(self):
+        def fetch(key, include_activity=False, account_id=None):
+            if key == 'APP-5':
+                raise client.JiraError('Jira issue APP-5 moved to NEW-7; previous data retained', 301)
+            return {'key': key}
+        settings = {'jira': {'site': 'https://example.atlassian.net'}}
+        with patch.object(collector.config, 'SETTINGS', settings), patch.object(collector.identity, 'JIRA_ACCOUNT_ID', 'me'), \
+                patch.object(client, 'search', return_value=[{'key': 'APP-1'}]), \
+                patch.object(client, 'fetch_one', side_effect=fetch):
+            result = collector.collect_jira([{'title': 'APP-5 old work'}])
+        self.assertEqual([t['key'] for t in result['tickets']], ['APP-1'])
+
+    def test_jira_client_reports_a_moved_issue_with_its_own_status(self):
+        with patch.object(client, 'jira', return_value={'key': 'NEW-7', 'fields': {}}):
+            with self.assertRaises(client.JiraError) as failure:
+                client.fetch_one('APP-5')
+        self.assertEqual(failure.exception.status, 301)
+        self.assertIn('NEW-7', str(failure.exception))
+
+    def test_github_pr_ticket_uses_the_shared_key_rule(self):
+        row = {'number': 3, 'title': 'Bump python 3.12 image', 'headRefName': 'chore/python-3-bump'}
+        with patch.object(github, 'unresolved_threads_for_pr', return_value=[]):
+            self.assertIsNone(github.enrich_pr(row, include_threads=False)['ticket'])
+            row['headRefName'] = 'fix/APP-9-py3'
+            self.assertEqual(github.enrich_pr(row, include_threads=False)['ticket'], 'APP-9')
+
+    def test_missing_file_errors_only_blame_gh_when_gh_is_missing(self):
+        from sidequest.access import access_error
+        self.assertIn('GitHub CLI (gh) is not installed', access_error('GitHub', "[Errno 2] No such file or directory: 'gh'"))
+        other = access_error('fetch', "fatal: cannot open '.git/FETCH_HEAD': No such file or directory")
+        self.assertNotIn('GitHub CLI (gh) is not installed', other)
 
 
 if __name__ == '__main__':
