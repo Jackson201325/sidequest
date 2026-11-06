@@ -17,6 +17,10 @@ KNOWN_SERVICES = ('GitHub', 'Jira', 'Heroku', 'sidequest-data')
 CAUSES = ('missing_tool', 'credentials', 'login', 'denied', 'dns', 'tls', 'network', 'timeout', 'server',
           'rate_limited', 'not_found', 'unknown')
 RETAINED = ' Previous data retained.'
+# Fixed extra sentences an adapter may attach; records carry only these names, never free text.
+NOTES = {'site_refused_token': 'The Jira site refused the token; if it is not a scoped token, '
+                               'renew SIDEQUEST_JIRA_TOKEN'}
+COMMANDS = {'collect': 'Collection', 'snapshot': 'Snapshot read', 'ticket': 'Ticket lookup'}
 
 
 def service_name(name):
@@ -56,13 +60,17 @@ class AccessFailure(RuntimeError):
     """A failed request to a service. str() is the dashboard's recovery text; terminal_text
     is the same advice for a command-line helper, which has no r key and keeps no data."""
 
-    def __init__(self, service, cause, tool=None):
-        if cause not in CAUSES:
-            raise ValueError('unknown access failure cause: ' + str(cause))
-        self.service, self.cause, self.tool = service_name(service), cause, tool
+    def __init__(self, service, cause, tool=None, note=None):
+        if cause not in CAUSES or note not in (None, *NOTES):
+            raise ValueError('unknown access failure cause or note: %s %s' % (cause, note))
+        self.service, self.cause, self.tool, self.note = service_name(service), cause, tool, note
         problem, action, retry = _advice(self.service, cause, tool)
-        self.terminal_text = f'{self.service}: {problem}. {action}.'
-        super().__init__(f'{self.service}: {problem}. {action}' + (', then press r.' if retry else '.') + RETAINED)
+        extra = ' ' + NOTES[note] + '.' if note else ''
+        self.terminal_text = f'{self.service}: {problem}. {action}.{extra}'
+        super().__init__(f'{self.service}: {problem}. {action}' + (', then press r.' if retry else '.') + extra + RETAINED)
+
+    def record(self):
+        return {'service': self.service, 'cause': self.cause, 'tool': self.tool, 'note': self.note}
 
 
 def classify(text):
@@ -70,9 +78,11 @@ def classify(text):
     text = str(text).casefold()
     if 'no jira credentials' in text or 'no jira token' in text:
         return 'credentials', None
-    missing = re.search(r"no such file or directory: '([^'/]+)'", text)
-    if missing:  # a bare program name; a path is a missing file, not a missing command
-        return 'missing_tool', missing[1] if missing[1] in TOOLS else None
+    missing = re.search(r"no such file or directory: '([^']+)'", text)
+    if missing and missing[1] in TOOLS:  # other names are files: a missing file is not a missing command
+        return 'missing_tool', missing[1]
+    if re.search(r'^env: [^:]+: no such file or directory', text, re.M):  # a CLI's interpreter is missing
+        return 'missing_tool', None
     for cause, words in (('login', ('401', 'token expired', 'invalid token', 'bad credentials', 'unauthorized',
                                     'not logged', 'authentication', 'login')),
                          ('denied', ('403', 'forbidden', 'permission', 'access denied', 'eacces')),
@@ -86,29 +96,33 @@ def classify(text):
     return 'unknown', None
 
 
-def failure_record(exc):
-    """The machine record sidequest-data prints for the dashboard: a service failure or an error type."""
+def failure_record(exc, command):
+    """(AccessFailure or None, record) for an error that ended a sidequest-data command.
+    The record is what the dashboard rebuilds from; unknown services become sidequest-data."""
     cause = getattr(exc, 'cause', None)
-    if isinstance(exc, AccessFailure) or cause in CAUSES and cause != 'unknown':
-        failure = exc if isinstance(exc, AccessFailure) else AccessFailure('Jira', cause, getattr(exc, 'tool', None))
-        return {'service': failure.service, 'cause': failure.cause, 'tool': failure.tool}
-    return {'error': type(exc).__name__}
+    if cause in CAUSES and cause != 'unknown':
+        service = getattr(exc, 'service', None) or ('Jira' if type(exc).__name__ == 'JiraError' else 'sidequest-data')
+        service = service if service_name(service) in KNOWN_SERVICES else 'sidequest-data'
+        failure = AccessFailure(service, cause, getattr(exc, 'tool', None), getattr(exc, 'note', None))
+        return failure, failure.record()
+    return None, {'error': type(exc).__name__, 'command': command}
 
 
 def failure_from_record(text):
-    """Rebuild a failure from a record. Only known services, causes, tools and type names pass;
-    anything else is a generic failure, so helper output never reaches the dashboard as text."""
+    """Rebuild a failure from a record. Only known services, causes, tools, notes, commands and
+    type names pass; anything else is a generic failure, so helper output never shows as text."""
     try:
         record = json.loads(text)
     except ValueError:
         record = None
-    if isinstance(record, dict) and set(record) <= {'service', 'cause', 'tool'}:
+    if isinstance(record, dict) and set(record) <= {'service', 'cause', 'tool', 'note'}:
         if (record.get('service') in KNOWN_SERVICES and record.get('cause') in CAUSES
-                and record.get('tool') in (None, *TOOLS)):
-            return AccessFailure(record['service'], record['cause'], record.get('tool'))
-    if isinstance(record, dict) and set(record) == {'error'} and re.fullmatch(r'[A-Z][A-Za-z]{0,40}', str(record['error'])):
-        return RuntimeError('Collection failed (' + record['error'] + '). Run sidequest-data collect in your '
-                            'terminal to see which source failed. Previous data retained.')
+                and record.get('tool') in (None, *TOOLS) and record.get('note') in (None, *NOTES)):
+            return AccessFailure(record['service'], record['cause'], record.get('tool'), record.get('note'))
+    if (isinstance(record, dict) and set(record) == {'error', 'command'} and record['command'] in COMMANDS
+            and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,60}', str(record['error']))):
+        return RuntimeError(COMMANDS[record['command']] + ' failed (' + record['error'] + '). Run sidequest-data '
+                            + record['command'] + ' in your terminal to see why. Previous data retained.')
     return AccessFailure('sidequest-data', 'unknown')
 
 
@@ -116,5 +130,5 @@ def failure_for(service, detail):
     """An AccessFailure for `service` from an exception or text. A known cause is used as is."""
     cause = getattr(detail, 'cause', None)
     if cause in CAUSES:
-        return AccessFailure(service, cause, getattr(detail, 'tool', None))
+        return AccessFailure(service, cause, getattr(detail, 'tool', None), getattr(detail, 'note', None))
     return AccessFailure(service, *classify(detail))
