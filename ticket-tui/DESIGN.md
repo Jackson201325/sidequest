@@ -60,23 +60,15 @@ peer planning sections to Plan. Fenced examples stay literal. Unknown headings
 stay in Plan so content is never silently discarded. The file is never rewritten;
 both views share its mtime cache. Existing Standup (u) is unchanged.
 
-2026-11-06: QueueEvidence owns the queue's data. It loads the newest copy of each
-source, validates refresh output with the snapshot publisher's own check, merges
-and saves updates, and records which sources failed as data. App keeps input,
-drawing, background scheduling and curses handoff; the header no longer reads
-error text to decide which source failed.
-
-2026-11-06: App.loop reads keys, runs timers, draws and performs handoffs; App.press
-applies one key and returns False to quit. Prefix state (Space, g) lives on App, and
-prompts or menus run through App.blocking, which skips screen timeouts without a
-screen. Key rules are tested by pressing keys on a demo App. The UI reaches tmux
-only through WorkspaceWorkflow and imports Heroku reading and browser opening
-from the package; its pass-through shims are removed. A resize clears the screen
-even while a Space or g prefix waits, and the prefix keeps waiting.
-
-2026-11-06: DetailViews builds every detail tab as rows of text and a style name
-(plain, heading, current, day, event, dim). draw paints styles and no longer
-guesses headings, the current step or Activity lines from their text; the hidden
-Plan heading marker never leaves the module. App.viewport derives panel and page
-sizes from the terminal size, App.fit keeps the selection and detail scroll in
-range after keys, list changes and resizes, and draw changes no navigation state.
+2026-11-06: QueueEvidence owns the queue's data: the newest copy of each source,
+refresh validation with the snapshot publisher's own check, merging, saving and
+per-source failure sets, so the header never reads error text. DetailViews builds
+every detail tab as rows of text and a style name (plain, heading, current, day,
+event, dim); draw paints styles and never guesses them from text. App.press applies
+one key and returns False to quit; App.loop reads keys, runs timers, draws and
+performs handoffs, and waits 250 ms for a key when idle and 50 ms while something
+loads. App.viewport derives panel and page sizes from the terminal size; App.fit
+keeps selection and detail scroll in range after keys, list changes and resizes;
+draw changes no navigation state. A resize clears the screen even while a Space or
+g prefix waits. The UI reaches tmux only through WorkspaceWorkflow and imports
+Heroku reading and browser opening from the package.
