@@ -28,7 +28,7 @@ class RefreshTests(unittest.TestCase):
         result = subprocess.CompletedProcess([], 0, '{"open_prs": []}', "warning: API unreachable")
         with patch("tui.subprocess.run", return_value=result):
             with self.assertRaisesRegex(RuntimeError, "keeping the previous snapshot"):
-                run(["sidequest-data", "pr-feedback", "--json"])
+                run(["sidequest-data", "collect", "--json"])
 
     def test_bad_refresh_retains_snapshot_and_selection_survives_ranking(self):
         with tempfile.TemporaryDirectory() as folder:

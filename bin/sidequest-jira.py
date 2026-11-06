@@ -4,6 +4,8 @@ import base64
 import json
 import os
 import re
+import socket
+import ssl
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -14,15 +16,20 @@ CLOUD_ID = config.get('jira', 'cloud_id')
 BASES = ([SITE] if SITE else []) + (['https://api.atlassian.com/ex/jira/' + CLOUD_ID] if CLOUD_ID else [])
 _base = [None]
 
+STATUS_CAUSES = {301: 'not_found', 401: 'login', 403: 'denied', 404: 'not_found'}
+
+
 class JiraError(RuntimeError):
-    def __init__(self, message, status=None):
+    def __init__(self, message, status=None, cause=None):
         super().__init__(message)
         self.status = status  # HTTP status when the error came from a Jira response
+        self.cause = cause or STATUS_CAUSES.get(status, 'unknown')  # see sidequest.access.CAUSES
 
 def _auth():
     email, token = identity.JIRA_EMAIL, os.environ.get('SIDEQUEST_JIRA_TOKEN')
     if not email or not token:
-        raise JiraError('No Jira credentials: configure jira.email and set SIDEQUEST_JIRA_TOKEN in your terminal')
+        raise JiraError('No Jira credentials: configure jira.email and set SIDEQUEST_JIRA_TOKEN in your terminal',
+                        cause='credentials')
     return 'Basic ' + base64.b64encode((email + ':' + token).encode()).decode()
 
 def jira(method, path, body=None):
@@ -47,10 +54,15 @@ def jira(method, path, body=None):
             if exc.code == 401 and not _base[0]:
                 continue
             raise JiraError('Jira HTTP %d; previous data retained' % exc.code, exc.code) from None
-        except (urllib.error.URLError, OSError, ValueError) as exc:
-            reason = 'TLS failure' if 'certificate' in str(exc).lower() else 'network or invalid response'
-            raise JiraError('Jira ' + reason + '; previous data retained') from None
-    raise JiraError('Jira HTTP 401; renew SIDEQUEST_JIRA_TOKEN')
+        except (urllib.error.URLError, OSError) as exc:
+            reason = getattr(exc, 'reason', exc)
+            cause = ('tls' if isinstance(reason, ssl.SSLError) else 'dns' if isinstance(reason, socket.gaierror)
+                     else 'network')
+            raise JiraError('Jira ' + {'tls': 'TLS failure', 'dns': 'DNS lookup failed'}.get(cause, 'network failure')
+                            + '; previous data retained', cause=cause) from None
+        except ValueError:
+            raise JiraError('Jira invalid response; previous data retained') from None
+    raise JiraError('Jira HTTP 401; renew SIDEQUEST_JIRA_TOKEN', 401)
 
 def workflow_dates(key, current_status, created=None, account_id=None, current_assignee=None):
     """Status entry and first personal assignment, from one complete changelog."""

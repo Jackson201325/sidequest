@@ -295,3 +295,23 @@ seven tabs at 145x40, 80x24 and 64x18 matched the previous commit in text and
 paint attributes (595 lines, 1,852 paint calls).
 Verification: bin/check passed 150 helper/service/spec tests and 172 UI tests
 (two optional browser checks skipped).
+
+2026-11-06: Access failures as data.
+
+Every service error used to reach recovery text through one substring classifier,
+so Jira's HTTP status and a missing gh binary were turned into text and guessed
+back. Thirteen tests written first failed until sidequest.access.AccessFailure
+existed. AccessFailure is a RuntimeError with a service and a cause (missing_tool,
+credentials, login, denied, dns, tls, network, not_found, unknown); its message is
+the same recovery text as before. JiraError now records a cause from the HTTP
+status, missing credentials, TLS, DNS or network failure, and the collector uses
+it directly. The gh runner reports a missing gh as missing_tool. Word matching
+remains only for text-only tool output (gh stderr and dashboard helper runs), and
+200 service/text pairs give the same text as before. Two Jira messages are more
+precise: DNS failures now say "DNS lookup failed" instead of "network
+unavailable", and invalid JSON says "request failed". Heroku already maps its own
+HTTP statuses and is unchanged. The dashboard run() no longer special-cases the
+ticket, my-tickets and pr-feedback commands or an old Keychain diagnostic; the
+dashboard only runs collect, and those commands remain available in sidequest-data.
+Verification: bin/check passed 163 helper/service/spec tests and 172 UI tests
+(two optional browser checks skipped).
