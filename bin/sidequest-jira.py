@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Read-only Jira transport. Search uses Jira's documented POST search endpoint."""
 import base64
+import http.client
 import json
 import os
 import re
@@ -10,6 +11,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime
 from sidequest import config, identity
+from sidequest.access import CAUSES
 
 SITE = config.get('jira', 'site').rstrip('/')
 CLOUD_ID = config.get('jira', 'cloud_id')
@@ -23,7 +25,9 @@ class JiraError(RuntimeError):
     def __init__(self, message, status=None, cause=None):
         super().__init__(message)
         self.status = status  # HTTP status when the error came from a Jira response
-        self.cause = cause or STATUS_CAUSES.get(status, 'unknown')  # see sidequest.access.CAUSES
+        self.cause = cause or STATUS_CAUSES.get(status)  # None: unknown, so the text is classified
+        if self.cause is not None and self.cause not in CAUSES:
+            raise ValueError('unknown Jira error cause: ' + self.cause)
 
 def _auth():
     email, token = identity.JIRA_EMAIL, os.environ.get('SIDEQUEST_JIRA_TOKEN')
@@ -54,9 +58,10 @@ def jira(method, path, body=None):
             if exc.code == 401 and not _base[0]:
                 continue
             raise JiraError('Jira HTTP %d; previous data retained' % exc.code, exc.code) from None
-        except (urllib.error.URLError, OSError) as exc:
-            reason = getattr(exc, 'reason', exc)
-            cause = ('tls' if isinstance(reason, ssl.SSLError) else 'dns' if isinstance(reason, socket.gaierror)
+        except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+            # URLError wraps the real error in .reason; errors while reading the body arrive bare.
+            inner = exc.reason if isinstance(exc, urllib.error.URLError) else exc
+            cause = ('tls' if isinstance(inner, ssl.SSLError) else 'dns' if isinstance(inner, socket.gaierror)
                      else 'network')
             raise JiraError('Jira ' + {'tls': 'TLS failure', 'dns': 'DNS lookup failed'}.get(cause, 'network failure')
                             + '; previous data retained', cause=cause) from None
