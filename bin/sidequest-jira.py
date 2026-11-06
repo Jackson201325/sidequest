@@ -113,8 +113,9 @@ def workflow_dates(key, current_status, created=None, account_id=None, current_a
             raise JiraError("incomplete Jira changelog; retain the previous snapshot")
     if changes:
         _, status, status_at = max(changes, key=lambda row: row[0])
-        if status != current_status:
-            raise JiraError("Jira status changed during collection; refresh again")
+        if (status or '').casefold() != (current_status or '').casefold():
+            # A renamed status or one changed during collection: its start is unknown, not a failure.
+            status_at = None
     else:
         status_at = timestamp(created).isoformat() if created else None
     first = min((at for at, _, to in assignments if to == account_id), default=None)

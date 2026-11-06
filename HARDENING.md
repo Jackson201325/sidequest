@@ -450,3 +450,21 @@ reason, never other exception text that may repeat commands or response bodies.
 describe_failure clips dashboard text to the dashboard's 300-character limit, and
 any AccessFailure keeps its own advice. Known limit: the dashboard raises a plain
 RuntimeError for a failed sidequest-data run; no caller branches on its type.
+
+2026-11-06: Whole-codebase review.
+
+A review of the whole repository, with the error-message area frozen, found ten
+behavior bugs that no test caught. Each now has a failing test first. A PR commit
+by an author without a GitHub account no longer crashes the Work log and Standup
+tabs. A Jira status whose changelog name differs from the current name (renamed by
+an admin, or changed during collection) leaves status_since unknown instead of
+failing every Jira refresh; names that differ only in case keep their date. A
+snapshot.json that is valid JSON but not an object is refused like other bad
+files. The dashboard, workspace actions and work history now share one repository
+(SIDEQUEST_REPO, then workspace.repository), and the work log and ship-check use
+workspace.base_ref instead of origin/main. ship-check no longer crashes on a
+non-migration file in db/migrate (reproduced with the previous code). A bad
+SIDEQUEST_TERMINAL is a status-line message instead of closing the dashboard.
+--refresh with --list, --standup or --update-report prints cached results marked
+incomplete when collection fails. Spinner frames reuse the fitted viewport while
+nothing it depends on changes.

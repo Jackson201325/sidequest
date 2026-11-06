@@ -48,7 +48,7 @@ class SnapshotStore:
         if not self.path.exists():
             return {"version": 1, "sources": {}, "failures": {}}
         data = json.loads(self.path.read_text())
-        if data.get("version") != 1 or not isinstance(data.get("sources"), dict):
+        if not isinstance(data, dict) or data.get("version") != 1 or not isinstance(data.get("sources"), dict):
             raise ValueError("unsupported snapshot; existing file retained")
         return data
 
