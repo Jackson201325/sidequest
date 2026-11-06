@@ -8,13 +8,18 @@ def configured_author():
     return GITHUB_LOGIN or '@me'
 
 
-def run_command(args):
+def run_tool(args, timeout=90):
+    """Run a read-only service CLI (gh, heroku). Failures are AccessFailure for that tool's service."""
     try:
-        result = subprocess.run(args, text=True, capture_output=True, timeout=90)
+        result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
     except FileNotFoundError as exc:
-        raise failure_for('GitHub', exc) from None
+        raise failure_for(args[0], exc) from None
     except subprocess.TimeoutExpired:
-        raise AccessFailure('GitHub', 'network') from None
+        raise AccessFailure(args[0], 'timeout') from None
     if result.returncode:
-        raise failure_for('GitHub', result.stderr)
+        raise failure_for(args[0], result.stderr)
     return result.stdout
+
+
+def run_command(args):
+    return run_tool(args)

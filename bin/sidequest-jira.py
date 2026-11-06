@@ -18,15 +18,16 @@ CLOUD_ID = config.get('jira', 'cloud_id')
 BASES = ([SITE] if SITE else []) + (['https://api.atlassian.com/ex/jira/' + CLOUD_ID] if CLOUD_ID else [])
 _base = [None]
 
-STATUS_CAUSES = {301: 'not_found', 401: 'login', 403: 'denied', 404: 'not_found'}
+STATUS_CAUSES = {301: 'not_found', 401: 'login', 403: 'denied', 404: 'not_found', 429: 'rate_limited'}
 
 
 class JiraError(RuntimeError):
     def __init__(self, message, status=None, cause=None):
         super().__init__(message)
         self.status = status  # HTTP status when the error came from a Jira response
-        self.cause = cause or STATUS_CAUSES.get(status)  # None: unknown, so the text is classified
-        if self.cause is not None and self.cause not in CAUSES:
+        # Jira raises every error itself, so its cause is always known: never guessed from wording.
+        self.cause = cause or STATUS_CAUSES.get(status) or ('server' if status and status >= 500 else 'unknown')
+        if self.cause not in CAUSES:
             raise ValueError('unknown Jira error cause: ' + self.cause)
 
 def _auth():
@@ -43,6 +44,7 @@ def jira(method, path, body=None):
         raise JiraError('Unsupported Jira request path')
     if not BASES:
         raise JiraError('Configure jira.site before refreshing Jira')
+    rejected = False
     for base in ([_base[0]] if _base[0] else BASES):
         request = urllib.request.Request(base + path, method=method,
             data=None if body is None else json.dumps(body).encode(),
@@ -56,15 +58,20 @@ def jira(method, path, body=None):
             return data
         except urllib.error.HTTPError as exc:
             if exc.code == 401 and not _base[0]:
+                rejected = True
                 continue
+            if rejected:
+                break  # the token was refused already; a second base's error would hide that
             raise JiraError('Jira HTTP %d; previous data retained' % exc.code, exc.code) from None
         except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+            if rejected:
+                break
             # URLError wraps the real error in .reason; errors while reading the body arrive bare.
             inner = exc.reason if isinstance(exc, urllib.error.URLError) else exc
             cause = ('tls' if isinstance(inner, ssl.SSLError) else 'dns' if isinstance(inner, socket.gaierror)
-                     else 'network')
-            raise JiraError('Jira ' + {'tls': 'TLS failure', 'dns': 'DNS lookup failed'}.get(cause, 'network failure')
-                            + '; previous data retained', cause=cause) from None
+                     else 'timeout' if isinstance(inner, TimeoutError) else 'network')
+            raise JiraError('Jira ' + {'tls': 'TLS failure', 'dns': 'DNS lookup failed', 'timeout': 'request timed out'}
+                            .get(cause, 'network failure') + '; previous data retained', cause=cause) from None
         except ValueError:
             raise JiraError('Jira invalid response; previous data retained') from None
     raise JiraError('Jira HTTP 401; renew SIDEQUEST_JIRA_TOKEN', 401)

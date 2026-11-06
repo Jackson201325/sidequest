@@ -1,6 +1,5 @@
 """Collect configured services once and retain each failed source atomically."""
 import fcntl
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -76,11 +75,11 @@ def collect(directory=DEFAULT_OUT, max_age=0):
                 updates[name] = dict(source, generated_at=stamp())
         try:
             retain_or_update('prs', collect_prs())
-        except (OSError, RuntimeError, ValueError, SystemExit, subprocess.SubprocessError) as exc:
+        except (OSError, RuntimeError, ValueError, SystemExit) as exc:
             failures['prs'] = str(failure_for('GitHub', exc))
         prs = updates.get('prs', previous['sources'].get('prs', {}))
         try:
             retain_or_update('jira', collect_jira(prs.get('open_prs', [])))
-        except (OSError, RuntimeError, ValueError, SystemExit, KeyError, subprocess.SubprocessError) as exc:
+        except (OSError, RuntimeError, ValueError, SystemExit, KeyError) as exc:
             failures['jira'] = str(failure_for('Jira', exc))
         return store.publish(updates, failures)
