@@ -1,4 +1,5 @@
 """Access failures carry their cause as data; text is guessed only for text-only tools."""
+import http.client
 import io
 from pathlib import Path
 import socket
@@ -13,7 +14,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / 'ticket-tui')]
 from sidequest import collector, services
-from sidequest.access import AccessFailure, access_error, failure_for
+from sidequest.access import AccessFailure, failure_for
 from sidequest.jira import client
 
 
@@ -26,7 +27,6 @@ class AccessFailureTests(unittest.TestCase):
         failure = failure_for('GitHub', 'HTTP 401 Bad credentials')
         self.assertIsInstance(failure, RuntimeError)
         self.assertEqual((failure.service, failure.cause), ('GitHub', 'login'))
-        self.assertEqual(str(failure), access_error('GitHub', 'HTTP 401 Bad credentials'))
         self.assertEqual(str(failure), 'GitHub: login unavailable or expired. Run gh auth login in your terminal, '
                                        'then press r. Previous data retained.')
 
@@ -60,10 +60,11 @@ class JiraCauseTests(unittest.TestCase):
         return failure.exception
 
     def test_http_statuses_become_causes(self):
-        for code, cause in ((401, 'login'), (403, 'denied'), (404, 'not_found'), (500, 'unknown')):
+        for code, cause in ((401, 'login'), (403, 'denied'), (404, 'not_found'), (500, None)):
             with self.subTest(code=code):
                 error = self.request(http_error(code))
                 self.assertEqual((error.status, error.cause), (code, cause))
+        self.assertEqual(failure_for('Jira', self.request(http_error(500))).cause, 'unknown')
 
     def test_network_dns_and_tls_failures_become_causes(self):
         cases = ((urllib.error.URLError(socket.gaierror(8, 'nodename nor servname provided')), 'dns'),
@@ -85,6 +86,27 @@ class JiraCauseTests(unittest.TestCase):
                 client.fetch_one('APP-5')
         self.assertEqual((failure.exception.status, failure.exception.cause), (301, 'not_found'))
 
+    def test_tls_failure_while_reading_the_body_is_tls(self):
+        class Response:
+            def __enter__(self):
+                error = ssl.SSLCertVerificationError(1, 'certificate verify failed')
+                error.reason = 'CERTIFICATE_VERIFY_FAILED'  # real SSL errors carry a text reason
+                raise error
+
+            def __exit__(self, *args):
+                return False
+        self.assertEqual(self.request(lambda *a, **k: Response()).cause, 'tls')
+
+    def test_a_dropped_connection_mid_body_is_a_network_failure(self):
+        self.assertEqual(self.request(http.client.IncompleteRead(b'{"ac')).cause, 'network')
+
+    def test_an_error_without_a_known_cause_is_still_classified_by_text(self):
+        self.assertIsNone(client.JiraError('Jira request timed out').cause)
+        self.assertEqual(failure_for('Jira', client.JiraError('Jira request timed out')).cause, 'network')
+
+    def test_misspelled_causes_are_refused(self):
+        with self.assertRaises(ValueError):
+            client.JiraError('x', cause='dns_failure')
 
 class CallerTests(unittest.TestCase):
     def test_gh_runner_reports_a_missing_gh_as_a_cause(self):
@@ -113,16 +135,47 @@ class CallerTests(unittest.TestCase):
         self.assertIn('network unavailable', failures['jira'])
         self.assertNotIn('login', failures['jira'])
 
+    def test_a_gh_timeout_is_a_network_failure(self):
+        with patch('subprocess.run', side_effect=subprocess.TimeoutExpired(['gh'], 90)):
+            with self.assertRaises(AccessFailure) as failure:
+                services.run_command(['gh', 'pr', 'list'])
+        self.assertEqual(failure.exception.cause, 'network')
+
+    def test_a_gh_timeout_still_lets_jira_collect_and_publish(self):
+        settings = {'jira': {'site': 'https://example.atlassian.net'}}
+        with patch.object(collector.config, 'SETTINGS', settings), patch.object(collector.identity, 'GITHUB_REPO', 'o/r'), \
+                patch.object(collector.identity, 'JIRA_ACCOUNT_ID', 'me'), \
+                patch('subprocess.run', side_effect=subprocess.TimeoutExpired(['gh'], 90)), \
+                patch.object(client, 'search', return_value=[]), tempfile.TemporaryDirectory() as folder:
+            result = collector.collect(folder)
+        self.assertIn('network unavailable', result['failures']['prs'])
+        self.assertIn('jira', result['sources'])
+
+    def test_review_app_reports_a_missing_gh_like_every_other_gh_caller(self):
+        from sidequest import review_apps
+        with patch('subprocess.run', side_effect=FileNotFoundError(2, 'No such file or directory', 'gh')):
+            with self.assertRaises(review_apps.ReviewAppError) as failure:
+                review_apps._run(['gh', 'pr', 'view'])
+        self.assertIn('GitHub CLI (gh) is not installed', str(failure.exception))
 
 class DashboardRunTests(unittest.TestCase):
-    def test_run_treats_every_helper_command_alike(self):
+    def test_run_classifies_text_only_tools_and_hides_their_output(self):
         from tui import run
         result = subprocess.CompletedProcess([], 1, '', 'HTTP 401 Bad credentials secret-fixture')
         with patch('subprocess.run', return_value=result):
             with self.assertRaises(AccessFailure) as failure:
-                run(['sidequest-data', 'pr-feedback', '--json'])
-        self.assertTrue(str(failure.exception).startswith('sidequest-data: login unavailable'))
+                run(['gh', 'pr', 'list'])
+        self.assertTrue(str(failure.exception).startswith('GitHub: login unavailable'))
         self.assertNotIn('secret-fixture', str(failure.exception))
+
+    def test_a_failed_collect_is_not_reported_as_a_login_problem(self):
+        from tui import run
+        stderr = 'Collection failed. Check configuration, network and service login. Previous data retained.'
+        with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 2, '', stderr)):
+            with self.assertRaises(AccessFailure) as failure:
+                run(['sidequest-data', 'collect', '--json'])
+        self.assertEqual(failure.exception.cause, 'unknown')
+        self.assertNotIn('login unavailable', str(failure.exception))
 
     def test_run_has_no_keychain_exception_for_diagnostics(self):
         from tui import run

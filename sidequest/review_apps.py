@@ -23,8 +23,8 @@ def _run(args, timeout=45):
         if args[:2] == ["gh", "pr"] and config.get("github", "repository"):
             args += ["--repo", config.get("github", "repository")]
         result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
-    except FileNotFoundError:
-        raise ReviewAppError("%s is not installed" % args[0]) from None
+    except FileNotFoundError as exc:
+        raise ReviewAppError(str(failure_for(args[0], exc))) from None
     except subprocess.TimeoutExpired:
         raise ReviewAppError("%s timed out" % " ".join(args[:3])) from None
     if result.returncode:

@@ -152,9 +152,9 @@ class ServiceTests(unittest.TestCase):
             self.assertEqual(github.enrich_pr(row, include_threads=False)['ticket'], 'APP-9')
 
     def test_missing_file_errors_only_blame_gh_when_gh_is_missing(self):
-        from sidequest.access import access_error
-        self.assertIn('GitHub CLI (gh) is not installed', access_error('GitHub', "[Errno 2] No such file or directory: 'gh'"))
-        other = access_error('fetch', "fatal: cannot open '.git/FETCH_HEAD': No such file or directory")
+        from sidequest.access import failure_for
+        self.assertIn('GitHub CLI (gh) is not installed', str(failure_for('GitHub', "[Errno 2] No such file or directory: 'gh'")))
+        other = str(failure_for('fetch', "fatal: cannot open '.git/FETCH_HEAD': No such file or directory"))
         self.assertNotIn('GitHub CLI (gh) is not installed', other)
 
 

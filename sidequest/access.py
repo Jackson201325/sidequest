@@ -64,13 +64,11 @@ def classify(text):
 
 def failure_for(service, detail):
     """An AccessFailure for `service` from an exception or text. A known cause is used as is."""
+    if isinstance(detail, AccessFailure) and detail.service == SERVICE_NAMES.get(service, service):
+        return detail
     cause = getattr(detail, 'cause', None)
     if cause in CAUSES:
         return AccessFailure(service, cause, getattr(detail, 'tool', None))
     if isinstance(detail, FileNotFoundError) and detail.filename:
         return AccessFailure(service, 'missing_tool', str(detail.filename))
     return AccessFailure(service, *classify(detail))
-
-
-def access_error(service, detail):
-    return str(failure_for(service, detail))

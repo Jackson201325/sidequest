@@ -134,13 +134,13 @@ class FirstRunTests(unittest.TestCase):
         self.assertEqual([e["title"] for e in ticket_activity(ticket)], ["Comment added", "Ticket updated"])
 
     def test_first_run_errors_name_the_missing_piece(self):
-        from sidequest.access import access_error
-        gh = access_error("GitHub", "[Errno 2] No such file or directory: 'gh'")
+        from sidequest.access import failure_for
+        gh = str(failure_for("GitHub", "[Errno 2] No such file or directory: 'gh'"))
         self.assertIn("GitHub CLI (gh) is not installed", gh)
-        jira = access_error("Jira", "No Jira credentials: configure jira.email and set SIDEQUEST_JIRA_TOKEN")
+        jira = str(failure_for("Jira", "No Jira credentials: configure jira.email and set SIDEQUEST_JIRA_TOKEN"))
         self.assertIn("no credentials yet", jira)
         self.assertNotIn("expired", jira)
-        self.assertIn("login unavailable or expired", access_error("Jira", "Jira HTTP 401; previous data retained"))
+        self.assertIn("login unavailable or expired", str(failure_for("Jira", "Jira HTTP 401; previous data retained")))
 
     def test_header_marks_unconfigured_and_failed_sources(self):
         app = tui.App.__new__(tui.App)

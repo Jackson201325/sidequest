@@ -455,6 +455,9 @@ and exits 3. There is no scheduler or check-in service.
 | Empty queue | Configure at least one service, then run --refresh; check the selected project/repository and authenticated user |
 | Jira login error | Export SIDEQUEST_JIRA_TOKEN in this shell; verify jira.email, site and, for scoped tokens, cloud_id |
 | GitHub login/access error | Run gh auth login; verify the repository and account permissions |
+| "GitHub CLI (gh) is not installed" | Install gh and put it on PATH, then run gh auth login |
+| DNS, TLS or network error | Check your network, VPN and certificates; Jira and Heroku report these separately from login errors |
+| "sidequest-data: request failed" | Run ./bin/sidequest-data collect --json in a terminal to see which source failed |
 | Old rows after a failed refresh | Cached data is being retained; the error and source timestamp explain why |
 | No local work log | Configure workspace.repository and identity.git_author |
 | No Heroku status | Configure the correct pipeline and check the account's access; provisioned does not always mean Web up |

@@ -136,7 +136,7 @@ class HelperKeyTests(unittest.TestCase):
     def test_review_app_expands_a_bare_number_only_with_one_configured_project(self):
         self.assertIn('give the full ticket key', self.review_app('123', []).stderr)
         self.assertIn('give the full ticket key', self.review_app('123', ['APP', 'OPS']).stderr)
-        self.assertIn('gh is not installed', self.review_app('123', ['APP']).stderr)
+        self.assertIn('GitHub CLI (gh) is not installed', self.review_app('123', ['APP']).stderr)
         self.assertIn('ticket key must look like APP-123', self.review_app('not a key', ['APP']).stderr)
 
     def find(self, key, searched, listed=(), projects=()):
@@ -195,7 +195,7 @@ class HelperKeyTests(unittest.TestCase):
         self.assertIn('give the ticket key', result.stderr)
         subprocess.run(['git', 'checkout', '-qb', 'fix/APP-7-totals'], cwd=repo, check=True)
         result = subprocess.run(script, cwd=repo, env=env, text=True, capture_output=True)
-        self.assertIn('gh is not installed', result.stderr)
+        self.assertIn('GitHub CLI (gh) is not installed', result.stderr)
 
     def test_helper_usage_text_has_no_demo_only_keys(self):
         for name in ('sidequest-qa-shot.py', 'sidequest-review-app.py', 'sidequest-worktree.py'):
