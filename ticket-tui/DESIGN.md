@@ -73,3 +73,10 @@ screen. Key rules are tested by pressing keys on a demo App. The UI reaches tmux
 only through WorkspaceWorkflow and imports Heroku reading and browser opening
 from the package; its pass-through shims are removed. A resize clears the screen
 even while a Space or g prefix waits, and the prefix keeps waiting.
+
+2026-11-06: DetailViews builds every detail tab as rows of text and a style name
+(plain, heading, current, day, event, dim). draw paints styles and no longer
+guesses headings, the current step or Activity lines from their text; the hidden
+Plan heading marker never leaves the module. App.viewport derives panel and page
+sizes from the terminal size, App.fit keeps the selection and detail scroll in
+range after keys, list changes and resizes, and draw changes no navigation state.

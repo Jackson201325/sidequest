@@ -109,24 +109,26 @@ class WorkspaceTests(unittest.TestCase):
             try:
                 app = App(store, Path("/tmp"), demo=True)
                 ticket = app.selected()
+                app.detail_tab = "Plan"
+                plan_lines = lambda: [row.text for row in app.views.plan_rows(ticket, "Plan", Path(folder))]
+                headings = lambda: [row.text for row in app.views.plan_rows(ticket, "Plan", Path(folder)) if row.style == "heading"]
                 with patch.object(tui, "PLANS", Path(folder)):
-                    missing = app.plan_lines(ticket)
+                    missing = plan_lines()
                     self.assertIn("No plan yet", missing[0])
                     self.assertIn(f"{ticket.key}/plan.md", missing[-1])
                     plan = Path(folder) / ticket.key / "plan.md"
                     plan.parent.mkdir()
                     plan.write_text("# Plan\n## Acceptance criteria\n- [ ] Reject zero\n- [x] Reject nil\n- **Approach** `x`\n")
-                    lines = app.plan_lines(ticket)
+                    lines = plan_lines()
                     self.assertTrue(lines[0].startswith(f"{Path(folder).name}/{ticket.key}/plan.md · edited"), lines[0])
-                    self.assertIn(tui.PLAN_HEADING + "ACCEPTANCE CRITERIA", lines)
+                    self.assertIn("ACCEPTANCE CRITERIA", headings())
                     self.assertIn("☐ Reject zero", lines)
                     self.assertIn("☑ Reject nil", lines)
                     self.assertIn("• Approach x", lines)
                     plan.write_text("# Changed\n")
                     os.utime(plan, (_time.time() + 5, _time.time() + 5))
-                    self.assertIn(tui.PLAN_HEADING + "CHANGED", app.plan_lines(ticket))
-                    app.detail_tab = "Plan"
-                    self.assertEqual(app.details(ticket)[2], tui.PLAN_HEADING + "CHANGED")
+                    self.assertEqual(headings(), ["CHANGED"])
+                    self.assertEqual(app.details(ticket)[2], "CHANGED")
             finally:
                 store.close()
 

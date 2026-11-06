@@ -280,3 +280,18 @@ root to sys.path like the other tests. The moved tmux tests call sidequest.tmux
 directly instead of copies of the removed shims, a duplicate split_command test
 is removed, and the worktree window test reads the tmux session from the test
 configuration. The docs no longer claim that the dashboard imports tmux.
+
+2026-11-06: Detail views and viewport.
+
+Tests written first failed until ticket-tui/detail_views.py existed. DetailViews
+returns styled rows for every tab, marks the current workflow step from the stage
+index instead of the "YOU ARE HERE" text, and takes Activity line kinds from
+layout.timeline_rows. App.viewport and App.fit replace the page_size,
+preview_page_size and offset updates that draw used to make; a resize reaches
+fit through KEY_RESIZE, and one resize test now sends that key. Key and title
+lines that the panel border already shows are no longer built, even when refresh
+errors precede them. Wrapped continuations of headings are plain. A render of all
+seven tabs at 145x40, 80x24 and 64x18 matched the previous commit in text and
+paint attributes (595 lines, 1,852 paint calls).
+Verification: bin/check passed 150 helper/service/spec tests and 172 UI tests
+(two optional browser checks skipped).
