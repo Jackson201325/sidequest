@@ -3,7 +3,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from environments import fetch_environments, review_status
+from sidequest.environments import fetch_environments, review_status
 
 
 class EnvironmentTests(unittest.TestCase):

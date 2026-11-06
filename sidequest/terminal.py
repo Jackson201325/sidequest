@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import shlex
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Optional
 from sidequest import tmux
@@ -88,3 +89,10 @@ def run_request(action):
             return process.wait()
         except KeyboardInterrupt:
             continue
+
+
+def open_browser(run, url, browser=None):
+    """Open `browser` (a command line) or the OS default, without loading shell profiles."""
+    command = shlex.split(browser) if browser else ['open' if sys.platform == 'darwin' else 'xdg-open']
+    run(command + [url])
+    return 'Opened in browser'
