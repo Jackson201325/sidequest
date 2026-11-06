@@ -104,14 +104,14 @@ class WorktreeTests(unittest.TestCase):
         porcelain = ("worktree /repo\nHEAD 1\nbranch refs/heads/main\n\n"
                      "worktree /wt/app-7\nHEAD 2\nbranch refs/heads/feature/APP-7-totals\n\n"
                      "worktree /wt/backup\nHEAD 3\nbranch refs/heads/backup/APP-7-old\n\n")
-        with patch.object(tui.config, "get", return_value="/repo"), patch.object(tui, "run", return_value=porcelain):
+        with patch.object(tui.config, "workspace_repository", return_value="/repo"), patch.object(tui, "run", return_value=porcelain):
             self.assertEqual(tui.worktrees(), {"APP-7": "/wt/app-7"})
 
     def test_only_branch_segment_keys_map_a_worktree_like_lookup(self):
         porcelain = ("worktree /repo\nHEAD 1\nbranch refs/heads/main\n\n"
                      "worktree /wt/a\nHEAD 2\nbranch refs/heads/feature/APP-1-revert-APP-2\n\n"
                      "worktree /wt/b\nHEAD 3\nbranch refs/heads/fix/APP-3-utf-8\n\n")
-        with patch.object(tui.config, "get", return_value="/repo"), patch.object(tui, "run", return_value=porcelain):
+        with patch.object(tui.config, "workspace_repository", return_value="/repo"), patch.object(tui, "run", return_value=porcelain):
             self.assertEqual(tui.worktrees(), {"APP-1": "/wt/a", "APP-3": "/wt/b"})
 
 

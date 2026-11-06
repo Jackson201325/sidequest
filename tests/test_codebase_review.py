@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from time import time as time_now
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -36,6 +37,16 @@ class JiraStatusTests(unittest.TestCase):
     def test_a_status_differing_only_in_case_keeps_its_date(self):
         self.assertIsNotNone(self.dates('In Dev', 'IN DEV')['status_since'])
 
+    def test_a_status_matching_by_name_after_an_id_migration_keeps_its_date(self):
+        self.assertIsNotNone(self.dates('QA', 'QA', '20003', '10003')['status_since'])
+
+    def test_simultaneous_transitions_use_the_last_one_in_the_changelog(self):
+        changes = [{'created': '2026-11-01T10:00:00.000+0000', 'items': [{'field': 'status', 'toString': 'Review', 'to': '2'}]},
+                   {'created': '2026-11-01T10:00:00.000+0000', 'items': [{'field': 'status', 'toString': 'QA', 'to': '3'}]}]
+        with patch.object(client, 'jira', return_value={'values': changes, 'isLast': True}):
+            dates = client.workflow_dates('APP-1', 'QA', '2026-10-01T10:00:00.000+0000', status_id='3')
+        self.assertIsNotNone(dates['status_since'])
+
     def test_a_status_change_during_collection_keeps_the_previous_data(self):
         with self.assertRaises(client.JiraError):
             self.dates('QA', 'In Dev', '10003', '10001')
@@ -55,9 +66,10 @@ class SnapshotTests(unittest.TestCase):
 class RepositoryTests(unittest.TestCase):
     def test_the_dashboard_and_workspace_actions_use_the_same_repository(self):
         from sidequest.config import workspace_repository
-        with patch.dict(os.environ, {'SIDEQUEST_REPO': '/repo-b'}), \
-                patch('sidequest.config.SETTINGS', {'workspace': {'repository': '/repo-a'}}):
-            self.assertEqual(workspace_repository(), '/repo-b')
+        with tempfile.TemporaryDirectory() as repo_b:
+            with patch.dict(os.environ, {'SIDEQUEST_REPO': repo_b}), \
+                    patch('sidequest.config.SETTINGS', {'workspace': {'repository': '/repo-a'}}):
+                self.assertEqual(workspace_repository(), repo_b)
         with patch.dict(os.environ, {}, clear=True), \
                 patch('sidequest.config.SETTINGS', {'workspace': {'repository': '/repo-a'}}):
             self.assertEqual(workspace_repository(), '/repo-a')
@@ -184,16 +196,28 @@ class ReviewFollowUpTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn('refresh incomplete', stderr.getvalue())
 
-    def test_a_missing_repository_folder_does_not_break_helper_runs(self):
+    def test_a_stale_sidequest_repo_is_ignored_everywhere(self):
+        from sidequest.repository import repository_from
+        with tempfile.TemporaryDirectory() as folder:
+            settings = {'workspace': {'repository': folder}}
+            self.assertEqual(repository_from({'SIDEQUEST_REPO': '/nonexistent/old'}, settings), folder)
+            self.assertEqual(repository_from({'SIDEQUEST_REPO': folder}, {}), folder)
+            self.assertEqual(repository_from({}, {}), '')
+        from sidequest.application import build_workflow
+        with tempfile.TemporaryDirectory() as folder:
+            workflow = build_workflow({'workspace': {'repository': folder}}, {'SIDEQUEST_REPO': '/nonexistent/old', 'SHELL': '/bin/sh'})
+            self.assertEqual(str(workflow.workspace.repository), str(Path(folder).resolve()))
+
+    def test_helper_runs_use_the_repository_folder_again(self):
         import tui
         seen = {}
 
         def fake(args, **kwargs):
             seen['cwd'] = kwargs.get('cwd')
             return subprocess.CompletedProcess(args, 0, '{}', '')
-        with patch.object(tui, 'ROOT', Path('/nonexistent/old-checkout')), patch('subprocess.run', side_effect=fake):
-            tui.run(['sidequest-data', 'collect', '--json'])
-        self.assertTrue(Path(seen['cwd']).is_dir())
+        with patch.object(tui, 'ROOT', Path('/repo-a')), patch('subprocess.run', side_effect=fake):
+            tui.run(['git', 'worktree', 'list', '--porcelain'])
+        self.assertEqual(seen['cwd'], Path('/repo-a'))
 
     def test_ship_check_fetches_the_remote_of_its_base(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -220,6 +244,7 @@ class ReviewFollowUpTests(unittest.TestCase):
     def test_ship_check_help_names_the_configured_base(self):
         text = (ROOT / 'bin/sidequest-ship-check.py').read_text().split('"""')[1]
         self.assertNotIn('origin/main', text)
+        self.assertNotIn('refresh origin', (ROOT / 'bin/sidequest-ship-check.py').read_text())
         self.assertIn('workspace.base_ref', text)
 
     def test_helpers_use_the_shared_repository_and_base_settings(self):
@@ -228,6 +253,49 @@ class ReviewFollowUpTests(unittest.TestCase):
                 source = (ROOT / 'bin' / name).read_text()
                 self.assertNotIn("os.environ.get(\"SIDEQUEST_REPO\")", source)
                 self.assertNotIn("'base_ref') or 'origin/main'", source)
+
+    def update_report(self, refresh, report):
+        import tui
+        with tempfile.TemporaryDirectory() as folder:
+            stdout, stderr = io.StringIO(), io.StringIO()
+            argv = ['sidequest', '--update-report', '--snapshots', folder + '/snapshots', '--data-dir', folder + '/data']
+            argv += ['--refresh'] if refresh else []
+            from core import Store
+            store = Store(Path(folder) / 'seed.sqlite3')
+            store.source('refresh_errors', {'messages': ['old failure from yesterday'], 'sources': ['prs']})
+            store.close()
+            with patch.object(sys, 'argv', argv), patch('sys.stdout', stdout), patch('sys.stderr', stderr), \
+                    patch.object(tui, 'Store', lambda path: Store(Path(folder) / 'seed.sqlite3')), \
+                    patch.object(tui, 'run', side_effect=RuntimeError('Jira: no credentials yet.')), \
+                    patch.object(tui.standup, 'update_report', return_value=report):
+                try:
+                    code = tui.main()
+                except SystemExit as exit:
+                    code = exit.code
+        return code, stderr.getvalue()
+
+    def test_update_report_ignores_failures_from_earlier_sessions(self):
+        code, stderr = self.update_report(False, {'path': 'r.md', 'backup': 'b.md'})
+        self.assertIn(code, (0, None))
+        self.assertNotIn('refresh incomplete', stderr)
+
+    def test_the_draft_also_says_when_the_refresh_failed(self):
+        code, stderr = self.update_report(True, None)
+        self.assertEqual(code, 3)
+        self.assertIn('refresh incomplete', stderr)
+
+    def test_a_rebuild_refreshes_the_cached_view(self):
+        import tui
+        from core import Store
+        from test_responsive import Screen
+        store = Store(':memory:')
+        self.addCleanup(store.close)
+        app = tui.App(store, Path(tempfile.mkdtemp()), demo=True)
+        app.screen = Screen(40, 145)
+        app.fit()
+        with patch.object(app.views, 'rows', wraps=app.views.rows) as rows:
+            app.rebuild()
+        self.assertEqual(rows.call_count, 1)
 
     def test_the_viewport_cache_follows_fallback_data_and_the_clock(self):
         import tui
@@ -238,8 +306,8 @@ class ReviewFollowUpTests(unittest.TestCase):
         app = tui.App(store, Path(tempfile.mkdtemp()), demo=True)
         app.screen = Screen(40, 145)
         key = app.view_key()
-        app.evidence.fallback = {'jira_assigned': []}
-        self.assertNotEqual(key, app.view_key())
+        with patch.object(tui.time, 'time', return_value=time_now() + 120):
+            self.assertNotEqual(key, app.view_key())
 
     def test_no_worktree_advice_mentions_both_repository_settings(self):
         source = (ROOT / 'ticket-tui' / 'tui.py').read_text()

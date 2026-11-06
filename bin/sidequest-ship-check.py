@@ -110,7 +110,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--base", default=config.base_ref())
     ap.add_argument("--no-fetch", action="store_true", default=True)
-    ap.add_argument("--fetch", action="store_false", dest="no_fetch", help="Explicitly refresh origin before checking")
+    ap.add_argument("--fetch", action="store_false", dest="no_fetch", help="Fetch the remote of --base before checking")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
 

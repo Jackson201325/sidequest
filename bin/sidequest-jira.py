@@ -112,10 +112,13 @@ def workflow_dates(key, current_status, created=None, account_id=None, current_a
         if not values:
             raise JiraError("incomplete Jira changelog; retain the previous snapshot")
     if changes:
-        _, (to_id, to_name), status_at = max(changes, key=lambda row: row[0])
-        # A renamed status keeps its id; a different id means the status changed during collection.
-        same = (str(to_id) == str(status_id) if to_id and status_id else
-                (to_name or '').casefold() == (current_status or '').casefold())
+        # The changelog is chronological, so the last of simultaneous transitions is the newest.
+        newest = max(row[0] for row in changes)
+        _, (to_id, to_name), status_at = [row for row in changes if row[0] == newest][-1]
+        # A rename keeps the id; an id migration keeps the name. Only both differing means the
+        # status changed during collection, which the next refresh resolves.
+        same = ((to_id and status_id and str(to_id) == str(status_id))
+                or (to_name or '').casefold() == (current_status or '').casefold())
         if not same:
             raise JiraError("Jira status changed during collection; refresh again")
     else:
