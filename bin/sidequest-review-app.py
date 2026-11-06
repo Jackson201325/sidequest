@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
 """sidequest-data review-app [APP-### | ###] [--pr N] [--json]: the ticket's Heroku review app (read-only).
 
-Finds the open PR (by ticket key, PR number, or the current branch), then asks Heroku for its
+Finds the open PR by ticket key, PR number, or the ticket in the current branch name, then asks Heroku for its
 review app. Prints the PR, the status (Web up, Building, Failed, Not provisioned…) and the URL.
 A bare number uses the one project in jira.projects.
 Exit 0 when the app is up, 1 when it isn't ready or doesn't exist, 2 on errors.
 """
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sidequest import config, review_apps
-from sidequest.ticket_keys import is_key
+from sidequest.ticket_keys import branch_ticket, is_key
 
 
 def main():
@@ -30,6 +31,12 @@ def main():
                   % (key, "no single project" if projects else "no project"), file=sys.stderr)
             return 2
         key = projects[0].upper() + "-" + key
+    if not key and not a.pr:
+        branch = subprocess.run(["git", "branch", "--show-current"], text=True, capture_output=True).stdout.strip()
+        key = branch_ticket(branch, config.get("jira", "projects", [])) or ""
+        if not key:
+            print("review-app: give the ticket key or --pr N; the current branch names no ticket", file=sys.stderr)
+            return 2
     if key and not is_key(key):
         print("review-app: ticket key must look like APP-123", file=sys.stderr)
         return 2

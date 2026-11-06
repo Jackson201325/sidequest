@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest.ticket_keys import is_key
+from sidequest.ticket_keys import ticket_key
 from sidequest.worktrees import lookup
 from sidequest import config
 
@@ -40,7 +40,8 @@ def main():
     if options.json:
         print(json.dumps(found, ensure_ascii=False))
         return 0
-    print("%s: %s" % (options.target.upper() if is_key(options.target) else options.target, found["state"]))
+    trusted = ticket_key(options.target, config.get("jira", "projects", [])) == options.target.upper()
+    print("%s: %s" % (options.target.upper() if trusted else options.target, found["state"]))
     for field in ("path", "branch"):
         if field in found:
             print(field.upper() + " " + found[field])

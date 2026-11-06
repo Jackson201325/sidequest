@@ -7,8 +7,9 @@ import urllib.parse
 from sidequest import config
 from sidequest.access import access_error
 from sidequest.environments import fetch_environments
-from sidequest.ticket_keys import pr_ticket
+from sidequest.ticket_keys import branch_ticket, ticket_key
 
+BRANCH_SCAN_LIMIT = 500
 REVIEW_HOST = re.compile(r"^[a-z0-9][a-z0-9-]*\.herokuapp\.com$")
 
 
@@ -37,9 +38,21 @@ def find_pr(key=None, number=None, run=_run):
     if number:
         pr = json.loads(run(["gh", "pr", "view", str(number), "--json", fields]))
     elif key:
-        prs = json.loads(run(["gh", "pr", "list", "--state", "open", "--limit", "200", "--json", fields]))
-        project = [key.rsplit("-", 1)[0]]
-        prs = [p for p in prs if pr_ticket({"title": p.get("title"), "branch": p.get("headRefName")}, project) == key]
+        key = key.upper()
+        known = set(config.get("jira", "projects", [])) | {key.rsplit("-", 1)[0]}
+
+        def mine(p):
+            return key in (ticket_key(p.get("title") or "", known), branch_ticket(p.get("headRefName") or "", known))
+        # Search finds title matches of any age; GitHub search ignores branch names, so only then list branches.
+        prs = [p for p in json.loads(run(["gh", "pr", "list", "--state", "open", "--search", key,
+                                          "--json", fields])) if mine(p)]
+        if not prs:
+            listed = json.loads(run(["gh", "pr", "list", "--state", "open", "--limit", str(BRANCH_SCAN_LIMIT),
+                                     "--json", fields]))
+            prs = [p for p in listed if mine(p)]
+            if not prs and len(listed) >= BRANCH_SCAN_LIMIT:
+                raise ReviewAppError("no open PR for %s in its title or the newest %d branches: pass --pr N"
+                                     % (key, BRANCH_SCAN_LIMIT))
         if not prs:
             raise ReviewAppError("no open PR for %s: open it first (sidequest-ship)" % key)
         if len(prs) > 1:

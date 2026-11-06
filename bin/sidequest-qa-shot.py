@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """sidequest-data qa-shot — capture QA screenshots of the local app in Microsoft Edge.
 
-  sidequest-data qa-shot [DEMO-###]              capture every shot in tickets/DEMO-###/qa/shots.json
+  sidequest-data qa-shot [APP-###]              capture every shot in tickets/APP-###/qa/shots.json
   sidequest-data qa-shot --only NAME            capture one shot again (repeatable)
   sidequest-data qa-shot --headed               show the Edge window while it works
   sidequest-data qa-shot --pr-markdown          no browser: print the PR Screenshots section and --attach flags
@@ -21,7 +21,7 @@ only for local URLs (localhost, 127.0.0.1, *.localhost such as admin.localhost).
 failures/ instead, and manifest.json records the commit, captions and status of every shot.
 
 --review-app: asks Heroku for the open PR's review app (it must be "Web up"), uses its URL as the
-base, and writes to tickets/DEMO-###/qa-review/ (shots from qa-review/shots.json if present, else
+base, and writes to tickets/APP-###/qa-review/ (shots from qa-review/shots.json if present, else
 qa/shots.json). Sign-in requires SIDEQUEST_REVIEW_EMAIL / SIDEQUEST_REVIEW_PASSWORD, and only on that review app's host.
 Uses Edge's DevTools protocol directly (standard library only) with its own profile, so it never
 touches your normal Edge windows. SIDEQUEST_QA_BROWSER points it at another Chromium-based binary.
@@ -419,7 +419,7 @@ def main():
     if not key:
         key = branch_ticket(git("branch", "--show-current"), config.get("jira", "projects", [])) or ""
         if not key:
-            raise Usage("give the ticket key (sidequest-data qa-shot DEMO-###) or run inside its worktree")
+            raise Usage("give the ticket key (sidequest-data qa-shot APP-###) or run inside its worktree")
     if not is_key(key):
         raise Usage("ticket key must look like APP-123")
     folder = qa_evidence.review_qa_dir(key) if a.review_app else qa_evidence.qa_dir(key)

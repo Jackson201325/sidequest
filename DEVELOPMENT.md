@@ -65,7 +65,8 @@ certified by offline tests; no publishing or remote service writes are part of t
 The public project is named Sidequest. Its commands are `bin/sidequest` and
 `bin/sidequest-data`; the Python package is `sidequest`. Configuration variables
 use `SIDEQUEST_`, and configuration, caches and snapshots use the `sidequest`
-namespace. Example ticket keys use DEMO or APP. The personal workflow is a
+namespace. Example ticket keys use DEMO or APP; code never assumes a project.
+Key rules live in sidequest/ticket_keys.py. The personal workflow is a
 separate installation and is never modified when developing or publishing this one.
 
 `workspace` previews local worktree creation; --apply explicitly creates it after
