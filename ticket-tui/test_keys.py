@@ -137,6 +137,25 @@ class KeyTests(unittest.TestCase):
             self.press("u", "y")
             copy.assert_called_once()
 
+    def test_a_resize_clears_the_screen_even_while_a_prefix_waits(self):
+        class Screen:
+            cleared = 0
+
+            def clear(self):
+                Screen.cleared += 1
+
+            def timeout(self, value):
+                pass
+        self.app.screen = Screen()
+        for prefix in (" ", "g"):
+            with self.subTest(prefix=prefix), patch.object(App, "action") as action:
+                Screen.cleared = 0
+                self.press(prefix, curses.KEY_RESIZE)
+                self.assertEqual(Screen.cleared, 1)
+                self.assertEqual(self.app.pending, prefix, "the prefix still waits for its real key")
+                self.press("\x1b")
+                action.assert_called_once_with("\x1b") if prefix == " " else action.assert_not_called()
+
     def test_q_and_ctrl_q_quit_and_other_keys_continue(self):
         self.assertTrue(self.press("j"))
         self.assertFalse(self.press("q"))

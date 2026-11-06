@@ -19,8 +19,8 @@ and performs curses handoffs. Shell/tmux policy no longer lives in App.
 GitWorkspace owns read-only preview and live revalidation before apply. A stale
 plan is refused; Git still guards concurrent branch/path conflicts. No fetch,
 reset or deletion is added. Terminal adapters only open selected directories or
-launch argument vectors. The dashboard calls sidequest.tmux, sidequest.environments
-and sidequest.terminal.open_browser directly. Heroku reading lives in sidequest/environments.py;
+launch argument vectors. The dashboard reaches tmux only through WorkspaceWorkflow
+and calls sidequest.environments and sidequest.terminal.open_browser directly. Heroku reading lives in sidequest/environments.py;
 headless QA lookup never imports the UI or changes sys.path. Provider-specific
 UI cache keys, global configuration in older collection modules and the existing
 CLI dispatcher remain; whole-application multi-profile support is not implemented.

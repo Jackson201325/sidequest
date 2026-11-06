@@ -69,5 +69,7 @@ error text to decide which source failed.
 2026-11-06: App.loop reads keys, runs timers, draws and performs handoffs; App.press
 applies one key and returns False to quit. Prefix state (Space, g) lives on App, and
 prompts or menus run through App.blocking, which skips screen timeouts without a
-screen. Key rules are tested by pressing keys on a demo App. The UI imports tmux,
-Heroku and browser opening from the package; its pass-through shims are removed.
+screen. Key rules are tested by pressing keys on a demo App. The UI reaches tmux
+only through WorkspaceWorkflow and imports Heroku reading and browser opening
+from the package; its pass-through shims are removed. A resize clears the screen
+even while a Space or g prefix waits, and the prefix keeps waiting.

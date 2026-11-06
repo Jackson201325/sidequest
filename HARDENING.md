@@ -270,3 +270,13 @@ open_browser. It takes the browser command as an argument, because a headless
 spec forbids the workspace layer from reading global configuration.
 Verification: bin/check passed 151 helper/service/spec tests and 160 UI tests
 (two optional browser checks skipped), with no git re-init warnings.
+
+2026-11-06: Review of the key and shim change.
+
+A failing test showed that a resize during a waiting Space or g prefix never
+cleared the screen; press now handles the resize first and keeps the prefix.
+tests/test_environments.py failed outside the repository root; it now adds the
+root to sys.path like the other tests. The moved tmux tests call sidequest.tmux
+directly instead of copies of the removed shims, a duplicate split_command test
+is removed, and the worktree window test reads the tmux session from the test
+configuration. The docs no longer claim that the dashboard imports tmux.
