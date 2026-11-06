@@ -7,11 +7,12 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest.access import CAUSES, failure_for
+from sidequest.access import CAUSES, AccessFailure
 from sidequest.collector import DEFAULT_OUT, collect
 from sidequest.jira import client
 from sidequest.snapshots import SnapshotStore
 
+FAILURE_LINE = 'sidequest-data-failure: '  # read by the dashboard: '<service> <cause>'
 LOCAL = {'branch-name': 'sidequest-workspace.py', 'worktree': 'sidequest-worktree.py',
          'workspace': 'sidequest-workspace-create.py', 'plan-init': 'sidequest-plan-init.py',
          'pr-body-check': 'sidequest-pr-body-check.py', 'ship-check': 'sidequest-ship-check.py',
@@ -50,14 +51,18 @@ def main():
             print(json.dumps(data, indent=2))
         return 1 if data.get('failures') else 0
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-        if args.command == 'ticket' or getattr(exc, 'cause', None) in CAUSES:
-            message = str(failure_for('Jira' if args.command == 'ticket' else 'sidequest-data', exc))
+        cause = getattr(exc, 'cause', None)
+        if cause in CAUSES and cause != 'unknown':
+            failure = AccessFailure('Jira' if args.command == 'ticket' else 'sidequest-data', cause, getattr(exc, 'tool', None))
+            print('sidequest-data: ' + failure.terminal_text, file=sys.stderr)
+            print(FAILURE_LINE + failure.service + ' ' + failure.cause, file=sys.stderr)
+        elif isinstance(exc, client.JiraError):
+            print('sidequest-data: Jira: ' + str(exc).rstrip('.') + '.', file=sys.stderr)
         else:
-            message = ('Collection failed (' + type(exc).__name__ + '). Check the snapshot folder and configuration. '
-                       'Previous data retained.')
-        print('sidequest-data: ' + message, file=sys.stderr)
+            what = 'Ticket lookup' if args.command == 'ticket' else 'Collection'
+            print('sidequest-data: ' + what + ' failed (' + type(exc).__name__ + '). Check the snapshot folder and '
+                  'configuration. Previous data retained.', file=sys.stderr)
         return 2
-
 
 if __name__ == '__main__':
     raise SystemExit(main())

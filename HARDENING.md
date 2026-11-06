@@ -346,3 +346,20 @@ reported even when a second base fails differently. sidequest-data prints
 "Collection failed (TypeName)" for collect), and the dashboard shows that one line
 and never other helper output. The redundant AccessFailure branch in failure_for
 and the unreachable subprocess handlers in the collector are removed.
+
+2026-11-06: Third review of access failures.
+
+Failing tests first. One advice table in sidequest/access.py now gives each cause a
+problem, an action and whether pressing r helps; the dashboard text and
+terminal_text are both built from it, and every service, cause and tool pair is
+checked to give both forms. 408 of 432 messages are unchanged; the others are a
+timeout without a tool (Jira now says the service did not answer in time instead
+of asking to run a command) and a missing heroku (now "run heroku login").
+run_tool is the only CLI runner, names the service from the program's basename,
+and marks missing programs and timeouts with the tool. Jira treats Python 3.9's
+socket.timeout as a timeout. After a 401 on the first base, only a 404 or an
+unreachable second base is hidden; 403, 429 and 5xx from a base that accepted the
+token are reported. sidequest-data prints terminal_text for people and a
+"sidequest-data-failure: <service> <cause>" line; Jira's own messages are kept,
+and other errors name only their type. The dashboard rebuilds its message from the
+failure line and ignores argparse and other output.
