@@ -59,3 +59,9 @@ same plan.md. Heading hierarchy keeps nested update entries together and returns
 peer planning sections to Plan. Fenced examples stay literal. Unknown headings
 stay in Plan so content is never silently discarded. The file is never rewritten;
 both views share its mtime cache. Existing Standup (u) is unchanged.
+
+2026-11-06: QueueEvidence owns the queue's data. It loads the newest copy of each
+source, validates refresh output with the snapshot publisher's own check, merges
+and saves updates, and records which sources failed as data. App keeps input,
+drawing, background scheduling and curses handoff; the header no longer reads
+error text to decide which source failed.

@@ -17,7 +17,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest.snapshots import SnapshotStore
 from sidequest.access import access_error
 from sidequest import config
 from sidequest import qa
@@ -37,6 +36,7 @@ from launcher import (agent_command, find_tw_window, jump_to_window, new_window_
 from layout import (DAY_RULE, EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, pr_glyph_offset,
                     relative, scroll_label, table_header, table_row, timeline, panel_rects)
 import standup
+from queue_evidence import EVERY, QueueEvidence
 from plan_document import document_views
 
 WORKFLOW = Path(__file__).resolve().parents[1]
@@ -133,14 +133,6 @@ def unexpected(label, exc):
     return f"{label} failed unexpectedly ({type(exc).__name__}: {exc}); please report this"
 
 
-def read_json(path):
-    try:
-        data = json.loads(path.read_text())
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError):
-        return {}
-
-
 def worktrees():
     result = {}
     if not config.get('workspace', 'repository'):
@@ -167,7 +159,12 @@ def demo_sources():
         {"ticket": "DEMO-901", "number": 901, "title": "Validate bulk request quantities", "review_decision": "CHANGES_REQUESTED", "ci": "green", "unresolved_count": 2},
         {"ticket": "DEMO-902", "number": 902, "title": "Keep inventory totals consistent", "ci": "green", "requested_reviewers": ["reviewer"]},
     ]}
-    return jira, prs
+    environments = {"entries": {"901": {"status": "Building", "checked_at": clock.isoformat()},
+                                "902": {"status": "Web up", "checked_at": clock.isoformat()}}}
+    return jira, prs, environments
+
+
+EVIDENCE_EVENTS = ("jira", "prs", "worklog", "worktrees", "heroku", "heroku_error")
 
 
 class App:
@@ -192,7 +189,6 @@ class App:
         self.refresh_status = ""
         self.refresh_started = 0
         self.jobs = {}
-        self.refresh_errors = store.source("refresh_errors").get("messages", [])
         self.foreground_target = None
         self.dirty = True
         self.styles = {}
@@ -205,29 +201,7 @@ class App:
         if self.sort_mode not in SORT_MODES:
             self.sort_mode = "Attention"
         self.sort_descending = settings.get("sort_descending", True)
-        self.environments = store.source("heroku")
-        self.environment_error = store.source("heroku_error").get("message", "")
-        self.worklog = store.source("worklog")
-        self.windows = {}
-        self.fallback = {} if demo else read_json(snapshots / "standup.json")
-        if demo:
-            self.jira, self.prs = demo_sources()
-            self.environments = {"entries": {"901": {"status": "Building", "checked_at": now().isoformat()},
-                                             "902": {"status": "Web up", "checked_at": now().isoformat()}}}
-        else:
-            try:
-                generation = SnapshotStore(snapshots).read()
-                shared = generation.get("sources", {})
-                checked = parse_time(store.source("refresh_errors").get("checked_at"))
-                generated = parse_time(generation.get("generated_at"))
-                if generated and (not checked or generated >= checked):
-                    self.refresh_errors = list(generation.get("failures", {}).values())
-            except (OSError, ValueError):
-                shared = {}
-            self.jira = max((store.source("jira"), shared.get("jira", {})), key=lambda d: parse_time(d.get("generated_at")) or parse_time("1970-01-01"))
-            cached = store.source("prs")
-            snapshot = read_json(snapshots / "pr-feedback.json")
-            self.prs = max((cached, snapshot, shared.get("prs", {})), key=lambda d: parse_time(d.get("generated_at")) or parse_time("1970-01-01"))
+        self.evidence = QueueEvidence(store, snapshots, demo_sources() if demo else None)
         self.rebuild()
         if demo:
             for key in ("DEMO-902", "DEMO-903"):
@@ -237,9 +211,9 @@ class App:
     def rebuild(self):
         previous = self.selected() if hasattr(self, "tickets") else None
         self.tickets = [rank(t, self.store, stale_days=self.stale_days, escalate_days=self.escalate_days)
-                        for t in tickets_from(self.jira, self.prs, self.fallback, self.windows,
+                        for t in tickets_from(self.evidence.jira, self.evidence.prs, self.evidence.fallback, self.evidence.windows,
                                               config.get('jira', 'projects', []))]
-        self.tickets = ordered(self.tickets, self.sort_mode, self.sort_descending, self.worklog)
+        self.tickets = ordered(self.tickets, self.sort_mode, self.sort_descending, self.evidence.worklog)
         if previous:
             self.index = next((i for i, t in enumerate(self.visible()) if t.key == previous.key), self.index)
         self.dirty = True
@@ -247,7 +221,7 @@ class App:
     def set_sort(self, mode, descending=None):
         self.sort_mode = mode
         self.sort_descending = (mode != "Ticket") if descending is None else descending
-        self.tickets = ordered(self.tickets, mode, self.sort_descending, self.worklog)
+        self.tickets = ordered(self.tickets, mode, self.sort_descending, self.evidence.worklog)
         self.index, self.offset, self.preview_scroll = 0, 0, 0
         self.focus_pane = "list"
         self.store.save("@app", {"sort_mode": mode, "sort_descending": self.sort_descending})
@@ -368,7 +342,7 @@ class App:
         if not config.get('workspace', 'repository'):
             self.message = 'Configure workspace.repository first; Jira stays read-only'
             return
-        if ticket.key.startswith('PR-') and not any(row.get('key') == ticket.key for row in self.jira.get('tickets', [])):
+        if ticket.key.startswith('PR-') and not any(row.get('key') == ticket.key for row in self.evidence.jira.get('tickets', [])):
             self.message = 'Use the PR branch checkout; creating a ticket worktree needs a Jira key'
             return
         workflow = self.workflow_factory()
@@ -432,21 +406,21 @@ class App:
 
     def refresh_worklog(self):
         if not self.demo and config.get('workspace', 'repository'):
-            tickets = [{"key": t.key, "worktree": self.windows.get(t.key, "")} for t in self.tickets]
+            tickets = [{"key": t.key, "worktree": self.evidence.windows.get(t.key, "")} for t in self.tickets]
             self.background("worklog", "Loading dated work history", lambda: collect_worklog(tickets, ROOT, run), "worklog")
 
     def environment(self, ticket):
-        entries = self.environments.get("entries", {})
+        entries = self.evidence.environments.get("entries", {})
         statuses = [entries[str(p["number"])].get("status", "Unknown")
                     for p in ticket.prs if str(p["number"]) in entries]
         if statuses:
-            stale = self.environment_error or any(
+            stale = self.evidence.environment_error or any(
                 not parse_time(entries[str(p["number"])].get("checked_at")) or
                 (now() - parse_time(entries[str(p["number"])].get("checked_at"))).total_seconds() > 300
                 for p in ticket.prs if str(p["number"]) in entries)
             suffix = " (refreshing)" if "heroku" in self.jobs else " (cached)" if stale else ""
             return " / ".join(dict.fromkeys(statuses)) + suffix
-        return "Loading" if "heroku" in self.jobs else "Unavailable" if self.environment_error else "Not checked" if ticket.prs else "No linked PR"
+        return "Loading" if "heroku" in self.jobs else "Unavailable" if self.evidence.environment_error else "Not checked" if ticket.prs else "No linked PR"
 
     def pr_label(self, ticket):
         return " / ".join(f"#{p['number']}" for p in ticket.prs) if ticket.prs else "none linked"
@@ -473,30 +447,14 @@ class App:
         self.dirty = True
 
         def worker():
-            errors = []
+            result = ({}, [], {EVERY})
             try:
-                data = json.loads(run(["sidequest-data", "collect", "--json", "--out", str(self.snapshots)], timeout=300))
-                if (not isinstance(data, dict) or not isinstance(data.get("sources"), dict)
-                        or not isinstance(data.get("failures", {}), dict)):
-                    raise RuntimeError("Invalid shared snapshot; keeping previous data")
-                sources, failures = data["sources"], data.get("failures", {})
-                errors.extend(failures.values())
-                for name, rows in (("jira", "tickets"), ("prs", "open_prs")):
-                    if name in failures:
-                        continue
-                    source = sources.get(name)
-                    if (not isinstance(source, dict) or not isinstance(source.get(rows), list)
-                            or (name == "jira" and source.get("jira_available") is not True)):
-                        errors.append({"jira": "Jira", "prs": "GitHub"}[name] + " unavailable; keeping previous data")
-                        continue
-                    self.events.put((name, source))
-            except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
-                errors.append(str(exc))
+                result = self.evidence.collect(run)
             except Exception as exc:  # noqa: BLE001 - see background(); refresh must still finish
-                errors.append(unexpected("Refresh", exc))
+                result = ({}, [unexpected("Refresh", exc)], {EVERY})
             finally:
                 # Always finish, or self.refreshing stays True and r silently does nothing.
-                self.events.put(("done", [str(error) for error in errors]))
+                self.events.put(("refreshed", result))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -508,59 +466,30 @@ class App:
             except queue.Empty:
                 break
             self.dirty = True
-            if name in ("jira", "prs"):
-                if name == "jira":
-                    previous = {t["key"]: t for t in self.jira.get("tickets", [])}
-                    for issue in data.get("tickets", []):
-                        for field in ("jira_comments", "jira_comment_total", "jira_comments_checked_at"):
-                            if field not in issue and field in previous.get(issue.get("key"), {}):
-                                issue[field] = previous[issue["key"]][field]
-                self.store.source(name, data)
-                setattr(self, name, data)
-                changed = True
-            elif name == "issue":
-                if not self.jira:
-                    self.jira = {"tickets": []}
-                self.jira["tickets"] = [t for t in self.jira.get("tickets", []) if t["key"] != data["key"]] + [data]
-                self.store.source("jira", self.jira)
-                changed = True
-            elif name == "status":
-                self.refresh_status = data
+            if name in EVIDENCE_EVENTS:
+                changed = self.evidence.apply(name, data) or changed
+                if name == "worktrees":
+                    self.refresh_worklog()
+                elif name == "heroku_error":
+                    self.notify(data)
             elif name == "message":
                 self.notify(data)
             elif name == "job_done":
                 self.jobs.pop(data, None)
-            elif name == "worktrees":
-                self.windows = data
-                changed = True
-                self.refresh_worklog()
-            elif name == "worklog":
-                self.worklog = data
-                self.store.source("worklog", data)
-                changed = True
-            elif name == "heroku":
-                self.environments = data
-                self.environment_error = ""
-                self.store.source("heroku", data)
-                self.store.source("heroku_error", {"message": ""})
-            elif name == "heroku_error":
-                self.environment_error = data
-                self.store.source("heroku_error", {"message": data, "at": now().isoformat()})
-                self.notify(data)
             elif name == 'launch':
                 if data.foreground is not None:
                     self.foreground_target = data.foreground
                     if data.key:
-                        self.windows[data.key] = data.foreground['cwd']
+                        self.evidence.windows[data.key] = data.foreground['cwd']
                         changed = True
                 if data.message:
                     self.notify(data.message)
-            elif name == "done":
+            elif name == "refreshed":
+                changed = self.evidence.finish_refresh(data) or changed
                 self.refreshing = False
                 self.refresh_status = ""
-                self.refresh_errors = data
-                self.store.source("refresh_errors", {"messages": data, "checked_at": now().isoformat()})
-                self.notify(("Refresh incomplete: " + " | ".join(data)) if data else "Refreshed through sidequest-data (read only)")
+                messages = data[1]
+                self.notify(("Refresh incomplete: " + " | ".join(messages)) if messages else "Refreshed through sidequest-data (read only)")
                 self.load_worktrees()
                 self.refresh_environments(quiet=True)
         if changed:
@@ -620,7 +549,7 @@ class App:
             pass
 
     def standup_data(self):
-        data = standup.preview(self.tickets, self.worklog, now(), self.standup_time, self.escalate_days, self.stale_days)
+        data = standup.preview(self.tickets, self.evidence.worklog, now(), self.standup_time, self.escalate_days, self.stale_days)
         if not self.demo:
             # Optional saved standup: the saved report's section, when it covers this meeting.
             data["written"] = standup.written(self.snapshots.parent / "reports", data["meeting"])
@@ -635,15 +564,15 @@ class App:
             self.message = "Couldn't copy (pbcopy unavailable); use sidequest --standup in a terminal"
 
     def details(self, ticket):
-        errors = ["REFRESH ERROR (cached data)", *self.refresh_errors, ""] if self.refresh_errors else []
+        errors = ["REFRESH ERROR (cached data)", *self.evidence.refresh_errors, ""] if self.evidence.refresh_errors else []
         return errors + self.ticket_details(ticket)
 
     def ticket_details(self, ticket):
         if self.detail_tab == "Standup":
-            jira_time = (self.jira or self.fallback).get("generated_at")
+            jira_time = (self.evidence.jira or self.evidence.fallback).get("generated_at")
             return standup.view_lines(self.standup_data(),
-                                      f"Jira {source_age(jira_time)} · GitHub {source_age(self.prs.get('generated_at'))} · "
-                                      f"git {source_age(self.worklog.get('generated_at'))}")
+                                      f"Jira {source_age(jira_time)} · GitHub {source_age(self.evidence.prs.get('generated_at'))} · "
+                                      f"git {source_age(self.evidence.worklog.get('generated_at'))}")
         if not ticket:
             return ["No tickets in this view.", "Press r to refresh, / to search, or 1 for All."]
         if self.detail_tab in ("Plan", "Updates"):
@@ -674,16 +603,16 @@ class App:
                     "Your commits (git + PR), grouped by local date.",
                     "Commit timestamps are evidence, not hours worked or ticket completion.",
                     "Git coverage: latest 2,000 authored commits from the past 90 days.", ""] + daily_summary(
-                        ticket, self.worklog.get("entries", {}).get(ticket.key, [])) + [
-                        "", "Source checked: " + readable_date(self.worklog.get("generated_at")),
-                        *self.worklog.get("errors", []), "a: activity · v: overview"]
+                        ticket, self.evidence.worklog.get("entries", {}).get(ticket.key, [])) + [
+                        "", "Source checked: " + readable_date(self.evidence.worklog.get("generated_at")),
+                        *self.evidence.worklog.get("errors", []), "a: activity · v: overview"]
         stage = stage_context(ticket)
         lines = [ticket.key, ticket.title, "", "STATUS", *workflow_strip(ticket),
                  "Turn: " + next_owner(ticket) + " (" + ownership(ticket)[1] + ")",
                  "To move forward: " + stage["next"],
                  f"Priority: {ticket.priority or 'unknown'} · Jira status: {ticket.status}", "",
                  "DATES",
-                 f"Last commit: {readable_date(last_commit(ticket, self.worklog))}",
+                 f"Last commit: {readable_date(last_commit(ticket, self.evidence.worklog))}",
                  f"Last Jira update: {readable_date(ticket.updated)}",
                  f"First assigned to you: {readable_date(ticket.first_assigned_at)}",
                  f"Jira status since: {readable_date(ticket.status_since)}",
@@ -692,14 +621,14 @@ class App:
                  f" (follow up after {self.stale_days} business days)",
                  "", "HEROKU ENVIRONMENT", self.environment(ticket)]
         for pr in ticket.prs:
-            env = self.environments.get("entries", {}).get(str(pr["number"]), {})
+            env = self.evidence.environments.get("entries", {}).get(str(pr["number"]), {})
             if env:
                 lines += [f"PR #{pr['number']}: {env.get('status', 'Unknown')} · {source_age(env.get('checked_at'))}",
                           env.get("app", ""), env.get("url", "")]
                 if env.get("warning"):
                     lines += [env["warning"]]
-        if self.environment_error:
-            lines += ["Last refresh failed; cached results may be stale.", self.environment_error]
+        if self.evidence.environment_error:
+            lines += ["Last refresh failed; cached results may be stale.", self.evidence.environment_error]
         lines += ["Web up means a web dyno is up; HTTP readiness is not checked.", ""]
         for pr in ticket.prs:
             decision = (pr.get("review_decision") or "Awaiting review").replace("_", " ").lower()
@@ -772,19 +701,14 @@ class App:
         return f"{spinner} {label} · {int(time.monotonic() - started)}s{extra}"
 
     def source_failed(self, name):
-        """An error that names no source (a failed or timed-out collection) counts against every source."""
-        for error in map(str, self.refresh_errors):
-            owner = next((source for source in ("Jira", "GitHub") if error.startswith(source)), None)
-            if owner in (name, None):
-                return True
-        return False
+        return self.evidence.failed({"Jira": "jira", "GitHub": "prs"}[name])
 
     def header_status(self):
         """Right side of the header: what's loading, else the sort and how fresh the data is."""
         loading = self.loading_line()
         if loading:
             return loading, self.style("accent"), False
-        sources = (("Jira", self.jira or self.fallback), ("GitHub", self.prs))
+        sources = (("Jira", self.evidence.jira or self.evidence.fallback), ("GitHub", self.evidence.prs))
         # A source that is not configured is "off", not stale; one whose last refresh failed says so
         # next to the age of the data still shown, instead of reading as freshly refreshed.
         active = [(name, data) for name, data in sources if data.get("enabled") is not False]
@@ -799,9 +723,9 @@ class App:
         arrow = "↓" if self.sort_descending else "↑"
         text = (f"Sort: {self.sort_mode} {arrow}  ·  Refreshed " + " · ".join(label(n, d) for n, d in sources)
                 + ("  STALE" if stale else ""))
-        if self.refresh_errors:
+        if self.evidence.refresh_errors:
             text = "ERROR · " + text
-        return text, curses.A_BOLD if self.refresh_errors else curses.A_DIM, stale or bool(self.refresh_errors)
+        return text, curses.A_BOLD if self.evidence.refresh_errors else curses.A_DIM, stale or bool(self.evidence.refresh_errors)
 
     def tone(self, glyph):
         return self.style(TONE.get(glyph, ""))
@@ -865,7 +789,7 @@ class App:
             for i, item in enumerate(rows[self.offset:self.offset + capacity], self.offset):
                 y = top + 2 + (i - self.offset)
                 selected = i == self.index
-                when = relative(activity_date(item, self.sort_mode, self.worklog), clock) if with_when else ""
+                when = relative(activity_date(item, self.sort_mode, self.evidence.worklog), clock) if with_when else ""
                 glyph, rest = table_row(item, cols, when)
                 # Selection is solid while the list has the keys, underlined while the preview does.
                 sel = (curses.A_REVERSE if list_active else curses.A_UNDERLINE) if selected else 0
@@ -893,7 +817,7 @@ class App:
             self.put_parts(top + 1, x - 1, tabs, x + detail_width)
             y0 = top + 3
             if ticket and self.detail_tab != "Standup":
-                summary = card(ticket, clock, last_commit(ticket, self.worklog), self.environment(ticket), self.stale_days)
+                summary = card(ticket, clock, last_commit(ticket, self.evidence.worklog), self.environment(ticket), self.stale_days)
                 if panel_h < 16:
                     summary = summary[:2]
                 for i, line in enumerate(summary):
@@ -986,7 +910,7 @@ class App:
             curses.curs_set(0)
 
     def open_url(self, ticket, pr=False):
-        known_jira = any(issue.get('key') == ticket.key for issue in self.jira.get('tickets', []))
+        known_jira = any(issue.get('key') == ticket.key for issue in self.evidence.jira.get('tickets', []))
         url = (ticket.prs[0].get("url") if pr and ticket.prs else
                config.get('jira', 'site').rstrip('/') + f"/browse/{ticket.key}" if not pr and known_jira and is_key(ticket.key) and config.get('jira', 'site') else None)
         from urllib.parse import urlsplit
@@ -1223,21 +1147,21 @@ def main():
             parser.error("--update-report needs real data, not --demo")
         if (args.standup or args.list or args.update_report) and not args.demo:
             # The git history (which sets the order) normally loads in the background; collect it once here.
-            app.windows = worktrees()
+            app.evidence.windows = worktrees()
             app.rebuild()
             try:
-                app.worklog = collect_worklog([{"key": t.key, "worktree": t.worktree} for t in app.tickets], ROOT, run)
+                app.evidence.worklog = collect_worklog([{"key": t.key, "worktree": t.worktree} for t in app.tickets], ROOT, run)
             except (OSError, RuntimeError, subprocess.TimeoutExpired):
                 pass
             app.rebuild()
         if args.update_report:
             # Today's report is for today's standup: draft that meeting even after it started
             # (the refresh only adds new Today items to a standup that's already written).
-            data = dict(standup.preview(app.tickets, app.worklog, now(), app.standup_time, app.escalate_days,
+            data = dict(standup.preview(app.tickets, app.evidence.worklog, now(), app.standup_time, app.escalate_days,
                                         app.stale_days, today=True), written=None)
-            jira_time = (app.jira or app.fallback).get("generated_at")
-            sources = (f"Jira {source_age(jira_time)} · GitHub {source_age(app.prs.get('generated_at'))} · "
-                       f"git {source_age(app.worklog.get('generated_at'))}")
+            jira_time = (app.evidence.jira or app.evidence.fallback).get("generated_at")
+            sources = (f"Jira {source_age(jira_time)} · GitHub {source_age(app.evidence.prs.get('generated_at'))} · "
+                       f"git {source_age(app.evidence.worklog.get('generated_at'))}")
             clock = now()
             result = standup.update_report(args.snapshots.parent / "reports", data, clock, sources,
                                            args.snapshots / "report-backups")
@@ -1254,15 +1178,15 @@ def main():
             data = app.standup_data()
             print(f"Next standup: {data['meeting']:%a %d %b, %H:%M}\n")
             print(standup.as_text(data))
-            return 1 if app.refresh_errors else 0
+            return 1 if app.evidence.refresh_errors else 0
         if args.list:
             for ticket in app.visible():
-                stamp = last_commit(ticket, app.worklog)
+                stamp = last_commit(ticket, app.evidence.worklog)
                 when = stamp.astimezone(now().tzinfo).strftime("%d %b %H:%M") if stamp else "no commits"
                 print(f"{ticket.key:<12} {when:<12} {ticket.lane:<12} {ticket.wait_label:>6}  {ticket.action} | {ticket.title}")
-            if app.refresh_errors:
-                print('Cached results; refresh incomplete: ' + ' | '.join(app.refresh_errors), file=sys.stderr)
-            return 1 if app.refresh_errors else 0
+            if app.evidence.refresh_errors:
+                print('Cached results; refresh incomplete: ' + ' | '.join(app.evidence.refresh_errors), file=sys.stderr)
+            return 1 if app.evidence.refresh_errors else 0
         if args.refresh:
             app.refresh()
         curses.wrapper(app.loop)

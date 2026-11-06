@@ -26,7 +26,7 @@ class AgentTests(unittest.TestCase):
         self.store = Store(":memory:")
         self.app = App(self.store, Path(self.folder.name), demo=True)
         self.app.demo = False
-        self.app.windows = {"DEMO-901": "/wt/DEMO-901-bulk"}
+        self.app.evidence.windows = {"DEMO-901": "/wt/DEMO-901-bulk"}
         self.app.rebuild()
         self.ticket = next(t for t in self.app.tickets if t.key == "DEMO-901")
 
@@ -95,7 +95,7 @@ class AgentTests(unittest.TestCase):
                 app.refresh()
                 self.assertTrue(app.refreshing)
                 wait(app)
-            self.assertEqual({t["key"] for t in app.jira["tickets"]}, set(keys))
+            self.assertEqual({t["key"] for t in app.evidence.jira["tickets"]}, set(keys))
             self.assertIn("Refreshed", app.message + (app.deferred_message or ""))
         finally:
             store.close()

@@ -32,6 +32,7 @@ flowchart TD
 | `sidequest/ticket_keys.py` | Every ticket key question: valid key, PR ticket, branch keys and branch ticket, mentions in text, leading-key removal |
 | `collector.py` and `snapshots.py` | Shared collection, validation, atomic publication and last-good retention |
 | `ticket-tui/plan_document.py` | Read-only Plan/Updates section partition and readable Markdown rendering |
+| `ticket-tui/queue_evidence.py` | Queue data: newest copy at startup, refresh validation, merging and saving updates, per-source failure sets |
 | `ticket-tui/` | Input, rendering, background scheduling, UI state and curses handoff |
 
 Terminal adapters receive a selected directory and optional argument vector. They

@@ -36,7 +36,7 @@ class RefreshTests(unittest.TestCase):
             try:
                 app = App(store, Path(folder), demo=True)
                 app.demo = False
-                original_prs = app.prs
+                original_prs = app.evidence.prs
                 with patch("tui.run", return_value="[]"), patch("tui.worktrees", return_value={}), \
                         patch("tui.fetch_environments", return_value={"entries": {}}):
                     app.refresh()
@@ -45,7 +45,7 @@ class RefreshTests(unittest.TestCase):
                         app.drain()
                         time.sleep(0.01)
                 self.assertFalse(app.refreshing)
-                self.assertIs(app.prs, original_prs)
+                self.assertIs(app.evidence.prs, original_prs)
                 self.assertIn("Refresh incomplete", app.message)
                 selected = app.selected()
                 store.save(selected.key, {"court": "them"})
