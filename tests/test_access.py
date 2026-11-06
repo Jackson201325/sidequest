@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 import urllib.error
+import unittest.mock
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +24,18 @@ def http_error(code):
 
 
 class AccessFailureTests(unittest.TestCase):
+    def test_terminal_text_drops_dashboard_only_advice(self):
+        failure = AccessFailure('GitHub', 'login')
+        self.assertEqual(failure.terminal_text, 'GitHub: login unavailable or expired. Run gh auth login in your terminal.')
+        self.assertEqual(AccessFailure('Jira', 'credentials').terminal_text,
+                         'Jira: no credentials yet. Set jira.email in your config and export SIDEQUEST_JIRA_TOKEN '
+                         'in the terminal you start Sidequest from, then restart it.')
+
+    def test_new_causes_have_their_own_advice(self):
+        self.assertIn('timed out', str(AccessFailure('GitHub', 'timeout')))
+        self.assertIn('server error', str(AccessFailure('Jira', 'server')))
+        self.assertIn('rate limited', str(AccessFailure('Jira', 'rate_limited')))
+
     def test_a_failure_is_a_runtime_error_with_the_same_message_users_see(self):
         failure = failure_for('GitHub', 'HTTP 401 Bad credentials')
         self.assertIsInstance(failure, RuntimeError)
@@ -60,11 +73,11 @@ class JiraCauseTests(unittest.TestCase):
         return failure.exception
 
     def test_http_statuses_become_causes(self):
-        for code, cause in ((401, 'login'), (403, 'denied'), (404, 'not_found'), (500, None)):
+        for code, cause in ((401, 'login'), (403, 'denied'), (404, 'not_found'), (429, 'rate_limited'),
+                            (500, 'server'), (503, 'server'), (418, 'unknown')):
             with self.subTest(code=code):
                 error = self.request(http_error(code))
                 self.assertEqual((error.status, error.cause), (code, cause))
-        self.assertEqual(failure_for('Jira', self.request(http_error(500))).cause, 'unknown')
 
     def test_network_dns_and_tls_failures_become_causes(self):
         cases = ((urllib.error.URLError(socket.gaierror(8, 'nodename nor servname provided')), 'dns'),
@@ -100,9 +113,26 @@ class JiraCauseTests(unittest.TestCase):
     def test_a_dropped_connection_mid_body_is_a_network_failure(self):
         self.assertEqual(self.request(http.client.IncompleteRead(b'{"ac')).cause, 'network')
 
-    def test_an_error_without_a_known_cause_is_still_classified_by_text(self):
-        self.assertIsNone(client.JiraError('Jira request timed out').cause)
-        self.assertEqual(failure_for('Jira', client.JiraError('Jira request timed out')).cause, 'network')
+    def test_jira_errors_never_have_their_cause_guessed_from_wording(self):
+        error = client.JiraError('Jira status changed during collection; refresh again')
+        self.assertEqual(error.cause, 'unknown')
+        self.assertEqual(failure_for('Jira', error).cause, 'unknown')
+
+    def test_a_jira_timeout_is_a_timeout(self):
+        self.assertEqual(self.request(urllib.error.URLError(TimeoutError('timed out'))).cause, 'timeout')
+        self.assertEqual(self.request(TimeoutError('The read operation timed out')).cause, 'timeout')
+
+    def test_a_login_failure_on_the_first_base_is_not_hidden_by_the_second(self):
+        replies = iter([http_error(401), http_error(404)])
+
+        def answer(*args, **kwargs):
+            raise next(replies)
+        with patch.object(client, 'BASES', ['https://example.atlassian.net', 'https://api.atlassian.com/ex/jira/x']), \
+                patch.object(client, '_base', [None]), patch.object(client, '_auth', return_value='Basic fixture'), \
+                patch('urllib.request.urlopen', side_effect=answer):
+            with self.assertRaises(client.JiraError) as failure:
+                client.jira('GET', '/rest/api/3/myself')
+        self.assertEqual(failure.exception.cause, 'login')
 
     def test_misspelled_causes_are_refused(self):
         with self.assertRaises(ValueError):
@@ -135,11 +165,12 @@ class CallerTests(unittest.TestCase):
         self.assertIn('network unavailable', failures['jira'])
         self.assertNotIn('login', failures['jira'])
 
-    def test_a_gh_timeout_is_a_network_failure(self):
+    def test_a_gh_timeout_is_a_timeout_not_a_network_failure(self):
         with patch('subprocess.run', side_effect=subprocess.TimeoutExpired(['gh'], 90)):
             with self.assertRaises(AccessFailure) as failure:
                 services.run_command(['gh', 'pr', 'list'])
-        self.assertEqual(failure.exception.cause, 'network')
+        self.assertEqual(failure.exception.cause, 'timeout')
+        self.assertNotIn('VPN', str(failure.exception))
 
     def test_a_gh_timeout_still_lets_jira_collect_and_publish(self):
         settings = {'jira': {'site': 'https://example.atlassian.net'}}
@@ -148,15 +179,37 @@ class CallerTests(unittest.TestCase):
                 patch('subprocess.run', side_effect=subprocess.TimeoutExpired(['gh'], 90)), \
                 patch.object(client, 'search', return_value=[]), tempfile.TemporaryDirectory() as folder:
             result = collector.collect(folder)
-        self.assertIn('network unavailable', result['failures']['prs'])
+        self.assertIn('timed out', result['failures']['prs'])
         self.assertIn('jira', result['sources'])
 
-    def test_review_app_reports_a_missing_gh_like_every_other_gh_caller(self):
+    def review_app_error(self, args, **run):
         from sidequest import review_apps
-        with patch('subprocess.run', side_effect=FileNotFoundError(2, 'No such file or directory', 'gh')):
+        with patch('subprocess.run', **run):
             with self.assertRaises(review_apps.ReviewAppError) as failure:
-                review_apps._run(['gh', 'pr', 'view'])
-        self.assertIn('GitHub CLI (gh) is not installed', str(failure.exception))
+                review_apps._run(args)
+        return str(failure.exception)
+
+    def test_review_app_errors_are_terminal_text_without_dashboard_advice(self):
+        message = self.review_app_error(['gh', 'pr', 'view'], side_effect=FileNotFoundError(2, 'missing', 'gh'))
+        self.assertIn('GitHub CLI (gh) is not installed', message)
+        self.assertNotIn('press r', message)
+        self.assertNotIn('Previous data retained', message)
+
+    def test_review_app_blames_the_tool_that_failed(self):
+        heroku = self.review_app_error(['heroku', 'auth:token'],
+                                       return_value=subprocess.CompletedProcess([], 1, '', 'Error: not logged in'))
+        self.assertTrue(heroku.startswith('Heroku: login unavailable'), heroku)
+        self.assertNotIn('gh auth login', heroku)
+        missing = self.review_app_error(['heroku', 'auth:token'], side_effect=FileNotFoundError(2, 'missing', 'heroku'))
+        self.assertIn('Heroku CLI (heroku) is not installed', missing)
+
+    def test_both_gh_runners_report_a_timeout_the_same_way(self):
+        timeout = subprocess.TimeoutExpired(['gh'], 45)
+        message = self.review_app_error(['gh', 'pr', 'list'], side_effect=timeout)
+        with patch('subprocess.run', side_effect=timeout):
+            with self.assertRaises(AccessFailure) as failure:
+                services.run_command(['gh', 'pr', 'list'])
+        self.assertEqual(message, failure.exception.terminal_text)
 
 class DashboardRunTests(unittest.TestCase):
     def test_run_classifies_text_only_tools_and_hides_their_output(self):
@@ -168,14 +221,41 @@ class DashboardRunTests(unittest.TestCase):
         self.assertTrue(str(failure.exception).startswith('GitHub: login unavailable'))
         self.assertNotIn('secret-fixture', str(failure.exception))
 
-    def test_a_failed_collect_is_not_reported_as_a_login_problem(self):
+    def test_the_dashboard_shows_the_cause_sidequest_data_reports(self):
         from tui import run
-        stderr = 'Collection failed. Check configuration, network and service login. Previous data retained.'
+        stderr = 'sidequest-data: Jira: no credentials yet. Set jira.email in your config. Previous data retained.\n'
         with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 2, '', stderr)):
-            with self.assertRaises(AccessFailure) as failure:
+            with self.assertRaises(RuntimeError) as failure:
+                run(['sidequest-data', 'ticket', 'APP-1'])
+        self.assertEqual(str(failure.exception), 'Jira: no credentials yet. Set jira.email in your config. Previous data retained.')
+
+    def test_the_dashboard_never_echoes_unexpected_helper_output(self):
+        from tui import run
+        stderr = 'Traceback (most recent call last):\n  token=secret-fixture\nKeyError: x\n'
+        with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 1, '', stderr)):
+            with self.assertRaises(RuntimeError) as failure:
                 run(['sidequest-data', 'collect', '--json'])
-        self.assertEqual(failure.exception.cause, 'unknown')
-        self.assertNotIn('login unavailable', str(failure.exception))
+        self.assertNotIn('secret-fixture', str(failure.exception))
+        self.assertIn('request failed', str(failure.exception))
+
+    def run_data(self, args, error):
+        import runpy
+        main = runpy.run_path(str(ROOT / 'bin' / 'sidequest-data.py'), run_name='sidequest_data_test')['main']
+        stderr = io.StringIO()
+        with patch.object(sys, 'argv', ['sidequest-data', *args]), patch('sys.stderr', stderr), \
+                patch.object(client, 'fetch_one', side_effect=error), \
+                patch.dict(main.__globals__, {'collect': unittest.mock.Mock(side_effect=error)}):
+            code = main()
+        return code, stderr.getvalue()
+
+    def test_sidequest_data_prints_the_real_cause_and_never_a_login_guess(self):
+        code, stderr = self.run_data(['ticket', 'APP-1'], client.JiraError('No Jira credentials', cause='credentials'))
+        self.assertEqual(code, 2)
+        self.assertTrue(stderr.startswith('sidequest-data: Jira: no credentials yet'), stderr)
+        code, stderr = self.run_data(['collect', '--json'], OSError('disk full'))
+        self.assertEqual(code, 2)
+        self.assertTrue(stderr.startswith('sidequest-data: '), stderr)
+        self.assertNotIn('login', stderr)
 
     def test_run_has_no_keychain_exception_for_diagnostics(self):
         from tui import run

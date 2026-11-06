@@ -2,10 +2,10 @@
 import json
 import os
 import re
-import subprocess
 import urllib.parse
 from sidequest import config
-from sidequest.access import failure_for
+from sidequest.access import AccessFailure
+from sidequest.services import run_tool
 from sidequest.environments import fetch_environments
 from sidequest.ticket_keys import branch_ticket, ticket_key
 
@@ -18,18 +18,13 @@ class ReviewAppError(RuntimeError):
 
 
 def _run(args, timeout=45):
+    args = list(args)
+    if args[:2] == ["gh", "pr"] and config.get("github", "repository"):
+        args += ["--repo", config.get("github", "repository")]
     try:
-        args = list(args)
-        if args[:2] == ["gh", "pr"] and config.get("github", "repository"):
-            args += ["--repo", config.get("github", "repository")]
-        result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
-    except FileNotFoundError as exc:
-        raise ReviewAppError(str(failure_for(args[0], exc))) from None
-    except subprocess.TimeoutExpired:
-        raise ReviewAppError("%s timed out" % " ".join(args[:3])) from None
-    if result.returncode:
-        raise ReviewAppError(str(failure_for('GitHub', result.stderr)))
-    return result.stdout
+        return run_tool(args, timeout)
+    except AccessFailure as exc:
+        raise ReviewAppError(exc.terminal_text) from None
 
 
 def find_pr(key=None, number=None, run=_run):
