@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest.access import AccessFailure, failure_record
+from sidequest.access import COMMANDS, failure_record
 from sidequest.collector import DEFAULT_OUT, collect
 from sidequest.jira import client
 from sidequest.snapshots import SnapshotStore
@@ -52,25 +52,23 @@ def main():
             print(json.dumps(data, indent=2))
         return 1 if data.get('failures') else 0
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-        record = failure_record(exc)
-        if 'cause' in record:
-            failure = AccessFailure(record['service'], record['cause'], record['tool'])
+        failure, record = failure_record(exc, args.command)
+        if failure and getattr(exc, 'status', None) != 301:
             text = failure.terminal_text
-            if getattr(exc, 'status', None) == 301:
-                text = 'Jira: ' + jira_text(exc)  # names the new key, which generic advice cannot
         elif isinstance(exc, client.JiraError):
-            text = 'Jira: ' + jira_text(exc)
+            text = 'Jira: ' + jira_text(exc)  # its own words; a moved issue names its new key
         else:
-            text = (('Ticket lookup' if args.command == 'ticket' else 'Collection') + ' failed ('
-                    + record['error'] + '). Check the snapshot folder and configuration. Previous data retained.')
+            text = (COMMANDS[args.command] + ' failed (' + record['error'] + '). Check the snapshot folder and '
+                    'configuration. Previous data retained.')
         print('sidequest-data: ' + text, file=sys.stderr)
         print(FAILURE_LINE + json.dumps(record), file=sys.stderr)
         return 2
 
 
 def jira_text(exc):
-    text = re.sub(r'^Jira\s+', '', str(exc)).split('; previous data retained')[0].rstrip('.')
-    return text + '.'
+    text = re.sub(r';\s*(previous data retained|retain the previous snapshot)\.?$', '', str(exc))
+    text = re.sub(r'^(Invalid |invalid |incomplete |Incomplete )?Jira ', r'\1', text)
+    return text.rstrip('.') + '.'
 
 if __name__ == '__main__':
     raise SystemExit(main())

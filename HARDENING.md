@@ -390,3 +390,17 @@ key is unchanged; any background result discards it. Three existing tests that
 change state without a key caught an earlier version that reused a stale view.
 Result: 4 idle wake-ups a second instead of 19 (0.06% of one core over 5 s, was
 0.23%), and one detail build per key instead of two.
+
+2026-11-06: Fifth review of access failures (Jira bases decided).
+
+Three reviews disagreed on which error to show when the Jira site refuses the token
+and the cloud gateway answers differently. One request cannot tell a scoped token
+(only the gateway works, so its answer is real) from an expired one with a wrong
+cloud_id. Decision (user, option 2): keep the gateway's cause and add a fixed note,
+"The Jira site refused the token; if it is not a scoped token, renew
+SIDEQUEST_JIRA_TOKEN". Failure records carry the note by name. Failing tests first
+for the rest: "No such file or directory" is a missing tool only for gh, heroku or
+a missing interpreter ("env: node: ..."); records name Jira only for Jira errors
+and only known services, so terminal and dashboard text agree; the generic record
+names the failed command; type names may contain digits and underscores; and Jira
+messages drop both retention suffixes and a doubled "Jira".

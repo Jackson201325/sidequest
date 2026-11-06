@@ -22,8 +22,9 @@ STATUS_CAUSES = {301: 'not_found', 401: 'login', 403: 'denied', 404: 'not_found'
 
 
 class JiraError(RuntimeError):
-    def __init__(self, message, status=None, cause=None):
+    def __init__(self, message, status=None, cause=None, note=None):
         super().__init__(message)
+        self.note = note  # see sidequest.access.NOTES
         self.status = status  # HTTP status when the error came from a Jira response
         # Jira raises every error itself, so its cause is always known: never guessed from wording.
         self.cause = cause or STATUS_CAUSES.get(status) or ('server' if status and status >= 500 else 'unknown')
@@ -60,18 +61,18 @@ def jira(method, path, body=None):
             if exc.code == 401 and not _base[0]:
                 rejected = True
                 continue
-            if rejected and not (exc.code in (403, 429) or exc.code >= 500):
-                break  # only a base that accepted the token may replace the first base's refusal
-            raise JiraError('Jira HTTP %d; previous data retained' % exc.code, exc.code) from None
+            # After the site refused the token, keep the gateway's answer and say both: a scoped
+            # token only works on the gateway, but an expired one fails there too.
+            raise JiraError('Jira HTTP %d; previous data retained' % exc.code, exc.code,
+                            note='site_refused_token' if rejected else None) from None
         except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
-            if rejected:
-                break  # an unreachable second base must not hide the first base's refusal
             # URLError wraps the real error in .reason; errors while reading the body arrive bare.
             inner = exc.reason if isinstance(exc, urllib.error.URLError) else exc
             cause = ('tls' if isinstance(inner, ssl.SSLError) else 'dns' if isinstance(inner, socket.gaierror)
                      else 'timeout' if isinstance(inner, (TimeoutError, socket.timeout)) else 'network')
             raise JiraError('Jira ' + {'tls': 'TLS failure', 'dns': 'DNS lookup failed', 'timeout': 'request timed out'}
-                            .get(cause, 'network failure') + '; previous data retained', cause=cause) from None
+                            .get(cause, 'network failure') + '; previous data retained', cause=cause,
+                            note='site_refused_token' if rejected else None) from None
         except ValueError:
             raise JiraError('Jira invalid response; previous data retained') from None
     raise JiraError('Jira HTTP 401; renew SIDEQUEST_JIRA_TOKEN', 401)
