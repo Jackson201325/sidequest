@@ -202,3 +202,18 @@ workflow.py feeds ALIASES. Snapshots written before this change keep their store
 PR ticket until the next refresh replaces them.
 Verification: bin/check passed 114 helper/service/spec tests and 146 UI tests
 (two optional browser checks skipped). Tests use mocks and temporary repositories.
+
+2026-11-06: One ticket key module.
+
+Nine local key rules answered four questions differently. sidequest/ticket_keys.py
+now answers all of them: is_key (workspace naming, lookup, plan-init, Jira links),
+pr_ticket, branch_keys (lookup and the worktree map), branch_ticket (ship-check and
+qa-shot) and mentions/without_leading_key (tmux titles, work log, standup). Guessing
+rules (pr_ticket, branch_ticket) trust lower-case keys only for configured Jira
+projects; mentions also accept "APP 12" because they only match known tickets.
+Failing tests first showed ship-check warning on every non-DEMO branch and qa-shot
+reading chore/python-3-bump as PYTHON-3. The unused extract_ticket and
+commits_for_day helpers are removed. The Jira client keeps its own upper-case key
+check at the transport, and review-app and worktree helpers still assume DEMO keys.
+Verification: bin/check passed 126 helper/service/spec tests and 146 UI tests
+(two optional browser checks skipped). Tests use temporary repositories only.

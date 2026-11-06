@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sidequest.qa import plan_path
-from sidequest.workspaces import KEY
+from sidequest.ticket_keys import is_key
 from sidequest import config
 
 TEMPLATE = """# {title}
@@ -53,7 +53,7 @@ def main():
     parser.add_argument("--type", default="", dest="issue_type")
     options = parser.parse_args()
     key = options.key.upper()
-    if not KEY.fullmatch(key):
+    if not is_key(key):
         parser.error("expected a Jira key such as APP-123")
     path = plan_path(key)
     if path.exists():

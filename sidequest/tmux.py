@@ -1,7 +1,7 @@
 """tmux operations on already-selected checkouts; no Git or UI imports."""
 import shlex
 
-from sidequest.worktrees import KEY
+from sidequest.ticket_keys import mentions
 
 PANE_FORMAT = '#{session_name}\t#{window_id}\t#{window_name}\t#{pane_current_path}'
 
@@ -17,7 +17,7 @@ def find_window(panes, key, path, session):
         if current_session != session:
             continue
         path_match = bool(root and (current_path == root or current_path.startswith(root + '/')))
-        name_match = key.upper() in [m.group().upper() for m in KEY.finditer(title)]
+        name_match = key.upper() in mentions(title)
         if path_match or name_match:
             candidates.append((not path_match, wid, title))
     return min(candidates)[1:] if candidates else None

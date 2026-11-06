@@ -24,9 +24,10 @@ from sidequest import qa
 from sidequest import terminal
 from sidequest.application import build_workflow
 
-from core import KEY, Store, now, parse_time, rank, tickets_from
+from core import Store, now, parse_time, rank, tickets_from
 from sidequest.environments import fetch_environments
-from sidequest.worktrees import branch_keys, parse_worktrees
+from sidequest.ticket_keys import branch_keys, is_key
+from sidequest.worktrees import parse_worktrees
 from worklog import collect_worklog, daily_summary
 from workflow import next_owner, ownership, stage_context, workflow_path, workflow_strip
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
@@ -987,7 +988,7 @@ class App:
     def open_url(self, ticket, pr=False):
         known_jira = any(issue.get('key') == ticket.key for issue in self.jira.get('tickets', []))
         url = (ticket.prs[0].get("url") if pr and ticket.prs else
-               config.get('jira', 'site').rstrip('/') + f"/browse/{ticket.key}" if not pr and known_jira and KEY.fullmatch(ticket.key) and config.get('jira', 'site') else None)
+               config.get('jira', 'site').rstrip('/') + f"/browse/{ticket.key}" if not pr and known_jira and is_key(ticket.key) and config.get('jira', 'site') else None)
         from urllib.parse import urlsplit
         allowed = {'github.com', urlsplit(config.get('jira', 'site')).hostname}
         if self.demo or not url or urlsplit(url).scheme != 'https' or urlsplit(url).hostname not in allowed:

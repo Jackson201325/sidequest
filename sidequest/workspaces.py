@@ -1,12 +1,12 @@
 """Naming shared by explicit ticket starts and automatic worktree sync."""
 import re
 
-KEY = re.compile(r"[A-Z][A-Z0-9_]*-[0-9]+", re.I)
+from sidequest.ticket_keys import is_key
 
 
 def branch_name(key, summary, issue_type="", prefix=None):
     key = str(key).upper()
-    if not KEY.fullmatch(key):
+    if not is_key(key):
         raise ValueError("expected a Jira key such as APP-123")
     prefix = prefix or ("fix" if issue_type.lower() in ("bug", "defect") else "feature")
     if prefix not in ("fix", "feature", "hotfix", "chore"):

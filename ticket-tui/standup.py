@@ -7,18 +7,17 @@ from datetime import datetime, time, timedelta
 from pathlib import Path
 
 from core import TZ, parse_time
+from sidequest.ticket_keys import mentions, without_leading_key
 from sidequest.identity import is_my_author
 from workflow import next_owner
 
 DEFAULT_TIME = time(9, 0)
 VAGUE = re.compile(r"^(small|minor|tiny)?\s*(fix|fixes|tweak|tweaks|changes?|cleanup|clean up.*)$|^smallfix(es)?$|^wip$", re.I)
 MAX_SUBJECTS = 4
-LEADING_KEY = re.compile(r"^\s*\[?[A-Z][A-Z0-9_]*[ -]\d+\]?[\s:.-]*", re.I)
 
 
 def _title(ticket):
-    """PR titles often repeat the key ("DEMO 297 Remove emojis"); show it once."""
-    return LEADING_KEY.sub("", ticket.title or "").strip() or ticket.title
+    return without_leading_key(ticket.title) or ticket.title
 
 
 def parse_standup_time(value):
@@ -109,7 +108,6 @@ def preview(tickets, worklog, clock, at=DEFAULT_TIME, escalate_days=5, stale_day
 
 STANDUP_HEADING = re.compile(r"^#{1,6}\s+standup\b", re.I)
 REFRESH_NOTE = "> Refreshed "
-TICKET_KEY = re.compile(r"\b[A-Z][A-Z0-9_]*-\d+\b", re.I)
 TODAY_TITLE = re.compile(r"^\W*today\b", re.I)
 
 
@@ -135,10 +133,10 @@ def _merge_today(body, items):
         body[at:at] = block
         today = at + (1 if block[0] == "" else 0)
     stop = next((i for i in range(today + 1, len(body)) if _is_title(body[i])), len(body))
-    seen = {k.upper() for line in body[today:stop] for k in TICKET_KEY.findall(line)}
+    seen = {key for line in body[today:stop] for key in mentions(line)}
     new = []
     for item in items:
-        keys = {k.upper() for k in TICKET_KEY.findall(item)}
+        keys = set(mentions(item))
         if keys and not keys & seen:
             new.append(f"- {item}")
             seen |= keys
