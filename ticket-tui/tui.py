@@ -771,17 +771,29 @@ class App:
         extra = f" +{len(loading) - 1}" if len(loading) > 1 else ""
         return f"{spinner} {label} · {int(time.monotonic() - started)}s{extra}"
 
+    def source_failed(self, name):
+        return any(str(error).startswith(name + ":") for error in self.refresh_errors)
+
     def header_status(self):
         """Right side of the header: what's loading, else the sort and how fresh the data is."""
         loading = self.loading_line()
         if loading:
             return loading, self.style("accent"), False
-        jira_time = (self.jira or self.fallback).get("generated_at")
-        pr_time = self.prs.get("generated_at")
-        stale = any(not parse_time(v) or (now() - parse_time(v)).total_seconds() > 3600 for v in (jira_time, pr_time))
+        sources = (("Jira", self.jira or self.fallback), ("GitHub", self.prs))
+        # A source that is not configured is "off", not stale; one whose last refresh failed says so
+        # next to the age of the data still shown, instead of reading as freshly refreshed.
+        active = [(name, data) for name, data in sources if data.get("enabled") is not False]
+        stale = any(not parse_time(data.get("generated_at")) or
+                    (now() - parse_time(data.get("generated_at"))).total_seconds() > 3600 for _, data in active)
+
+        def label(name, data):
+            if data.get("enabled") is False and not self.source_failed(name):
+                return name + " off"
+            age = relative(data.get("generated_at"), now()) or "not loaded"
+            return f"{name} {'failed, data ' + age if self.source_failed(name) else age}"
         arrow = "↓" if self.sort_descending else "↑"
-        text = (f"Sort: {self.sort_mode} {arrow}  ·  Refreshed Jira {relative(jira_time, now()) or 'not loaded'}"
-                f" · GitHub {relative(pr_time, now()) or 'not loaded'}" + ("  STALE" if stale else ""))
+        text = (f"Sort: {self.sort_mode} {arrow}  ·  Refreshed " + " · ".join(label(n, d) for n, d in sources)
+                + ("  STALE" if stale else ""))
         if self.refresh_errors:
             text = "ERROR · " + text
         return text, curses.A_BOLD if self.refresh_errors else curses.A_DIM, stale or bool(self.refresh_errors)

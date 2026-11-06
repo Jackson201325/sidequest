@@ -31,8 +31,11 @@ startup rendering and collector reads never invoke mutating workspace operations
 4. Changed source commit, selected branch/checkout or repository invalidates a
    plan. A destination appearing after preview is refused; user files and symlinks
    are not overwritten. Git remains the final concurrent-conflict guard.
-5. Remote-tracking bases keep normal Git upstream setup. Invalid keys, absent
-   bases and Git failures return errors without launching a shell.
+5. A new ticket branch does not track its base (origin/main), so the first
+   `git push` targets a same-named branch instead of failing with a suggestion to
+   push to main. An existing remote ticket branch keeps tracking origin/<branch>.
+   Invalid keys, absent bases and Git failures return errors (with Git's reason)
+   without launching a shell.
 6. Explicit repository/destination/base settings belong to the composed workflow;
    later environment/settings changes cannot redirect it.
 
