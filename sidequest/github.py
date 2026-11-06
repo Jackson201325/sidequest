@@ -1,7 +1,9 @@
 """GitHub PRs and complete unresolved review threads, using the user's gh login."""
 from __future__ import annotations
 import json
+from sidequest import config
 from sidequest import services as tr
+from sidequest.ticket_keys import pr_ticket
 from sidequest.reviews import ci_summary
 GITHUB_REPO = tr.GITHUB_REPO
 GITHUB_OWNER, GITHUB_NAME = (GITHUB_REPO.split('/', 1) if '/' in GITHUB_REPO else ('', ''))
@@ -175,7 +177,7 @@ def enrich_pr(pr: dict, *, include_threads: bool, include_activity: bool = False
         "review_decision": pr.get("reviewDecision") or "",
         "ci": ci_summary(pr.get("statusCheckRollup")),
         "requested_reviewers": reviewers_from(pr),
-        "ticket": tr.extract_ticket(title),
+        "ticket": pr_ticket({"title": title, "branch": pr.get("headRefName")}, config.get("jira", "projects", [])),
         "updated_at": pr.get("updatedAt"),
         "unresolved_count": len(threads),
         "unresolved": threads if include_threads else [],

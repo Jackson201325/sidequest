@@ -26,7 +26,7 @@ from sidequest.application import build_workflow
 
 from core import KEY, Store, now, parse_time, rank, tickets_from
 from sidequest.environments import fetch_environments
-from sidequest.worktrees import parse_worktrees
+from sidequest.worktrees import branch_keys, parse_worktrees
 from worklog import collect_worklog, daily_summary
 from workflow import next_owner, ownership, stage_context, workflow_path, workflow_strip
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
@@ -145,11 +145,10 @@ def worktrees():
     if not config.get('workspace', 'repository'):
         return result
     try:
-        # Same parsing and backup/ rule as sidequest.worktrees.lookup, so w and Space n agree.
+        # Same parsing and key rule as sidequest.worktrees.lookup, so w and Space n agree.
         for path, branch in parse_worktrees(run(["git", "worktree", "list", "--porcelain"])):
-            if branch and not branch.startswith("backup/"):
-                for match in KEY.finditer(branch):
-                    result[match.group().upper()] = path
+            for key in branch_keys(branch or ""):
+                result[key] = path
     except (RuntimeError, OSError, subprocess.TimeoutExpired):
         pass
     return result
@@ -487,7 +486,7 @@ class App:
                     source = sources.get(name)
                     if (not isinstance(source, dict) or not isinstance(source.get(rows), list)
                             or (name == "jira" and source.get("jira_available") is not True)):
-                        errors.append(name + " unavailable; keeping previous data")
+                        errors.append({"jira": "Jira", "prs": "GitHub"}[name] + " unavailable; keeping previous data")
                         continue
                     self.events.put((name, source))
             except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
@@ -772,7 +771,12 @@ class App:
         return f"{spinner} {label} · {int(time.monotonic() - started)}s{extra}"
 
     def source_failed(self, name):
-        return any(str(error).startswith(name + ":") for error in self.refresh_errors)
+        """An error that names no source (a failed or timed-out collection) counts against every source."""
+        for error in map(str, self.refresh_errors):
+            owner = next((source for source in ("Jira", "GitHub") if error.startswith(source)), None)
+            if owner in (name, None):
+                return True
+        return False
 
     def header_status(self):
         """Right side of the header: what's loading, else the sort and how fresh the data is."""

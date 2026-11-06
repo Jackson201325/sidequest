@@ -1,4 +1,5 @@
 """Regressions from the Nov 2026 code review: false ticket keys, QA rework, stuck refresh, worktree parsing."""
+import json
 import queue
 import sys
 import time
@@ -45,6 +46,15 @@ class QaReworkTests(unittest.TestCase):
         self.assertEqual((court, action), ("them", "Waiting for Jira assignee"))
         ticket.court = court
         self.assertEqual(stage_context(ticket)["name"], "Build")
+
+    def test_rework_statuses_match_after_normalising(self):
+        for status in ("QA_Failed", "QA  Failed", "Fixing Revisions"):
+            with self.subTest(status=status):
+                self.assertEqual(infer(Ticket("APP-1", status=status, assigned_me=True))[1], "Address returned work")
+
+    def test_pr_titles_never_create_lowercase_phantom_tickets_without_projects(self):
+        prs = {"open_prs": [{"number": 5, "title": "Bump python 3.12 base image", "branch": "chore/python-3-bump"}]}
+        self.assertEqual([t.key for t in tickets_from({}, prs)], ["PR-5"])
 
     def test_real_qa_and_unmapped_qa_statuses_still_wait_for_qa(self):
         for status in ("QA", "Ready for QA", "UAT QA pending"):
@@ -93,6 +103,13 @@ class WorktreeTests(unittest.TestCase):
         with patch.object(tui.config, "get", return_value="/repo"), patch.object(tui, "run", return_value=porcelain):
             self.assertEqual(tui.worktrees(), {"APP-7": "/wt/app-7"})
 
+    def test_only_branch_segment_keys_map_a_worktree_like_lookup(self):
+        porcelain = ("worktree /repo\nHEAD 1\nbranch refs/heads/main\n\n"
+                     "worktree /wt/a\nHEAD 2\nbranch refs/heads/feature/APP-1-revert-APP-2\n\n"
+                     "worktree /wt/b\nHEAD 3\nbranch refs/heads/fix/APP-3-utf-8\n\n")
+        with patch.object(tui.config, "get", return_value="/repo"), patch.object(tui, "run", return_value=porcelain):
+            self.assertEqual(tui.worktrees(), {"APP-1": "/wt/a", "APP-3": "/wt/b"})
+
 
 class FirstRunTests(unittest.TestCase):
     """Found by the fresh-install e2e run on Python 3.9."""
@@ -133,6 +150,30 @@ class FirstRunTests(unittest.TestCase):
         self.assertNotIn("STALE", text)
         app.refresh_errors = ["GitHub: request failed. Previous data retained."]
         self.assertIn("GitHub failed, data now", app.header_status()[0])
+
+    def test_header_marks_every_kind_of_refresh_failure(self):
+        app = tui.App.__new__(tui.App)
+        app.refreshing, app.jobs, app.sort_descending, app.sort_mode, app.styles = False, {}, True, "Attention", {}
+        app.fallback = {}
+        app.jira = {"enabled": True, "generated_at": tui.now().isoformat()}
+        app.prs = {"enabled": True, "generated_at": tui.now().isoformat()}
+        cases = {"Jira unavailable; keeping previous data": ("Jira failed",),
+                 "Jira is not configured; configure jira.site. Previous data retained.": ("Jira failed",),
+                 "Command timed out after 300 seconds": ("Jira failed", "GitHub failed")}
+        for error, expected in cases.items():
+            with self.subTest(error=error):
+                app.refresh_errors = [error]
+                text = app.header_status()[0]
+                for marker in expected:
+                    self.assertIn(marker, text)
+
+    def test_refresh_names_rejected_sources_as_the_header_does(self):
+        app = WorkerTests().app()
+        data = json.dumps({"sources": {"jira": {"tickets": []}, "prs": {"open_prs": "bad"}}, "failures": {}})
+        with patch.object(tui, "run", return_value=data):
+            app.refresh()
+            events = WorkerTests().drain(app, "done")
+        self.assertEqual(events[-1][1], ["Jira unavailable; keeping previous data", "GitHub unavailable; keeping previous data"])
 
 
 if __name__ == "__main__":

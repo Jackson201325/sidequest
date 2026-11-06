@@ -56,6 +56,15 @@ class WorkspaceSpecs(unittest.TestCase):
             GitWorkspace(self.repo, base_ref='origin/missing').preview('APP-12', 'A workspace')
         self.assertIn('Git command failed:', str(failure.exception))
 
+    def test_git_failure_shows_the_fatal_line_not_progress_output(self):
+        plan = self.workspace.preview('APP-12', 'A workspace')
+        progress = subprocess.CompletedProcess([], 128, '', "Preparing worktree (new branch 'x')\nfatal: a branch named 'x' already exists\n")
+        with patch('sidequest.workspace.subprocess.run', return_value=progress):
+            with self.assertRaises(RuntimeError) as failure:
+                self.workspace._git('worktree', 'add', '-b', plan.branch, plan.path, plan.base)
+        self.assertIn("fatal: a branch named 'x' already exists", str(failure.exception))
+        self.assertNotIn('Preparing worktree', str(failure.exception))
+
     def test_changed_base_requires_a_new_preview(self):
         plan = self.workspace.preview('APP-12', 'A workspace')
         self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',

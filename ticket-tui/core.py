@@ -14,23 +14,8 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sidequest.identity import TZ
 from sidequest.evidence import parse_time
-from workflow import ALIASES
-
-REWORK = ("qa failed", "fixing revisions", "reopened")
-KEY = re.compile(r"\b[A-Z][A-Z0-9_]*-\d+\b", re.I)
-
-
-def ticket_key(text, known=()):
-    """First ticket key in free text such as a PR title or branch.
-
-    Case-insensitive matching reads "utf-8" or "python-3" as keys, so with known project
-    prefixes only those are accepted (any case); without them a key must be written in capitals.
-    """
-    for match in KEY.finditer(text or ""):
-        candidate = match.group()
-        if candidate.rsplit("-", 1)[0].upper() in known if known else candidate == candidate.upper():
-            return candidate.upper()
-    return None
+from sidequest.ticket_keys import KEY, pr_ticket, ticket_key  # noqa: F401
+from workflow import ALIASES, REWORK
 
 
 def now():
@@ -158,8 +143,7 @@ def tickets_from(jira, prs, fallback=None, worktrees=None, projects=()):
     pr_list = prs.get("open_prs", []) if prs else (fallback or {}).get("open_prs", [])
     known = {p.upper() for p in projects} | {key.rsplit("-", 1)[0].upper() for key in result}
     for pr in pr_list:
-        key = next(filter(None, (ticket_key(str(pr.get(k) or ""), known) for k in ("ticket", "title", "branch"))),
-                   None) or f"PR-{pr.get('number')}"
+        key = pr_ticket(pr, known) or f"PR-{pr.get('number')}"
         ticket = result.setdefault(key, Ticket(key, pr.get("title", "")))
         ticket.prs.append(pr)
     for key, path in (worktrees or {}).items():
@@ -177,8 +161,9 @@ def infer(ticket):
     # Jira owns the handoff; old GitHub feedback stays visible without taking it back.
     review = status in ("ready for code review", "code review", "in code review", "in review")
     # One status map with the Flow view: "QA Failed" is rework, not QA still testing.
-    stage = ALIASES.get(" ".join(status.replace("_", " ").split()))
-    if status in REWORK and ticket.assigned_me is True:
+    normalised = " ".join(status.replace("_", " ").split())
+    stage = ALIASES.get(normalised)
+    if normalised in REWORK and ticket.assigned_me is True:
         return "me", "Address returned work", f"Jira status {ticket.status} returns this to implementation"
     if stage == 3 or (stage is None and ("qa" in status or "testing" in status)):
         if ticket.assigned_me is True:
