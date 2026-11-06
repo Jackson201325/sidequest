@@ -59,3 +59,12 @@ SETTINGS = load(CONFIG_PATH)
 
 def get(section, key, default=''):
     return SETTINGS.get(section, {}).get(key, default)
+
+
+def workspace_repository():
+    """The repository workspace actions and the dashboard both use: SIDEQUEST_REPO, then config."""
+    return os.environ.get('SIDEQUEST_REPO') or get('workspace', 'repository')
+
+
+def base_ref():
+    return get('workspace', 'base_ref') or 'origin/main'

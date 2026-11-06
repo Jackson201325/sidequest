@@ -36,7 +36,7 @@ from queue_evidence import EVERY, QueueEvidence
 from detail_views import DetailViews, readable_date, source_age, wrap  # noqa: F401 - readable_date is public
 
 WORKFLOW = Path(__file__).resolve().parents[1]
-ROOT = Path(config.get('workspace', 'repository') or WORKFLOW).expanduser().resolve()
+ROOT = Path(config.workspace_repository() or WORKFLOW).expanduser().resolve()
 VIEWS = ["All", "Needs me", "Waiting", "Clarify"]
 # Right-pane views: key, tab label, internal name.
 TABS = [("a", "Activity", "Activity"), ("p", "Plan", "Plan"), ("d", "Updates", "Updates"), ("v", "Overview", "Overview"),
@@ -111,7 +111,7 @@ def unexpected(label, exc):
 
 def worktrees():
     result = {}
-    if not config.get('workspace', 'repository'):
+    if not config.workspace_repository():
         return result
     try:
         # Same parsing and key rule as sidequest.worktrees.lookup, so w and Space n agree.
@@ -320,8 +320,8 @@ class App:
         if self.demo:
             self.message = 'Demo: creating worktrees is disabled'
             return
-        if not config.get('workspace', 'repository'):
-            self.message = 'Configure workspace.repository first; Jira stays read-only'
+        if not config.workspace_repository():
+            self.message = 'Configure workspace.repository (or SIDEQUEST_REPO) first; Jira stays read-only'
             return
         if ticket.key.startswith('PR-') and not any(row.get('key') == ticket.key for row in self.evidence.jira.get('tickets', [])):
             self.message = 'Use the PR branch checkout; creating a ticket worktree needs a Jira key'
@@ -386,7 +386,7 @@ class App:
             self.message = "No linked PRs to check for Heroku environments"
 
     def refresh_worklog(self):
-        if not self.demo and config.get('workspace', 'repository'):
+        if not self.demo and config.workspace_repository():
             tickets = [{"key": t.key, "worktree": self.evidence.windows.get(t.key, "")} for t in self.tickets]
             self.background("worklog", "Loading dated work history", lambda: collect_worklog(tickets, ROOT, run), "worklog")
 
@@ -692,8 +692,11 @@ class App:
         rows = self.visible()
         ticket = self.selected()
         list_active = self.focus_pane == "list"
-        view = self.fitted_view(self.view_key()) or self.viewport()
-        self.fitted_cache = None
+        key = self.view_key()
+        view = self.fitted_view(key)
+        if view is None:
+            view = self.viewport()
+            self.fitted_cache = (key, view)
         list_rect, preview_rect = view.list_rect, view.preview_rect
         if list_rect:
             top, _, panel_h, list_w = list_rect
@@ -1019,7 +1022,7 @@ class App:
                 self.focus_pane = "preview"
             elif key == "?":
                 self.help()
-        except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
             self.message = str(exc)
         self.fit()
         if self.message != before:
@@ -1049,11 +1052,17 @@ def main():
         standup_time = standup.parse_standup_time(args.standup_time)
     except ValueError:
         parser.error("--standup-time must look like 09:00")
+    refresh_error = None
     if args.refresh and not args.demo and (args.list or args.standup or args.update_report):
-        run(['sidequest-data', 'collect', '--json', '--out', str(args.snapshots)], timeout=300)
+        try:
+            run(['sidequest-data', 'collect', '--json', '--out', str(args.snapshots)], timeout=300)
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            refresh_error = str(exc)  # cached results still print, marked incomplete
     store = Store(":memory:") if args.demo else Store(args.data_dir / "tickets.sqlite3")
     try:
         app = App(store, args.snapshots, args.demo, args.stale_days, args.escalate_days, standup_time)
+        if refresh_error:
+            app.evidence.refresh_errors = [refresh_error, *app.evidence.refresh_errors]
         if args.update_report and args.demo:
             parser.error("--update-report needs real data, not --demo")
         if (args.standup or args.list or args.update_report) and not args.demo:
