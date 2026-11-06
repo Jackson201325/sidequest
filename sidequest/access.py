@@ -78,11 +78,11 @@ def classify(text):
     text = str(text).casefold()
     if 'no jira credentials' in text or 'no jira token' in text:
         return 'credentials', None
+    if re.search(r"(?:^|/)env: \W?[\w.+-]+\W?: no such file or directory", text, re.M):
+        return 'missing_tool', None  # a CLI's interpreter (BSD or GNU env output)
     missing = re.search(r"no such file or directory: '([^']+)'", text)
-    if missing and missing[1] in TOOLS:  # other names are files: a missing file is not a missing command
-        return 'missing_tool', missing[1]
-    if re.search(r'^env: [^:]+: no such file or directory', text, re.M):  # a CLI's interpreter is missing
-        return 'missing_tool', None
+    if missing:  # a known CLI, or a file: a file name must not suggest login, TLS or network
+        return ('missing_tool', missing[1]) if missing[1] in TOOLS else ('unknown', None)
     for cause, words in (('login', ('401', 'token expired', 'invalid token', 'bad credentials', 'unauthorized',
                                     'not logged', 'authentication', 'login')),
                          ('denied', ('403', 'forbidden', 'permission', 'access denied', 'eacces')),
@@ -96,16 +96,29 @@ def classify(text):
     return 'unknown', None
 
 
+class CommandFailure(RuntimeError):
+    """A sidequest-data command failed for a reason other than a service: named by error type only."""
+
+    def __init__(self, command, error):
+        self.command, self.error = command, error
+        self.terminal_text = (f'{COMMANDS[command]} failed ({error}). Run sidequest-data {command} again '
+                              'in your terminal to see why.')
+        super().__init__(f'{COMMANDS[command]} failed ({error}). Run sidequest-data {command} in your terminal '
+                         'to see why.' + RETAINED)
+
+
 def failure_record(exc, command):
-    """(AccessFailure or None, record) for an error that ended a sidequest-data command.
-    The record is what the dashboard rebuilds from; unknown services become sidequest-data."""
-    cause = getattr(exc, 'cause', None)
-    if cause in CAUSES and cause != 'unknown':
-        service = getattr(exc, 'service', None) or ('Jira' if type(exc).__name__ == 'JiraError' else 'sidequest-data')
-        service = service if service_name(service) in KNOWN_SERVICES else 'sidequest-data'
+    """(failure, record) for an error that ended a sidequest-data command. Errors that name a
+    service and cause (AccessFailure, JiraError) keep them, including unknown causes and notes."""
+    service, cause = service_name(getattr(exc, 'service', '')), getattr(exc, 'cause', None)
+    if service in KNOWN_SERVICES and cause in CAUSES:
         failure = AccessFailure(service, cause, getattr(exc, 'tool', None), getattr(exc, 'note', None))
         return failure, failure.record()
-    return None, {'error': type(exc).__name__, 'command': command}
+    if cause in CAUSES and cause != 'unknown':
+        failure = AccessFailure('sidequest-data', cause, getattr(exc, 'tool', None), getattr(exc, 'note', None))
+        return failure, failure.record()
+    failure = CommandFailure(command, type(exc).__name__)
+    return failure, {'error': failure.error, 'command': command}
 
 
 def failure_from_record(text):
@@ -115,14 +128,15 @@ def failure_from_record(text):
         record = json.loads(text)
     except ValueError:
         record = None
-    if isinstance(record, dict) and set(record) <= {'service', 'cause', 'tool', 'note'}:
+    if not isinstance(record, dict) or not all(isinstance(value, (str, type(None))) for value in record.values()):
+        return AccessFailure('sidequest-data', 'unknown')
+    if set(record) <= {'service', 'cause', 'tool', 'note'}:
         if (record.get('service') in KNOWN_SERVICES and record.get('cause') in CAUSES
                 and record.get('tool') in (None, *TOOLS) and record.get('note') in (None, *NOTES)):
             return AccessFailure(record['service'], record['cause'], record.get('tool'), record.get('note'))
-    if (isinstance(record, dict) and set(record) == {'error', 'command'} and record['command'] in COMMANDS
+    if (set(record) == {'error', 'command'} and record['command'] in COMMANDS
             and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,60}', str(record['error']))):
-        return RuntimeError(COMMANDS[record['command']] + ' failed (' + record['error'] + '). Run sidequest-data '
-                            + record['command'] + ' in your terminal to see why. Previous data retained.')
+        return CommandFailure(record['command'], record['error'])
     return AccessFailure('sidequest-data', 'unknown')
 
 
