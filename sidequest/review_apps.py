@@ -7,6 +7,7 @@ import urllib.parse
 from sidequest import config
 from sidequest.access import access_error
 from sidequest.environments import fetch_environments
+from sidequest.ticket_keys import pr_ticket
 
 REVIEW_HOST = re.compile(r"^[a-z0-9][a-z0-9-]*\.herokuapp\.com$")
 
@@ -36,11 +37,11 @@ def find_pr(key=None, number=None, run=_run):
     if number:
         pr = json.loads(run(["gh", "pr", "view", str(number), "--json", fields]))
     elif key:
-        prs = json.loads(run(["gh", "pr", "list", "--state", "open", "--search", key + " in:title",
-                              "--json", fields]))
-        prs = [p for p in prs if re.match(re.escape(key) + r"\b", p.get("title", ""), re.I)]
+        prs = json.loads(run(["gh", "pr", "list", "--state", "open", "--limit", "200", "--json", fields]))
+        project = [key.rsplit("-", 1)[0]]
+        prs = [p for p in prs if pr_ticket({"title": p.get("title"), "branch": p.get("headRefName")}, project) == key]
         if not prs:
-            raise ReviewAppError("no open PR whose title starts with %s: open it first (sidequest-ship)" % key)
+            raise ReviewAppError("no open PR for %s: open it first (sidequest-ship)" % key)
         if len(prs) > 1:
             raise ReviewAppError("several open PRs for %s (%s): pass --pr N" % (key, ", ".join("#%d" % p["number"] for p in prs)))
         pr = prs[0]

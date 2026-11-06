@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""sidequest-data worktree DEMO-### | BRANCH [--json]: where is this ticket's work? Local git only.
+"""sidequest-data worktree APP-### | BRANCH [--json]: where is this ticket's work? Local git only.
 
 States: worktree (its own folder), main-checkout (the main checkout is on its branch),
 branch-only (a local or origin branch exists, no worktree), none.
@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sidequest.ticket_keys import is_key
 from sidequest.worktrees import lookup
 from sidequest import config
 
@@ -28,7 +29,7 @@ def git(*args):
 
 def main():
     parser = argparse.ArgumentParser(prog="sidequest-data worktree")
-    parser.add_argument("target", help="ticket key (DEMO-123) or an exact branch name")
+    parser.add_argument("target", help="ticket key (APP-123) or an exact branch name")
     parser.add_argument("--json", action="store_true")
     options = parser.parse_args()
     porcelain = git("worktree", "list", "--porcelain")
@@ -39,7 +40,7 @@ def main():
     if options.json:
         print(json.dumps(found, ensure_ascii=False))
         return 0
-    print("%s: %s" % (options.target.upper() if options.target.upper().startswith(("DEMO-", "OPS-")) else options.target, found["state"]))
+    print("%s: %s" % (options.target.upper() if is_key(options.target) else options.target, found["state"]))
     for field in ("path", "branch"):
         if field in found:
             print(field.upper() + " " + found[field])

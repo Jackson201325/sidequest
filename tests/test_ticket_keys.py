@@ -102,5 +102,50 @@ class ShipCheckKeyTests(unittest.TestCase):
             self.assertIn(str(tickets / 'APP-7/qa/shots.json'), shot().stderr)
 
 
+
+class HelperKeyTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.root = Path(self.folder.name)
+
+    def environment(self, projects):
+        config = self.root / 'config.json'
+        config.write_text(json.dumps({'jira': {'projects': projects}}))
+        env = {k: v for k, v in __import__('os').environ.items() if not k.startswith('GIT_')}
+        return dict(env, SIDEQUEST_CONFIG=str(config))
+
+    def test_worktree_prints_any_project_key_in_capitals(self):
+        repo = self.root / 'repo'
+        repo.mkdir()
+        subprocess.run(['git', 'init', '-q', '-b', 'main'], cwd=repo, check=True)
+        result = subprocess.run([sys.executable, str(ROOT / 'bin/sidequest-worktree.py'), 'app-9'], cwd=repo,
+                                env=self.environment([]), text=True, capture_output=True, check=True)
+        self.assertEqual(result.stdout.splitlines()[0], 'APP-9: none')
+
+    def review_app(self, argument, projects):
+        return subprocess.run([sys.executable, '-B', str(ROOT / 'bin/sidequest-review-app.py'), argument, '--json'],
+                              env=dict(self.environment(projects), PATH='/nonexistent'), text=True, capture_output=True)
+
+    def test_review_app_expands_a_bare_number_only_with_one_configured_project(self):
+        self.assertIn('give the full ticket key', self.review_app('123', []).stderr)
+        self.assertIn('give the full ticket key', self.review_app('123', ['APP', 'OPS']).stderr)
+        self.assertIn('gh is not installed', self.review_app('123', ['APP']).stderr)
+        self.assertIn('ticket key must look like APP-123', self.review_app('not a key', ['APP']).stderr)
+
+    def test_review_app_finds_a_pr_by_the_queue_rule(self):
+        from sidequest import review_apps
+        def run(prs):
+            return lambda args: json.dumps(prs)
+        pr = lambda number, title, head='x': {'number': number, 'title': title, 'headRefName': head}
+        self.assertEqual(review_apps.find_pr('APP-12', run=run([pr(1, '[APP-12] Totals'), pr(2, 'APP-120 Other')]))['number'], 1)
+        self.assertEqual(review_apps.find_pr('APP-12', run=run([pr(3, 'Py fixes', 'fix/app-12-py')]))['number'], 3)
+        with self.assertRaises(review_apps.ReviewAppError):
+            review_apps.find_pr('APP-12', run=run([pr(2, 'APP-120 Other')]))
+        calls = []
+        review_apps.find_pr('APP-12', run=lambda args: calls.append(args) or json.dumps([pr(3, 'Py fixes', 'fix/APP-12-py')]))
+        self.assertNotIn('--search', calls[0], 'GitHub search ignores branch names')
+
+
 if __name__ == '__main__':
     unittest.main()
