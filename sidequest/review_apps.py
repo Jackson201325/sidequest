@@ -5,7 +5,7 @@ import re
 import subprocess
 import urllib.parse
 from sidequest import config
-from sidequest.access import access_error
+from sidequest.access import failure_for
 from sidequest.environments import fetch_environments
 from sidequest.ticket_keys import branch_ticket, ticket_key
 
@@ -28,7 +28,7 @@ def _run(args, timeout=45):
     except subprocess.TimeoutExpired:
         raise ReviewAppError("%s timed out" % " ".join(args[:3])) from None
     if result.returncode:
-        raise ReviewAppError(access_error('GitHub', result.stderr))
+        raise ReviewAppError(str(failure_for('GitHub', result.stderr)))
     return result.stdout
 
 
