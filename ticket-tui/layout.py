@@ -184,23 +184,28 @@ def snippet(body, limit=160):
     return text if len(text) <= limit else text[:limit - 1].rstrip() + "…"
 
 
-def timeline(events, clock):
-    """Activity grouped by day: one line per event, then an indented snippet of its text."""
-    lines, current = [], None
+def timeline_rows(events, clock):
+    """Activity grouped by day as (kind, text): a "day" rule, one "event" line per event, then a
+    "snippet" of its text indented under the title. "" kinds are blank separators."""
+    rows, current = [], None
     for event in events:
         local = parse_time(event["at"]).astimezone(clock.tzinfo)
         label = day_label(local, clock.date())
         if label != current:
             if current is not None:
-                lines.append("")
-            lines.append(DAY_RULE + label)
+                rows.append(("", ""))
+            rows.append(("day", DAY_RULE + label))
             current = label
         source = "Jira" if event["source"] == "Jira" else "GH"
         who = f" · {event['author']}" if event.get("author") else ""
-        lines.append(f"{local:%H:%M} {source:<4} {event_mark(event['title'])} {event['title']}{who}")
+        rows.append(("event", f"{local:%H:%M} {source:<4} {event_mark(event['title'])} {event['title']}{who}"))
         if event.get("body"):
-            lines.append(" " * EVENT_INDENT + snippet(event["body"]))
-    return lines
+            rows.append(("snippet", " " * EVENT_INDENT + snippet(event["body"])))
+    return rows
+
+
+def timeline(events, clock):
+    return [text for _, text in timeline_rows(events, clock)]
 
 
 # Which glyphs get the good / bad colour. Shapes already differ, so colour only reinforces.

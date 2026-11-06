@@ -1,4 +1,5 @@
 """Visible queue/detail layout at the supported terminal sizes."""
+import curses
 import unittest
 from unittest.mock import patch
 from pathlib import Path
@@ -17,6 +18,8 @@ class Screen:
 
     def erase(self):
         self.cells = [[" "] * self.width for _ in range(self.height)]
+
+    clear = erase
 
     def addnstr(self, y, x, text, limit, attr):
         for offset, char in enumerate(text[:limit]):
@@ -82,8 +85,9 @@ class ResponsiveTests(unittest.TestCase):
         app.preview_scroll = 100000
         for height, width in ((32, 145), (24, 80), (18, 64), (12, 80), (24, 109), (24, 110), (24, 80)):
             with self.subTest(height=height, width=width):
-                app.focus_pane = "preview"
                 app.screen = Screen(height, width)
+                app.press("l")                   # the real loop receives KEY_RESIZE, then keys
+                app.press(curses.KEY_RESIZE)
                 app.draw()
                 self.assertEqual(app.selected().key, selected)
                 self.assertLess(app.preview_scroll, 100000)
@@ -95,7 +99,7 @@ class ResponsiveTests(unittest.TestCase):
                 else:
                     self.assertNotIn("Tickets ", "\n".join(lines))
                     self.assertIn(selected, lines[1])
-                app.focus_pane = "list"
+                app.press("h")
                 app.draw()
                 lines = app.screen.lines
                 list_bottom = next(i for i in range(2, height - 2) if lines[i].startswith("┗"))

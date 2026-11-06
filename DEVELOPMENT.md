@@ -14,7 +14,9 @@ WorkspaceWorkflow in sidequest/application.py is shared by CLI and TUI actions.
 It receives GitWorkspace and a terminal adapter; build_workflow captures explicit
 settings/environment once per workflow. The dashboard accepts a workflow factory
 and schedules actions in background jobs. QueueEvidence (ticket-tui/queue_evidence.py)
-owns queue data, retention and failed sources; App only draws it. Only its event loop changes UI state
+owns queue data, retention and failed sources; DetailViews (ticket-tui/detail_views.py)
+builds each detail tab as styled rows; App only draws them. App.viewport computes
+page sizes from the terminal size, and App.fit keeps selection and scroll in range. Only its event loop changes UI state
 and performs curses handoffs. Shell/tmux policy no longer lives in App.
 GitWorkspace owns read-only preview and live revalidation before apply. A stale
 plan is refused; Git still guards concurrent branch/path conflicts. No fetch,
