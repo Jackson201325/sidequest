@@ -9,9 +9,10 @@ from sidequest.snapshots import SnapshotStore
 
 class AccessErrorTests(unittest.TestCase):
     def test_login_and_network_errors_have_distinct_safe_recovery_steps(self):
-        cases = [(['sidequest-data', 'pr-feedback', '--json'], 'HTTP 401 Bad credentials secret-fixture', 'gh auth login'),
-                 (['sidequest-data', 'ticket', 'DEMO-600'], 'no Jira token in Keychain (service SIDEQUEST_JIRA_TOKEN) secret-fixture', 'SIDEQUEST_JIRA_TOKEN'),
-                 (['sidequest-data', 'pr-feedback', '--json'], 'check your internet connection secret-fixture', 'network')]
+        collect = ['sidequest-data', 'collect', '--json']
+        cases = [(['gh', 'pr', 'list'], 'HTTP 401 Bad credentials secret-fixture', 'gh auth login'),
+                 (collect, 'no Jira token in Keychain (service SIDEQUEST_JIRA_TOKEN) secret-fixture', 'SIDEQUEST_JIRA_TOKEN'),
+                 (collect, 'check your internet connection secret-fixture', 'network')]
         for args, stderr, guidance in cases:
             with self.subTest(stderr=stderr), patch('subprocess.run', return_value=subprocess.CompletedProcess(args, 1, '', stderr)):
                 with self.assertRaises(RuntimeError) as failure:

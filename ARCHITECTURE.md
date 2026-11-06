@@ -30,6 +30,7 @@ flowchart TD
 | `sidequest/herdr.py` | Caller-workspace-scoped tab/pane discovery, layout and private agent launchers |
 | `sidequest/environments.py` | Read-only Heroku authentication, pagination and status mapping |
 | `sidequest/ticket_keys.py` | Every ticket key question: valid key, PR ticket, branch keys and branch ticket, mentions in text, leading-key removal |
+| `sidequest/access.py` | AccessFailure: a failed service request with its cause; recovery text; word-based guessing only for text-only tools |
 | `collector.py` and `snapshots.py` | Shared collection, validation, atomic publication and last-good retention |
 | `ticket-tui/plan_document.py` | Read-only Plan/Updates section partition and readable Markdown rendering |
 | `ticket-tui/queue_evidence.py` | Queue data: newest copy at startup, refresh validation, merging and saving updates, per-source failure sets |

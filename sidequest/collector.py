@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from sidequest import config, github, identity
-from sidequest.access import access_error
+from sidequest.access import failure_for
 from sidequest.jira import client
 from sidequest.snapshots import SnapshotStore, stamp
 from sidequest.ticket_keys import pr_ticket
@@ -76,10 +76,10 @@ def collect(directory=DEFAULT_OUT, max_age=0):
         try:
             retain_or_update('prs', collect_prs())
         except (OSError, RuntimeError, ValueError, SystemExit) as exc:
-            failures['prs'] = access_error('GitHub', str(exc))
+            failures['prs'] = str(failure_for('GitHub', exc))
         prs = updates.get('prs', previous['sources'].get('prs', {}))
         try:
             retain_or_update('jira', collect_jira(prs.get('open_prs', [])))
         except (OSError, RuntimeError, ValueError, SystemExit, KeyError) as exc:
-            failures['jira'] = access_error('Jira', str(exc))
+            failures['jira'] = str(failure_for('Jira', exc))
         return store.publish(updates, failures)
