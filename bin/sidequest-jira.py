@@ -60,16 +60,16 @@ def jira(method, path, body=None):
             if exc.code == 401 and not _base[0]:
                 rejected = True
                 continue
-            if rejected:
-                break  # the token was refused already; a second base's error would hide that
+            if rejected and exc.code == 404:
+                break  # a wrong second base must not hide the first base's refusal of the token
             raise JiraError('Jira HTTP %d; previous data retained' % exc.code, exc.code) from None
         except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
             if rejected:
-                break
+                break  # an unreachable second base must not hide the first base's refusal
             # URLError wraps the real error in .reason; errors while reading the body arrive bare.
             inner = exc.reason if isinstance(exc, urllib.error.URLError) else exc
             cause = ('tls' if isinstance(inner, ssl.SSLError) else 'dns' if isinstance(inner, socket.gaierror)
-                     else 'timeout' if isinstance(inner, TimeoutError) else 'network')
+                     else 'timeout' if isinstance(inner, (TimeoutError, socket.timeout)) else 'network')
             raise JiraError('Jira ' + {'tls': 'TLS failure', 'dns': 'DNS lookup failed', 'timeout': 'request timed out'}
                             .get(cause, 'network failure') + '; previous data retained', cause=cause) from None
         except ValueError:

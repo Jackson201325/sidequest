@@ -68,7 +68,7 @@ class FeedbackHelperTests(unittest.TestCase):
         self.assertEqual(full["commits"][0]["oid"], "abc")
 
     def test_activity_failures_cannot_erase_cached_prs(self):
-        with patch.object(self.module.tr, "run_command", return_value=""):
+        with patch.object(self.module.tr, "run_tool", return_value=""):
             with self.assertRaises(RuntimeError):
                 self.module.list_open_prs(include_activity=True)
             with self.assertRaises(RuntimeError):

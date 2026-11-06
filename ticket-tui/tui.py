@@ -17,7 +17,7 @@ from datetime import timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest.access import AccessFailure, failure_for
+from sidequest.access import CAUSES, AccessFailure, failure_for
 from sidequest import config
 from sidequest import qa
 from sidequest import terminal
@@ -94,10 +94,10 @@ def run(args, timeout=45):
     if result.returncode:
         if args[0] != "sidequest-data":
             raise failure_for(args[0], result.stderr)
-        # Only sidequest-data's own one-line message is shown; tracebacks may contain secrets.
-        own = [line for line in result.stderr.splitlines() if line.startswith("sidequest-data: ")]
-        if result.returncode == 2 and own:
-            raise RuntimeError(own[-1][len("sidequest-data: "):])
+        # Rebuild from sidequest-data's failure line only; other output may contain secrets.
+        marked = [line.split()[1:] for line in result.stderr.splitlines() if line.startswith("sidequest-data-failure: ")]
+        if marked and len(marked[-1]) == 2 and marked[-1][1] in CAUSES:
+            raise AccessFailure(*marked[-1])
         raise AccessFailure(args[0], "unknown")
     if args[0] == "sidequest-data" and result.stderr.strip():
         # A helper can return valid empty JSON after an API error; never treat that as fresh data.
