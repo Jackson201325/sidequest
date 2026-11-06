@@ -26,6 +26,7 @@ from sidequest.application import build_workflow
 
 from core import KEY, Store, now, parse_time, rank, tickets_from
 from sidequest.environments import fetch_environments
+from sidequest.worktrees import parse_worktrees
 from worklog import collect_worklog, daily_summary
 from workflow import next_owner, ownership, stage_context, workflow_path, workflow_strip
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
@@ -127,6 +128,10 @@ def run(args, timeout=45):
     return result.stdout
 
 
+def unexpected(label, exc):
+    return f"{label} failed unexpectedly ({type(exc).__name__}: {exc}); please report this"
+
+
 def read_json(path):
     try:
         data = json.loads(path.read_text())
@@ -140,13 +145,10 @@ def worktrees():
     if not config.get('workspace', 'repository'):
         return result
     try:
-        path = ""
-        for line in run(["git", "worktree", "list", "--porcelain"]).splitlines():
-            if line.startswith("worktree "):
-                path = line[9:]
-            elif line.startswith("branch "):
-                match = KEY.search(line)
-                if match:
+        # Same parsing and backup/ rule as sidequest.worktrees.lookup, so w and Space n agree.
+        for path, branch in parse_worktrees(run(["git", "worktree", "list", "--porcelain"])):
+            if branch and not branch.startswith("backup/"):
+                for match in KEY.finditer(branch):
                     result[match.group().upper()] = path
     except (RuntimeError, OSError, subprocess.TimeoutExpired):
         pass
@@ -235,7 +237,8 @@ class App:
     def rebuild(self):
         previous = self.selected() if hasattr(self, "tickets") else None
         self.tickets = [rank(t, self.store, stale_days=self.stale_days, escalate_days=self.escalate_days)
-                        for t in tickets_from(self.jira, self.prs, self.fallback, self.windows)]
+                        for t in tickets_from(self.jira, self.prs, self.fallback, self.windows,
+                                              config.get('jira', 'projects', []))]
         self.tickets = ordered(self.tickets, self.sort_mode, self.sort_descending, self.worklog)
         if previous:
             self.index = next((i for i, t in enumerate(self.visible()) if t.key == previous.key), self.index)
@@ -399,6 +402,8 @@ class App:
                 self.events.put((event, task()))
             except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
                 self.events.put(("heroku_error" if name == "heroku" else "message", str(exc)))
+            except Exception as exc:  # noqa: BLE001 - a worker bug must reach the status line, not draw a traceback over curses
+                self.events.put(("heroku_error" if name == "heroku" else "message", unexpected(label, exc)))
             finally:
                 self.events.put(("job_done", name))
 
@@ -487,7 +492,11 @@ class App:
                     self.events.put((name, source))
             except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
                 errors.append(str(exc))
-            self.events.put(("done", errors))
+            except Exception as exc:  # noqa: BLE001 - see background(); refresh must still finish
+                errors.append(unexpected("Refresh", exc))
+            finally:
+                # Always finish, or self.refreshing stays True and r silently does nothing.
+                self.events.put(("done", [str(error) for error in errors]))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -504,7 +513,7 @@ class App:
                     previous = {t["key"]: t for t in self.jira.get("tickets", [])}
                     for issue in data.get("tickets", []):
                         for field in ("jira_comments", "jira_comment_total", "jira_comments_checked_at"):
-                            if field not in issue and field in previous.get(issue["key"], {}):
+                            if field not in issue and field in previous.get(issue.get("key"), {}):
                                 issue[field] = previous[issue["key"]][field]
                 self.store.source(name, data)
                 setattr(self, name, data)
