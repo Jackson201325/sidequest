@@ -26,6 +26,13 @@ def matcher(target):
     return lambda branch: branch == target
 
 
+def branch_keys(branch):
+    """Ticket keys that `lookup` would match in this branch, e.g. feature/APP-1-revert-APP-2 → [APP-1]."""
+    if branch.startswith("backup/"):
+        return []
+    return [match.upper() for match in re.findall(r"(?:^|/)([A-Z][A-Z0-9_]*-[0-9]+)(?=-|$)", branch, re.I)]
+
+
 def lookup(target, porcelain, branches):
     """State of the work: worktree, main-checkout, branch-only or none. `branches` are local and remote-tracking names without `origin/`."""
     matches = matcher(target)
