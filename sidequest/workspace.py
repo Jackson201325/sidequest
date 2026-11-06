@@ -40,7 +40,8 @@ class GitWorkspace:
     def _git(self, *args, required=True):
         result = subprocess.run(['git', '-C', str(self.repository), *args], text=True, capture_output=True)
         if required and result.returncode:
-            detail = next((line.strip() for line in result.stderr.splitlines() if line.strip()), '')
+            lines = [line.strip() for line in result.stderr.splitlines() if line.strip()]
+            detail = next((line for line in lines if line.startswith(('fatal:', 'error:'))), lines[-1] if lines else '')
             raise RuntimeError('Git command failed' + (': ' + detail[:200] if detail else '; check the repository and base ref'))
         return result
 

@@ -214,6 +214,8 @@ def fetch_one(key, include_activity=False, account_id=None):
         raise JiraError('Expected a Jira key such as APP-123')
     fields = 'summary,status,assignee,priority,created,updated,description'
     issue = jira('GET', '/rest/api/3/issue/%s?fields=%s' % (key, fields))
+    if isinstance(issue.get('key'), str) and issue['key'] != key:
+        raise JiraError('Jira issue %s moved to %s; previous data retained' % (key, issue['key']), 301)
     if issue.get('key') != key or not isinstance(issue.get('fields'), dict):
         raise JiraError('Invalid Jira issue response; previous data retained')
     f = issue['fields']

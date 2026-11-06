@@ -183,3 +183,22 @@ separate read-only views of the same document; hierarchy, fenced examples, empty
 states, source bytes and edit-driven reloads are covered. The real PTY navigation
 script switches between both tabs and observes their distinct content. No ticket
 documents, services, worktrees or shared databases are modified by these checks.
+
+2026-11-06: Code review of the review fixes.
+
+Failing regressions first reproduced each finding. Git errors showed the
+"Preparing worktree" progress line instead of the fatal reason; they now show the
+fatal or error line, else the last line. Three ticket-key rules disagreed: the
+GitHub reader upper-cased "python 3" into PYTHON-3, the collector fetched other
+keys than the queue grouped, and worktree mapping accepted keys inside a slug.
+sidequest/ticket_keys.py now owns one rule for the reader, collector and queue;
+the collector derives PR keys after assigned keys are known, as the queue does.
+Worktree mapping uses the lookup segment rule, so w and Space n agree. A moved
+PR-derived Jira issue reports status 301 and drops out like a hidden one; assigned
+issue errors still fail Jira. The header marks lower-case, unconfigured and
+source-less refresh failures. Only a missing gh binary reads as "gh is not
+installed". Rework statuses match after normalising, and one REWORK list in
+workflow.py feeds ALIASES. Snapshots written before this change keep their stored
+PR ticket until the next refresh replaces them.
+Verification: bin/check passed 114 helper/service/spec tests and 146 UI tests
+(two optional browser checks skipped). Tests use mocks and temporary repositories.
