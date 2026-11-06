@@ -2,18 +2,17 @@
 """Bundled collection and workflow helpers; local changes require explicit commands."""
 import argparse
 import json
-import re
 from pathlib import Path
 import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest.access import NOTES, failure_record
+from sidequest.access import describe_failure
 from sidequest.collector import DEFAULT_OUT, collect
 from sidequest.jira import client
 from sidequest.snapshots import SnapshotStore
 
-FAILURE_LINE = 'sidequest-data-failure: '  # one JSON record, read by the dashboard
+FAILURE_LINE = 'sidequest-data-failure: '  # {"text": dashboard message}, read by the dashboard
 LOCAL = {'branch-name': 'sidequest-workspace.py', 'worktree': 'sidequest-worktree.py',
          'workspace': 'sidequest-workspace-create.py', 'plan-init': 'sidequest-plan-init.py',
          'pr-body-check': 'sidequest-pr-body-check.py', 'ship-check': 'sidequest-ship-check.py',
@@ -52,19 +51,10 @@ def main():
             print(json.dumps(data, indent=2))
         return 1 if data.get('failures') else 0
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-        failure, record = failure_record(exc, args.command)
-        text = failure.terminal_text
-        if isinstance(exc, client.JiraError) and (failure.cause == 'unknown' or exc.status == 301):
-            # Jira's own words explain these (a bad key, a moved issue's new key); keep any note.
-            text = jira_text(exc) + (' ' + NOTES[failure.note] + '.' if failure.note else '')
-        print('sidequest-data: ' + text, file=sys.stderr)
-        print(FAILURE_LINE + json.dumps(record), file=sys.stderr)
+        terminal, dashboard = describe_failure(exc, args.command)
+        print('sidequest-data: ' + terminal, file=sys.stderr)
+        print(FAILURE_LINE + json.dumps({'text': dashboard}), file=sys.stderr)
         return 2
-
-
-def jira_text(exc):
-    text = re.sub(r';\s*(previous data retained|retain the previous snapshot)\.?$', '', str(exc)).rstrip('.')
-    return (text if 'jira' in text.lower() else 'Jira: ' + text) + '.'
 
 if __name__ == '__main__':
     raise SystemExit(main())

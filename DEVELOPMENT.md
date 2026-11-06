@@ -32,10 +32,12 @@ Service errors are sidequest.access.AccessFailure (service + cause). Adapters th
 know the cause report it (Jira from HTTP status and connection errors, run_tool from
 missing programs and timeouts); failure_for guesses from words only for text-only
 tool output. str() is the dashboard text; terminal_text is for command-line helpers.
-Both come from one advice table (problem, action, whether r can help). sidequest-data
-prints terminal_text plus one "sidequest-data-failure: <JSON record>" line (service,
-cause and tool, or an error type). The dashboard rebuilds its message from that record
-only, and accepts only known services, causes, tools, notes, commands and type names.
+Both come from one advice table (problem, action, whether r can help).
+sidequest.access.describe_failure gives one failed command's terminal and dashboard
+text. sidequest-data prints the terminal text, which may include the error's own
+detail, and a "sidequest-data-failure: {"text": ...}" line. The dashboard shows that
+text only if it is one printable line of at most 300 characters; otherwise it shows
+a generic failure. Dashboard text comes only from Sidequest's templates and messages.
 
 `bin/sidequest` launches curses or the list/standup modes. The bundled `bin/sidequest-data`
 supports read-only `collect`, `snapshot` and `ticket` helpers, plus independent
