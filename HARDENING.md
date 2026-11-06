@@ -377,3 +377,16 @@ second base that answers 5xx is reported as a server error. sidequest-data ticke
 keeps "issue APP-1 moved to APP-9" and no longer doubles the Jira prefix. The
 diagnostics guard in the dashboard has a test again, github.run_command is renamed
 gh_output without its unused strict flag, and README lists the new messages.
+
+2026-11-06: Idle and per-key efficiency.
+
+Measured on demo data with the real loop: idle, it woke 19 times a second; each key
+built and wrapped the detail tab twice. App.wait_ms now waits 250 ms for a key when
+nothing is loading, no message waits and no prefix key waits, and 50 ms otherwise;
+keys still end the wait at once, so only background results can appear up to 0.2 s
+later. Prompts restore that wait instead of a fixed 50 ms. fit keeps its viewport
+with a key of everything the viewport depends on, and draw reuses it only while the
+key is unchanged; any background result discards it. Three existing tests that
+change state without a key caught an earlier version that reused a stale view.
+Result: 4 idle wake-ups a second instead of 19 (0.06% of one core over 5 s, was
+0.23%), and one detail build per key instead of two.
