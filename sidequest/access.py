@@ -17,7 +17,8 @@ KNOWN_SERVICES = ('GitHub', 'Jira', 'Heroku', 'sidequest-data')
 CAUSES = ('missing_tool', 'credentials', 'login', 'denied', 'dns', 'tls', 'network', 'timeout', 'server',
           'rate_limited', 'not_found', 'unknown')
 RETAINED = ' Previous data retained.'
-# Fixed extra sentences an adapter may attach; records carry only these names, never free text.
+MAX_TEXT = 300  # longest dashboard message
+# Fixed extra sentences an adapter may attach by name.
 NOTES = {'site_refused_token': 'The Jira site refused the token; if it is not a scoped token, '
                                'renew SIDEQUEST_JIRA_TOKEN'}
 COMMANDS = {'collect': 'Collection', 'snapshot': 'Snapshot read', 'ticket': 'Ticket lookup'}
@@ -69,9 +70,6 @@ class AccessFailure(RuntimeError):
         self.terminal_text = f'{self.service}: {problem}. {action}.{extra}'
         super().__init__(f'{self.service}: {problem}. {action}' + (', then press r.' if retry else '.') + extra + RETAINED)
 
-    def record(self):
-        return {'service': self.service, 'cause': self.cause, 'tool': self.tool, 'note': self.note}
-
 
 def classify(text):
     """Best guess at a cause from a text-only tool's output: (cause, missing tool or None)."""
@@ -80,9 +78,12 @@ def classify(text):
         return 'credentials', None
     if re.search(r"(?:^|/)env: \W?[\w./+-]+\W?: no such file or directory", text, re.M):
         return 'missing_tool', None  # a CLI's interpreter (BSD or GNU env output)
-    missing = re.search(r"no such file or directory: '([^']+)'", text)
-    if missing and missing[1] in TOOLS:
-        return 'missing_tool', missing[1]
+    missing = re.findall(r"no such file or directory: '([^']+)'", text)
+    tool = next((name for name in missing if name in TOOLS), None)
+    if tool:
+        return 'missing_tool', tool
+    if 'traceback (most recent call last)' in text:
+        return 'unknown', None  # code and variable names in a traceback ("LOGIN_PATH") are not causes
     # A missing file is not a cause, and its name ("login.json") must not suggest one.
     text = re.sub(r"no such file or directory: '[^']*'", '', text)
     for cause, words in (('login', ('401', 'token expired', 'invalid token', 'bad credentials', 'unauthorized',
@@ -107,19 +108,27 @@ def jira_text(exc):
 def describe_failure(exc, command):
     """(terminal text, dashboard text) for an error that ended a sidequest-data command.
     Every text comes from these templates or from messages Sidequest's own code wrote."""
+    if isinstance(exc, AccessFailure):
+        return exc.terminal_text, clip(str(exc))
     service, cause = service_name(getattr(exc, 'service', '')), getattr(exc, 'cause', None)
     if service in KNOWN_SERVICES and cause in CAUSES:
         failure = AccessFailure(service, cause, getattr(exc, 'tool', None), getattr(exc, 'note', None))
-        if service == 'Jira' and not isinstance(exc, AccessFailure) and (
-                cause == 'unknown' or getattr(exc, 'status', None) == 301):
-            # Jira's own words explain these (a bad key, a moved issue's new key); a retry will not help.
-            text = jira_text(exc) + (' ' + NOTES[failure.note] + '.' if failure.note else '')
-            return text, text + RETAINED
-        return failure.terminal_text, str(failure)
+        if service == 'Jira' and (cause == 'unknown' or getattr(exc, 'permanent', False)):
+            # Jira's own sentence explains these (a bad key, a moved issue's new key).
+            note = ' ' + NOTES[failure.note] + '.' if failure.note else ''
+            retry = '' if getattr(exc, 'permanent', False) else ' Press r to try again.'
+            text = jira_text(exc) + note
+            return text, clip(text + retry + RETAINED)
+        return failure.terminal_text, clip(str(failure))
     label, error = COMMANDS[command], type(exc).__name__
-    detail = ': ' + ' '.join(str(exc).split()) if str(exc).strip() else ''
-    return (f'{label} failed ({error}{detail}).',
-            f'{label} failed ({error}). Run sidequest-data {command} in your terminal to see the error.' + RETAINED)
+    # Only the operating system's own reason; other messages may repeat commands or response bodies.
+    reason = getattr(exc, 'strerror', None) if isinstance(exc, OSError) else None
+    return (f'{label} failed ({error}' + (': ' + reason if reason else '') + ').',
+            clip(f'{label} failed ({error}). Run sidequest-data {command} in your terminal to see the error.' + RETAINED))
+
+
+def clip(text):
+    return text if len(text) <= MAX_TEXT else text[:MAX_TEXT - 1].rstrip() + '…'
 
 
 def dashboard_text(record_text):
@@ -129,7 +138,7 @@ def dashboard_text(record_text):
     except ValueError:
         return None
     text = record.get('text') if isinstance(record, dict) and set(record) == {'text'} else None
-    if isinstance(text, str) and text and len(text) <= 300 and text.isprintable():
+    if isinstance(text, str) and text and len(text) <= MAX_TEXT and text.isprintable():
         return text
     return None
 
