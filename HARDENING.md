@@ -330,3 +330,19 @@ dashboard reads "request failed" instead of guessing "login" from the helper's
 generic sentence. review_apps uses the shared missing-tool message, the collector
 keeps an AccessFailure as raised, and access_error is removed. README lists the new
 error messages.
+
+2026-11-06: Second review of access failures.
+
+Failing tests first. AccessFailure gained timeout, server and rate_limited causes
+and terminal_text, the same advice without "press r" or "Previous data retained"
+for command-line helpers. services.run_tool runs gh and heroku for the collector
+and review_apps alike: a missing program names its CLI, a timeout is "timeout"
+(gh may wait for a prompt, so it is not called a network failure), and a failed
+heroku command is a Heroku failure, not a GitHub one. JiraError always has a cause:
+HTTP 429 is rate_limited, 5xx is server, a read timeout is timeout, and anything
+else is unknown, so Jira text is never guessed. A 401 on the first Jira base is
+reported even when a second base fails differently. sidequest-data prints
+"sidequest-data: " plus the real cause (Jira advice for ticket, a neutral
+"Collection failed (TypeName)" for collect), and the dashboard shows that one line
+and never other helper output. The redundant AccessFailure branch in failure_for
+and the unreachable subprocess handlers in the collector are removed.

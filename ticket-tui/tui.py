@@ -92,8 +92,13 @@ def run(args, timeout=45):
                 and isinstance(partial.get("failures"), dict) and partial["failures"]):
             return result.stdout
     if result.returncode:
-        # sidequest-data prints one generic sentence that mentions "login"; guessing from it misleads.
-        raise AccessFailure(args[0], "unknown") if args[0] == "sidequest-data" else failure_for(args[0], result.stderr)
+        if args[0] != "sidequest-data":
+            raise failure_for(args[0], result.stderr)
+        # Only sidequest-data's own one-line message is shown; tracebacks may contain secrets.
+        own = [line for line in result.stderr.splitlines() if line.startswith("sidequest-data: ")]
+        if result.returncode == 2 and own:
+            raise RuntimeError(own[-1][len("sidequest-data: "):])
+        raise AccessFailure(args[0], "unknown")
     if args[0] == "sidequest-data" and result.stderr.strip():
         # A helper can return valid empty JSON after an API error; never treat that as fresh data.
         raise RuntimeError(f"sidequest-data {args[1]} reported diagnostics; keeping the previous snapshot. Check the helper in your terminal")
