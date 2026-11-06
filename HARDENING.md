@@ -239,3 +239,18 @@ a key or --pr, review-app uses the current branch's ticket instead of whatever P
 the branch has. worktree capitalises a target only when it is a trusted key, so
 release-2 stays as typed. qa-shot help no longer shows DEMO-only keys. Lookup of
 a key-shaped branch name such as release-2 still uses the ticket-key segment rule.
+
+2026-11-06: Queue evidence module.
+
+App held the retain-last-good-data rule in four places, repeated the snapshot
+checks, and found failed sources by reading error text. Module tests written first
+failed until ticket-tui/queue_evidence.py existed. QueueEvidence now loads the
+newest copy, runs the read-only collector, applies results and saves a failure set
+({"jira"}, {"prs"} or {"all"}) beside the messages. Errors saved before this change
+have no set and are read once with the previous text rule. SnapshotStore.publish
+and the dashboard share sidequest.snapshots.source_problem. The unused "issue" and
+"status" events were removed. Tests that set App fields now build QueueEvidence
+and drive failures through collect and finish_refresh. CLI list and standup modes
+still collect worktrees and the work log without saving them.
+Verification: bin/check passed 135 helper/service/spec tests and 156 UI tests
+(two optional browser checks skipped).
