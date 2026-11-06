@@ -311,7 +311,22 @@ remains only for text-only tool output (gh stderr and dashboard helper runs), an
 precise: DNS failures now say "DNS lookup failed" instead of "network
 unavailable", and invalid JSON says "request failed". Heroku already maps its own
 HTTP statuses and is unchanged. The dashboard run() no longer special-cases the
-ticket, my-tickets and pr-feedback commands or an old Keychain diagnostic; the
-dashboard only runs collect, and those commands remain available in sidequest-data.
+ticket, my-tickets and pr-feedback commands or an old Keychain diagnostic. The
+dashboard only runs collect; sidequest-data still offers ticket and pr-feedback
+(my-tickets no longer exists).
 Verification: bin/check passed 163 helper/service/spec tests and 172 UI tests
 (two optional browser checks skipped).
+
+2026-11-06: Review of access failures.
+
+Failing tests reproduced five bugs. Jira TLS errors raised while reading the body
+carry a text reason, so the cause is now taken from the error itself and they are
+tls again. A connection dropped mid-body (http.client.IncompleteRead) is a network
+failure instead of a traceback. JiraError without a known status keeps cause None,
+so its text is still classified; unknown cause names are refused. A gh timeout is
+a network failure, and the collector catches subprocess errors per source, so Jira
+still collects and the snapshot is published. A failed sidequest-data run in the
+dashboard reads "request failed" instead of guessing "login" from the helper's
+generic sentence. review_apps uses the shared missing-tool message, the collector
+keeps an AccessFailure as raised, and access_error is removed. README lists the new
+error messages.

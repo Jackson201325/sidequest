@@ -11,8 +11,8 @@ class AccessErrorTests(unittest.TestCase):
     def test_login_and_network_errors_have_distinct_safe_recovery_steps(self):
         collect = ['sidequest-data', 'collect', '--json']
         cases = [(['gh', 'pr', 'list'], 'HTTP 401 Bad credentials secret-fixture', 'gh auth login'),
-                 (collect, 'no Jira token in Keychain (service SIDEQUEST_JIRA_TOKEN) secret-fixture', 'SIDEQUEST_JIRA_TOKEN'),
-                 (collect, 'check your internet connection secret-fixture', 'network')]
+                 (['gh', 'pr', 'list'], 'check your internet connection secret-fixture', 'network'),
+                 (collect, 'Collection failed. Check configuration, network and service login. secret-fixture', 'request failed')]
         for args, stderr, guidance in cases:
             with self.subTest(stderr=stderr), patch('subprocess.run', return_value=subprocess.CompletedProcess(args, 1, '', stderr)):
                 with self.assertRaises(RuntimeError) as failure:
