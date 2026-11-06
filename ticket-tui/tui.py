@@ -79,7 +79,9 @@ def agent_prompt(key, phrase, skill):
 
 def run(args, timeout=45):
     executable = [sys.executable, '-B', str(WORKFLOW / 'bin' / 'sidequest-data.py'), *args[1:]] if args[0] == 'sidequest-data' else args
-    result = subprocess.run(executable, cwd=ROOT, text=True, capture_output=True, timeout=timeout)
+    # A stale SIDEQUEST_REPO must not stop helpers that do not need the repository.
+    result = subprocess.run(executable, cwd=ROOT if ROOT.is_dir() else WORKFLOW, text=True, capture_output=True,
+                            timeout=timeout)
     if result.returncode == 1 and args[:2] == ["sidequest-data", "collect"]:
         # A completed partial collection is a versioned snapshot, not a process failure.
         # The queue applies each healthy source and reports the failed ones separately.
@@ -310,7 +312,7 @@ class App:
             prompt = agent_prompt(ticket.key, template, skill)
         path = ticket.worktree
         if not path:
-            self.message = f"{ticket.key} has no worktree yet; configure workspace.repository and create or select a local worktree"
+            self.message = f"{ticket.key} has no worktree yet; configure workspace.repository (or SIDEQUEST_REPO) and create or select a local worktree"
             return
         workflow = self.workflow_factory()
         self.background('agent', 'Starting agent for ' + ticket.key,
@@ -571,17 +573,20 @@ class App:
         size = self.screen.getmaxyx() if getattr(self, "screen", None) else None
         return (size, self.focus_pane, self.list_fraction, self.view, self.query, self.detail_tab,
                 selected.key if selected else None, tuple(self.jobs), id(evidence.jira), id(evidence.prs),
-                id(evidence.environments), id(evidence.worklog), tuple(evidence.refresh_errors),
-                evidence.environment_error, self.standup_time)
+                id(evidence.environments), id(evidence.worklog), id(evidence.fallback), tuple(evidence.refresh_errors),
+                evidence.environment_error, self.standup_time, int(time.time() // 60))
 
-    def fitted_view(self, key):
-        return self.fitted_cache[1] if self.fitted_cache and self.fitted_cache[0] == key else None
+    def cached_viewport(self):
+        """The viewport for the current state, reused while view_key() is unchanged."""
+        key = self.view_key()
+        if not self.fitted_cache or self.fitted_cache[0] != key:
+            self.fitted_cache = (key, self.viewport())
+        return self.fitted_cache[1]
 
     def fit(self):
         """Keep the selection inside the list page and the detail scroll inside its rows.
         The viewport is kept for the next draw; any new background result discards it."""
-        view = self.viewport()
-        self.fitted_cache = (self.view_key(), view)
+        view = self.cached_viewport()
         self.index = max(0, min(self.index, len(self.visible()) - 1))
         if view.list_rect:
             self.offset = min(self.offset, self.index)
@@ -692,11 +697,7 @@ class App:
         rows = self.visible()
         ticket = self.selected()
         list_active = self.focus_pane == "list"
-        key = self.view_key()
-        view = self.fitted_view(key)
-        if view is None:
-            view = self.viewport()
-            self.fitted_cache = (key, view)
+        view = self.cached_viewport()
         list_rect, preview_rect = view.list_rect, view.preview_rect
         if list_rect:
             top, _, panel_h, list_w = list_rect
@@ -1088,6 +1089,10 @@ def main():
             if result:
                 print(f"Standup updated in {result['path']} (for {data['meeting']:%a %d %b %H:%M}).")
                 print(f"Previous version: {result['backup']}")
+                if app.evidence.refresh_errors:
+                    print('Written from cached results; refresh incomplete: ' + ' | '.join(app.evidence.refresh_errors),
+                          file=sys.stderr)
+                    return 1
             else:
                 print(f"No report for {clock:%Y-%m-%d} yet (reports are supplied by you), so nothing was changed. "
                       f"Draft for {data['meeting']:%a %d %b %H:%M}:\n")

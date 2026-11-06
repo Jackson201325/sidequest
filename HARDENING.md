@@ -456,9 +456,8 @@ RuntimeError for a failed sidequest-data run; no caller branches on its type.
 A review of the whole repository, with the error-message area frozen, found ten
 behavior bugs that no test caught. Each now has a failing test first. A PR commit
 by an author without a GitHub account no longer crashes the Work log and Standup
-tabs. A Jira status whose changelog name differs from the current name (renamed by
-an admin, or changed during collection) leaves status_since unknown instead of
-failing every Jira refresh; names that differ only in case keep their date. A
+tabs. A Jira status renamed by an admin keeps its status_since date (see the next
+entry for how). A
 snapshot.json that is valid JSON but not an object is refused like other bad
 files. The dashboard, workspace actions and work history now share one repository
 (SIDEQUEST_REPO, then workspace.repository), and the work log and ship-check use
@@ -468,3 +467,19 @@ SIDEQUEST_TERMINAL is a status-line message instead of closing the dashboard.
 --refresh with --list, --standup or --update-report prints cached results marked
 incomplete when collection fails. Spinner frames reuse the fitted viewport while
 nothing it depends on changes.
+
+2026-11-06: Review of the whole-codebase fixes.
+
+Two of the previous fixes were regressions, each now with a failing test. Leaving
+status_since unknown on a status mismatch published a guess instead of keeping the
+previous data when a ticket moved during collection. workflow_dates now compares
+the changelog's target status id with the current status id: a rename keeps its
+id and its date, and a different id still fails the source so previous data and
+timestamps are retained (names are compared, ignoring case, only when ids are
+missing). Preferring SIDEQUEST_REPO made a stale value break every helper run;
+run() now uses the repository folder only when it exists. Also: --update-report
+returns 1 and says the report was written from cached results when the refresh
+failed; ship-check --fetch fetches the remote of its base, and its help names
+workspace.base_ref; the worktree and workspace helpers use the shared repository
+and base settings; one cached_viewport helper serves fit and draw, and its key
+includes fallback data and the current minute.

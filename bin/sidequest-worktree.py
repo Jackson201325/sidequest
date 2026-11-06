@@ -6,7 +6,6 @@ branch-only (a local or origin branch exists, no worktree), none.
 """
 import argparse
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -18,7 +17,7 @@ from sidequest import config
 
 
 def git(*args):
-    repo = os.environ.get("SIDEQUEST_REPO") or config.get("workspace", "repository") or "."
+    repo = config.workspace_repository() or "."
     p = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True)
     if p.returncode != 0:
         if "not a git repository" in p.stderr:
