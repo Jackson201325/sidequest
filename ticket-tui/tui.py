@@ -17,7 +17,7 @@ from datetime import timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest.access import access_error
+from sidequest.access import failure_for
 from sidequest import config
 from sidequest import qa
 from sidequest import terminal
@@ -92,16 +92,9 @@ def run(args, timeout=45):
                 and isinstance(partial.get("failures"), dict) and partial["failures"]):
             return result.stdout
     if result.returncode:
-        service = ("Jira" if args[:2] in (["sidequest-data", "ticket"], ["sidequest-data", "my-tickets"]) else
-                   "GitHub" if args[:2] == ["sidequest-data", "pr-feedback"] else args[0])
-        raise RuntimeError(access_error(service, result.stderr))
-    diagnostics = result.stderr.strip()
-    if args[:2] == ["sidequest-data", "pr-feedback"]:
-        # Compatibility for diagnostics emitted by older read-only helpers.
-        diagnostics = "\n".join(line for line in diagnostics.splitlines()
-                                if not line.startswith("sidequest-data: no Jira token in the Keychain"))
-    if args[0] == "sidequest-data" and diagnostics:
-        # The existing helpers sometimes return valid empty JSON after an API error.
+        raise failure_for(args[0], result.stderr)
+    if args[0] == "sidequest-data" and result.stderr.strip():
+        # A helper can return valid empty JSON after an API error; never treat that as fresh data.
         raise RuntimeError(f"sidequest-data {args[1]} reported diagnostics; keeping the previous snapshot. Check the helper in your terminal")
     return result.stdout
 
