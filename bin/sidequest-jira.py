@@ -22,6 +22,8 @@ STATUS_CAUSES = {301: 'not_found', 401: 'login', 403: 'denied', 404: 'not_found'
 
 
 class JiraError(RuntimeError):
+    service = 'Jira'
+
     def __init__(self, message, status=None, cause=None, note=None):
         super().__init__(message)
         self.note = note  # see sidequest.access.NOTES
@@ -74,7 +76,8 @@ def jira(method, path, body=None):
                             .get(cause, 'network failure') + '; previous data retained', cause=cause,
                             note='site_refused_token' if rejected else None) from None
         except ValueError:
-            raise JiraError('Jira invalid response; previous data retained') from None
+            raise JiraError('Jira invalid response; previous data retained',
+                            note='site_refused_token' if rejected else None) from None
     raise JiraError('Jira HTTP 401; renew SIDEQUEST_JIRA_TOKEN', 401)
 
 def workflow_dates(key, current_status, created=None, account_id=None, current_assignee=None):
