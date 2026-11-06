@@ -394,6 +394,9 @@ executable when discovery is insufficient.
 ./bin/sidequest-data qa-shot APP-123 --review-app
 ```
 
+`review-app 123` (a bare number) works only when `jira.projects` names exactly one
+project. It finds the open PR with the same ticket rule as the queue: title, then branch.
+
 Review-app login uses `SIDEQUEST_REVIEW_EMAIL` and `SIDEQUEST_REVIEW_PASSWORD`,
 only on the HTTPS Heroku host discovered for that PR. Screenshots and manifests
 stay in `qa/` or `qa-review/`; failed checks save separate evidence in `failures/`.

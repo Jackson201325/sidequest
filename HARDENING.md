@@ -214,6 +214,15 @@ projects; mentions also accept "APP 12" because they only match known tickets.
 Failing tests first showed ship-check warning on every non-DEMO branch and qa-shot
 reading chore/python-3-bump as PYTHON-3. The unused extract_ticket and
 commits_for_day helpers are removed. The Jira client keeps its own upper-case key
-check at the transport, and review-app and worktree helpers still assume DEMO keys.
+check at the transport.
 Verification: bin/check passed 126 helper/service/spec tests and 146 UI tests
 (two optional browser checks skipped). Tests use temporary repositories only.
+
+2026-11-06: Helpers without DEMO keys.
+
+Failing tests first showed three DEMO-only rules. review-app turned a bare number
+into DEMO-###; it now uses the one project in jira.projects, or asks for the full
+key. review_apps.find_pr only matched titles that start with the key; it now uses
+pr_ticket over the title and branch, as the queue does. GitHub search ignores
+branch names, so it lists up to 200 open PRs and filters them locally. worktree printed only DEMO and OPS keys in
+capitals; it now uses is_key. Tests use a temporary config and no gh binary.
