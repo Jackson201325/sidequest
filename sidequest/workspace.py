@@ -91,7 +91,7 @@ def prepare(key, summary, issue_type='', prefix=None, base='origin/main', apply=
     import os
     from sidequest import config
     values = config.SETTINGS.get('workspace', {})
-    workspace = GitWorkspace(os.environ.get('SIDEQUEST_REPO') or values.get('repository') or '.',
+    workspace = GitWorkspace(config.workspace_repository() or '.',
                              values.get('worktrees_dir'))
     plan = workspace.preview(key, summary, issue_type, prefix, base)
     return workspace.apply(plan) if apply else plan.result()

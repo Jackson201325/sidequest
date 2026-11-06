@@ -62,8 +62,9 @@ def get(section, key, default=''):
 
 
 def workspace_repository():
-    """The repository workspace actions and the dashboard both use: SIDEQUEST_REPO, then config."""
-    return os.environ.get('SIDEQUEST_REPO') or get('workspace', 'repository')
+    """The repository workspace actions and the dashboard both use."""
+    from sidequest.repository import environment_repository
+    return environment_repository(SETTINGS)
 
 
 def base_ref():
