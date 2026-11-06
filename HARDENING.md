@@ -476,10 +476,25 @@ previous data when a ticket moved during collection. workflow_dates now compares
 the changelog's target status id with the current status id: a rename keeps its
 id and its date, and a different id still fails the source so previous data and
 timestamps are retained (names are compared, ignoring case, only when ids are
-missing). Preferring SIDEQUEST_REPO made a stale value break every helper run;
-run() now uses the repository folder only when it exists. Also: --update-report
+missing). Preferring SIDEQUEST_REPO made a stale value break every helper run
+(see the next entry for the final rule). Also: --update-report
 returns 1 and says the report was written from cached results when the refresh
 failed; ship-check --fetch fetches the remote of its base, and its help names
 workspace.base_ref; the worktree and workspace helpers use the shared repository
 and base settings; one cached_viewport helper serves fit and draw, and its key
 includes fallback data and the current minute.
+
+2026-11-06: Regressions from the previous round; review loop stopped.
+
+Five findings were regressions from the previous fixes, each now with a failing
+test. Running helpers from the Sidequest folder when the repository folder was
+missing could map a ticket to a Sidequest worktree; run() uses the repository
+folder again, and sidequest.repository.repository_from ignores a SIDEQUEST_REPO
+that names a missing folder for the dashboard, workspace actions and helpers alike
+(it imports no configuration, as the headless spec requires). Jira status dates
+match when the status id or the name matches, and the last of simultaneous
+transitions is the newest; only both differing fails the source, which the next
+refresh resolves. --update-report reports only this run's refresh failure, also
+on the draft path. Every rebuild clears the cached viewport, and the cache key
+no longer uses object ids. The review loop stops here (user rule: each round's
+fixes added new risk); remaining review notes are style-only.

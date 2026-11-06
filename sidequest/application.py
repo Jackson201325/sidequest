@@ -3,6 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 import shutil
 
+from sidequest.repository import repository_from
 from sidequest.terminal import ShellTerminal, TmuxTerminal, agent_argv, run_command
 from sidequest.workspace import GitWorkspace
 from sidequest.herdr import HerdrTerminal
@@ -31,7 +32,7 @@ class WorkspaceWorkflow:
 def build_workflow(settings, environ, run=run_command):
     """Capture explicit settings once; select only managed terminals with caller context."""
     values = dict(settings.get('workspace', {}))
-    workspace = GitWorkspace(environ.get('SIDEQUEST_REPO') or values.get('repository') or '.',
+    workspace = GitWorkspace(repository_from(environ, settings) or '.',
                              values.get('worktrees_dir'), values.get('base_ref') or 'origin/main')
     shell = environ.get('SHELL') or '/bin/sh'
     mode = environ.get('SIDEQUEST_TERMINAL') or values.get('terminal', 'auto')
