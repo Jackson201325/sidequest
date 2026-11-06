@@ -81,7 +81,7 @@ def jira(method, path, body=None):
                             note='site_refused_token' if rejected else None) from None
     raise JiraError('Jira HTTP 401; renew SIDEQUEST_JIRA_TOKEN', 401)
 
-def workflow_dates(key, current_status, created=None, account_id=None, current_assignee=None):
+def workflow_dates(key, current_status, created=None, account_id=None, current_assignee=None, status_id=None):
     """Status entry and first personal assignment, from one complete changelog."""
     def timestamp(value):
         try:
@@ -103,7 +103,7 @@ def workflow_dates(key, current_status, created=None, account_id=None, current_a
             for item in change.get("items", []):
                 if (item.get("fieldId") or item.get("field")) == "status":
                     stamp = timestamp(change.get("created"))
-                    changes.append((stamp, item.get("toString"), stamp.isoformat()))
+                    changes.append((stamp, (item.get("to"), item.get("toString")), stamp.isoformat()))
                 elif account_id and (item.get("fieldId") or item.get("field")) == "assignee":
                     assignments.append((timestamp(change.get("created")), item.get("from"), item.get("to")))
         start += len(values)
@@ -112,10 +112,12 @@ def workflow_dates(key, current_status, created=None, account_id=None, current_a
         if not values:
             raise JiraError("incomplete Jira changelog; retain the previous snapshot")
     if changes:
-        _, status, status_at = max(changes, key=lambda row: row[0])
-        if (status or '').casefold() != (current_status or '').casefold():
-            # A renamed status or one changed during collection: its start is unknown, not a failure.
-            status_at = None
+        _, (to_id, to_name), status_at = max(changes, key=lambda row: row[0])
+        # A renamed status keeps its id; a different id means the status changed during collection.
+        same = (str(to_id) == str(status_id) if to_id and status_id else
+                (to_name or '').casefold() == (current_status or '').casefold())
+        if not same:
+            raise JiraError("Jira status changed during collection; refresh again")
     else:
         status_at = timestamp(created).isoformat() if created else None
     first = min((at for at, _, to in assignments if to == account_id), default=None)
@@ -257,7 +259,8 @@ def fetch_one(key, include_activity=False, account_id=None):
               'assignee_ok': assignee.get('accountId') == account_id if account_id else None,
               'created': f.get('created'), 'updated': f.get('updated'), 'description': text_of(f.get('description'))}
     if include_activity:
-        result.update(workflow_dates(key, result['status'], f.get('created'), account_id, assignee.get('accountId')))
+        result.update(workflow_dates(key, result['status'], f.get('created'), account_id, assignee.get('accountId'),
+                                     (f.get('status') or {}).get('id')))
         comments, start, total = [], 0, None
         while total is None or start < total:
             data = jira('GET', '/rest/api/3/issue/%s/comment?orderBy=created&maxResults=100&startAt=%d' % (key, start))
