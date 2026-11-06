@@ -17,7 +17,7 @@ from datetime import timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest.access import failure_for, failure_from_record
+from sidequest.access import AccessFailure, dashboard_text, failure_for
 from sidequest import config
 from sidequest import qa
 from sidequest import terminal
@@ -94,10 +94,11 @@ def run(args, timeout=45):
     if result.returncode:
         if args[0] != "sidequest-data":
             raise failure_for(args[0], result.stderr)
-        # Rebuild from sidequest-data's failure record only; other output may contain secrets.
+        # Show only the message in sidequest-data's failure record; other output may contain secrets.
         marked = [line[len("sidequest-data-failure: "):] for line in result.stderr.splitlines()
                   if line.startswith("sidequest-data-failure: ")]
-        raise failure_from_record(marked[-1] if marked else "")
+        text = dashboard_text(marked[-1]) if marked else None
+        raise RuntimeError(text) if text else AccessFailure("sidequest-data", "unknown")
     if args[0] == "sidequest-data" and result.stderr.strip():
         # A helper can return valid empty JSON after an API error; never treat that as fresh data.
         raise RuntimeError(f"sidequest-data {args[1]} reported diagnostics; keeping the previous snapshot. Check the helper in your terminal")

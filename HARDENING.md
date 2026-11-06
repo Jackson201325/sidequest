@@ -418,3 +418,21 @@ non-string values are refused instead of raising. Jira keeps the note for an
 invalid gateway body. A missing file name never suggests login, TLS or network,
 and GNU env output counts as a missing interpreter. Jira messages that already
 name Jira are not prefixed again.
+
+2026-11-06: One failure message, two forms (design change, user decision).
+
+Six review rounds kept finding cases where the dashboard's rebuilt message differed
+from the terminal's, because the dashboard rebuilt text from a few validated fields.
+Decision (user): sidequest-data chooses the finished dashboard text and sends it in
+the failure record; the dashboard shows it only when it is one printable line of at
+most 300 characters, and otherwise a generic failure. describe_failure produces both
+texts from AccessFailure templates or from messages Sidequest's own code writes
+(Jira's sentences and notes); it never includes tracebacks or raw tool output in the
+dashboard text. The terminal text may include the error's detail, such as "disk
+full", because it stays on the user's screen. Permanent Jira errors (a bad key, an
+unsupported path) no longer ask for a retry, and a moved issue keeps its new key in
+both places. failure_record, failure_from_record and CommandFailure are removed.
+Fixes from the same review: a missing file line no longer hides a real cause in the
+same output, and an interpreter given as a path counts as missing. Loop rule (user):
+code review continues until a round finds no behavior bug; style-only findings get
+one cleanup pass.
