@@ -2,17 +2,18 @@
 """Bundled collection and workflow helpers; local changes require explicit commands."""
 import argparse
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest.access import CAUSES, AccessFailure
+from sidequest.access import AccessFailure, failure_record
 from sidequest.collector import DEFAULT_OUT, collect
 from sidequest.jira import client
 from sidequest.snapshots import SnapshotStore
 
-FAILURE_LINE = 'sidequest-data-failure: '  # read by the dashboard: '<service> <cause>'
+FAILURE_LINE = 'sidequest-data-failure: '  # one JSON record, read by the dashboard
 LOCAL = {'branch-name': 'sidequest-workspace.py', 'worktree': 'sidequest-worktree.py',
          'workspace': 'sidequest-workspace-create.py', 'plan-init': 'sidequest-plan-init.py',
          'pr-body-check': 'sidequest-pr-body-check.py', 'ship-check': 'sidequest-ship-check.py',
@@ -51,18 +52,25 @@ def main():
             print(json.dumps(data, indent=2))
         return 1 if data.get('failures') else 0
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-        cause = getattr(exc, 'cause', None)
-        if cause in CAUSES and cause != 'unknown':
-            failure = AccessFailure('Jira' if args.command == 'ticket' else 'sidequest-data', cause, getattr(exc, 'tool', None))
-            print('sidequest-data: ' + failure.terminal_text, file=sys.stderr)
-            print(FAILURE_LINE + failure.service + ' ' + failure.cause, file=sys.stderr)
+        record = failure_record(exc)
+        if 'cause' in record:
+            failure = AccessFailure(record['service'], record['cause'], record['tool'])
+            text = failure.terminal_text
+            if getattr(exc, 'status', None) == 301:
+                text = 'Jira: ' + jira_text(exc)  # names the new key, which generic advice cannot
         elif isinstance(exc, client.JiraError):
-            print('sidequest-data: Jira: ' + str(exc).rstrip('.') + '.', file=sys.stderr)
+            text = 'Jira: ' + jira_text(exc)
         else:
-            what = 'Ticket lookup' if args.command == 'ticket' else 'Collection'
-            print('sidequest-data: ' + what + ' failed (' + type(exc).__name__ + '). Check the snapshot folder and '
-                  'configuration. Previous data retained.', file=sys.stderr)
+            text = (('Ticket lookup' if args.command == 'ticket' else 'Collection') + ' failed ('
+                    + record['error'] + '). Check the snapshot folder and configuration. Previous data retained.')
+        print('sidequest-data: ' + text, file=sys.stderr)
+        print(FAILURE_LINE + json.dumps(record), file=sys.stderr)
         return 2
+
+
+def jira_text(exc):
+    text = re.sub(r'^Jira\s+', '', str(exc)).split('; previous data retained')[0].rstrip('.')
+    return text + '.'
 
 if __name__ == '__main__':
     raise SystemExit(main())

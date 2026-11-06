@@ -458,8 +458,10 @@ and exits 3. There is no scheduler or check-in service.
 | "GitHub CLI (gh) is not installed" | Install gh and put it on PATH, then run gh auth login |
 | DNS, TLS or network error | Check your network, VPN and certificates; Jira and Heroku report these separately from login errors |
 | "timed out without an answer" | Run the same gh or heroku command in a terminal; it may be waiting for a prompt |
+| "the service did not answer in time" | Jira was slow or unreachable; try again in a few minutes |
 | "server error" or "rate limited" | The service is busy or failing; wait a few minutes, then press r |
 | "Collection failed (…)" or "request failed" | Run ./bin/sidequest-data collect --json in a terminal to see which source failed |
+| "Jira: issue … moved to …" | The ticket has a new key; use that key |
 | Old rows after a failed refresh | Cached data is being retained; the error and source timestamp explain why |
 | No local work log | Configure workspace.repository and identity.git_author |
 | No Heroku status | Configure the correct pipeline and check the account's access; provisioned does not always mean Web up |
