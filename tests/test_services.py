@@ -84,5 +84,27 @@ class ServiceTests(unittest.TestCase):
                 github.unresolved_threads_for_pr(42)
 
 
+    def test_pr_derived_jira_keys_cannot_fail_the_whole_collection(self):
+        def fetch(key, include_activity=False, account_id=None):
+            if key == 'APP-404':
+                raise client.JiraError('Jira HTTP 404; previous data retained', 404)
+            return {'key': key}
+        settings = {'jira': {'site': 'https://example.atlassian.net', 'projects': ['APP']}}
+        with patch.object(collector.config, 'SETTINGS', settings), patch.object(collector.identity, 'JIRA_ACCOUNT_ID', 'me'), \
+                patch.object(client, 'search', return_value=[{'key': 'APP-1'}]), \
+                patch.object(client, 'fetch_one', side_effect=fetch) as fetch_one:
+            result = collector.collect_jira(['APP-1', 'APP-2', 'APP-404', 'PYTHON-3'])
+        self.assertEqual([t['key'] for t in result['tickets']], ['APP-1', 'APP-2'])
+        self.assertNotIn('PYTHON-3', [call.args[0] for call in fetch_one.call_args_list])
+
+    def test_assigned_jira_ticket_errors_still_fail_collection(self):
+        settings = {'jira': {'site': 'https://example.atlassian.net'}}
+        with patch.object(collector.config, 'SETTINGS', settings), patch.object(collector.identity, 'JIRA_ACCOUNT_ID', 'me'), \
+                patch.object(client, 'search', return_value=[{'key': 'APP-1'}]), \
+                patch.object(client, 'fetch_one', side_effect=client.JiraError('Jira HTTP 404', 404)):
+            with self.assertRaises(client.JiraError):
+                collector.collect_jira([])
+
+
 if __name__ == '__main__':
     unittest.main()

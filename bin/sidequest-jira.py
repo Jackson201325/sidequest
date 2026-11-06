@@ -15,7 +15,9 @@ BASES = ([SITE] if SITE else []) + (['https://api.atlassian.com/ex/jira/' + CLOU
 _base = [None]
 
 class JiraError(RuntimeError):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status  # HTTP status when the error came from a Jira response
 
 def _auth():
     email, token = identity.JIRA_EMAIL, os.environ.get('SIDEQUEST_JIRA_TOKEN')
@@ -44,7 +46,7 @@ def jira(method, path, body=None):
         except urllib.error.HTTPError as exc:
             if exc.code == 401 and not _base[0]:
                 continue
-            raise JiraError('Jira HTTP %d; previous data retained' % exc.code) from None
+            raise JiraError('Jira HTTP %d; previous data retained' % exc.code, exc.code) from None
         except (urllib.error.URLError, OSError, ValueError) as exc:
             reason = 'TLS failure' if 'certificate' in str(exc).lower() else 'network or invalid response'
             raise JiraError('Jira ' + reason + '; previous data retained') from None

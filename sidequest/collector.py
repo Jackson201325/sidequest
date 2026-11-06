@@ -31,9 +31,22 @@ def collect_jira(extra_keys=()):
     if projects:
         jql += ' AND project IN (' + ','.join('"' + key + '"' for key in projects) + ')'
     issues = client.search(jql + ' ORDER BY created ASC', ['summary'], None)
-    keys = list(dict.fromkeys([row['key'] for row in issues] + list(extra_keys)))
+    assigned = list(dict.fromkeys(row['key'] for row in issues))
+    # PR-derived keys are guesses from titles ("python 3.12" reads as PYTHON-3): limit them to the
+    # configured projects, and let a missing or hidden one drop out instead of failing all of Jira.
+    allowed = {key.upper() for key in projects}
+    extra = [key for key in dict.fromkeys(extra_keys) if key not in assigned
+             and (not allowed or key.rsplit('-', 1)[0].upper() in allowed)]
+
+    def fetch(key):
+        try:
+            return client.fetch_one(key, include_activity=True, account_id=account)
+        except client.JiraError as exc:
+            if key in extra and getattr(exc, 'status', None) in (403, 404):
+                return None
+            raise
     with ThreadPoolExecutor(max_workers=4) as pool:
-        tickets = list(pool.map(lambda key: client.fetch_one(key, include_activity=True, account_id=account), keys))
+        tickets = [ticket for ticket in pool.map(fetch, assigned + extra) if ticket is not None]
     return {'enabled': True, 'jira_available': True, 'tickets': tickets}
 
 
