@@ -66,10 +66,17 @@ class AccessFailureTests(unittest.TestCase):
         self.assertEqual(str(failure), 'GitHub: login unavailable or expired. Run gh auth login in your terminal, '
                                        'then press r. Previous data retained.')
 
+    def test_a_missing_file_path_is_not_a_missing_tool(self):
+        self.assertEqual(failure_for('Jira', FileNotFoundError(2, 'No such file or directory', '/home/u/.config/x.json')).cause,
+                         'unknown')
+        self.assertEqual(failure_for('Jira', "[Errno 2] No such file or directory: '/home/u/x.json'").cause, 'unknown')
+        self.assertEqual(failure_for('GitHub', "[Errno 2] No such file or directory: 'heroku'").tool, 'heroku')
+
     def test_text_guessing_still_covers_text_only_tools(self):
         cases = {'getaddrinfo ENOTFOUND api.github.com': 'dns', 'SSL: CERTIFICATE_VERIFY_FAILED': 'tls',
                  'HTTP 403 forbidden': 'denied', 'connection timed out': 'network', 'repo not found': 'not_found',
-                 "[Errno 2] No such file or directory: 'gh'": 'missing_tool', 'something odd': 'unknown'}
+                 "[Errno 2] No such file or directory: 'gh'": 'missing_tool', 'something odd': 'unknown',
+                 "fatal: No such file or directory": 'unknown'}
         for text, cause in cases.items():
             with self.subTest(text=text):
                 self.assertEqual(failure_for('GitHub', text).cause, cause)
@@ -78,7 +85,7 @@ class AccessFailureTests(unittest.TestCase):
         self.assertIn('GitHub CLI (gh) is not installed', str(failure_for('GitHub', "No such file or directory: 'gh'")))
         other = str(failure_for('fetch', "fatal: cannot open '.git/FETCH_HEAD': No such file or directory"))
         self.assertNotIn('GitHub CLI (gh)', other)
-        self.assertIn('a required command is not installed', other)
+        self.assertNotIn('not installed', other)  # a missing file is not a missing command
 
     def test_a_known_cause_wins_over_misleading_text(self):
         error = client.JiraError('Jira says: please login again', cause='network')
@@ -171,6 +178,11 @@ class JiraCauseTests(unittest.TestCase):
             with self.subTest(code=code):
                 self.assertEqual(self.two_bases(http_error(code)), cause)
 
+    def test_a_second_base_error_only_counts_when_that_base_accepted_the_token(self):
+        for code in (400, 410):
+            with self.subTest(code=code):
+                self.assertEqual(self.two_bases(http_error(code)), 'login')
+
     def test_misspelled_causes_are_refused(self):
         with self.assertRaises(ValueError):
             client.JiraError('x', cause='dns_failure')
@@ -248,7 +260,9 @@ class CallerTests(unittest.TestCase):
         self.assertIn('gh auth login', str(failure.exception))
 
     def test_there_is_one_gh_runner(self):
+        from sidequest import github
         self.assertFalse(hasattr(services, 'run_command'))
+        self.assertFalse(hasattr(github, 'run_command'))
 
     def test_both_gh_runners_report_a_timeout_the_same_way(self):
         timeout = subprocess.TimeoutExpired(['gh'], 45)
@@ -275,20 +289,42 @@ class DashboardRunTests(unittest.TestCase):
                 run(list(args))
         return failure.exception
 
-    def test_the_dashboard_rebuilds_the_cause_sidequest_data_reports(self):
-        error = self.dashboard_error(2, 'sidequest-data: Jira: no credentials yet. ...\nsidequest-data-failure: Jira credentials\n')
-        self.assertEqual((error.service, error.cause), ('Jira', 'credentials'))
-        self.assertEqual(str(error), str(AccessFailure('Jira', 'credentials')))
+    def failure_line(self, record):
+        import json
+        return 'sidequest-data-failure: ' + json.dumps(record) + '\n'
 
-    def test_the_dashboard_never_shows_argparse_or_other_helper_output(self):
-        for stderr in ('sidequest-data: error: the following arguments are required: key\n',
-                       'Traceback (most recent call last):\n  token=secret-fixture\nKeyError: x\n',
-                       'sidequest-data-failure: Jira not-a-cause\n'):
+    def test_the_dashboard_rebuilds_the_same_advice_the_terminal_shows(self):
+        error = self.dashboard_error(2, self.failure_line({'service': 'GitHub', 'cause': 'missing_tool', 'tool': 'gh'}))
+        self.assertEqual(str(error), str(AccessFailure('GitHub', 'missing_tool', 'gh')))
+        error = self.dashboard_error(2, self.failure_line({'service': 'Jira', 'cause': 'credentials'}))
+        self.assertEqual((error.service, error.cause), ('Jira', 'credentials'))
+
+    def test_the_dashboard_names_other_collection_errors_by_type(self):
+        error = self.dashboard_error(2, 'sidequest-data: Collection failed (OSError). ...\n' + self.failure_line({'error': 'OSError'}))
+        self.assertIn('Collection failed (OSError)', str(error))
+
+    def test_the_dashboard_refuses_records_it_does_not_know(self):
+        import json
+        bad = ['sidequest-data: error: the following arguments are required: key\n',
+               'Traceback (most recent call last):\n  token=secret-fixture\nKeyError: x\n',
+               self.failure_line({'service': 'secret-fixture', 'cause': 'login'}),
+               self.failure_line({'service': 'Jira', 'cause': 'not-a-cause'}),
+               self.failure_line({'service': 'GitHub', 'cause': 'missing_tool', 'tool': 'secret-fixture'}),
+               self.failure_line({'error': 'secret fixture text'}),
+               'sidequest-data-failure: not json secret-fixture\n']
+        for stderr in bad:
             with self.subTest(stderr=stderr):
                 error = self.dashboard_error(2, stderr)
-                self.assertNotIn('secret-fixture', str(error))
+                self.assertNotIn('secret', str(error))
                 self.assertNotIn('arguments are required', str(error))
                 self.assertIn('request failed', str(error))
+
+    def test_run_still_rejects_successful_output_with_diagnostics(self):
+        from tui import run
+        result = subprocess.CompletedProcess([], 0, '{}', 'warning: API unreachable')
+        with patch('subprocess.run', return_value=result):
+            with self.assertRaisesRegex(RuntimeError, 'reported diagnostics'):
+                run(['sidequest-data', 'collect', '--json'])
 
     def run_data(self, args, error):
         import runpy
@@ -304,13 +340,20 @@ class DashboardRunTests(unittest.TestCase):
         code, lines = self.run_data(['ticket', 'APP-1'], client.JiraError('No Jira credentials', cause='credentials'))
         self.assertEqual(code, 2)
         self.assertEqual(lines, ['sidequest-data: ' + AccessFailure('Jira', 'credentials').terminal_text,
-                                 'sidequest-data-failure: Jira credentials'])
+                                 'sidequest-data-failure: {"service": "Jira", "cause": "credentials", "tool": null}'])
+
+    def test_sidequest_data_keeps_a_moved_issue_message(self):
+        error = client.JiraError('Jira issue APP-1 moved to APP-9; previous data retained', 301)
+        code, lines = self.run_data(['ticket', 'APP-1'], error)
+        self.assertEqual(lines[0], 'sidequest-data: Jira: issue APP-1 moved to APP-9.')
 
     def test_sidequest_data_keeps_jira_messages_that_explain_themselves(self):
         for message in ('Expected a Jira key such as APP-123', 'Configure jira.site before refreshing Jira'):
             with self.subTest(message=message):
                 code, lines = self.run_data(['ticket', 'x'], client.JiraError(message))
                 self.assertEqual(lines[0], 'sidequest-data: Jira: ' + message + '.')
+        code, lines = self.run_data(['ticket', 'x'], client.JiraError('Jira invalid response; previous data retained'))
+        self.assertEqual(lines[0], 'sidequest-data: Jira: invalid response.')
 
     def test_sidequest_data_does_not_call_a_missing_file_a_missing_tool(self):
         code, lines = self.run_data(['ticket', 'APP-1'], FileNotFoundError(2, 'No such file', '/home/u/.config/x.json'))

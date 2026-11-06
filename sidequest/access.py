@@ -5,12 +5,15 @@ Only output from text-only tools is classified by its words. Never echo credenti
 output. Advice is a problem plus an action; the dashboard adds "then press r" and the
 retention note, and command-line helpers show the plain action.
 """
+import json
 import os
+import re
 
 SERVICE_NAMES = {'prs': 'GitHub', 'merged': 'GitHub', 'fetch': 'GitHub', 'gh': 'GitHub', 'jira': 'Jira',
                  'heroku': 'Heroku'}
 # tool: (label, how to log in)
 TOOLS = {'gh': ('GitHub CLI (gh)', 'run gh auth login'), 'heroku': ('Heroku CLI (heroku)', 'run heroku login')}
+KNOWN_SERVICES = ('GitHub', 'Jira', 'Heroku', 'sidequest-data')
 CAUSES = ('missing_tool', 'credentials', 'login', 'denied', 'dns', 'tls', 'network', 'timeout', 'server',
           'rate_limited', 'not_found', 'unknown')
 RETAINED = ' Previous data retained.'
@@ -65,12 +68,11 @@ class AccessFailure(RuntimeError):
 def classify(text):
     """Best guess at a cause from a text-only tool's output: (cause, missing tool or None)."""
     text = str(text).casefold()
-    if "no such file or directory: 'gh'" in text:
-        return 'missing_tool', 'gh'
     if 'no jira credentials' in text or 'no jira token' in text:
         return 'credentials', None
-    if 'no such file or directory' in text:
-        return 'missing_tool', None
+    missing = re.search(r"no such file or directory: '([^'/]+)'", text)
+    if missing:  # a bare program name; a path is a missing file, not a missing command
+        return 'missing_tool', missing[1] if missing[1] in TOOLS else None
     for cause, words in (('login', ('401', 'token expired', 'invalid token', 'bad credentials', 'unauthorized',
                                     'not logged', 'authentication', 'login')),
                          ('denied', ('403', 'forbidden', 'permission', 'access denied', 'eacces')),
@@ -82,6 +84,32 @@ def classify(text):
         if any(word in text for word in words):
             return cause, None
     return 'unknown', None
+
+
+def failure_record(exc):
+    """The machine record sidequest-data prints for the dashboard: a service failure or an error type."""
+    cause = getattr(exc, 'cause', None)
+    if isinstance(exc, AccessFailure) or cause in CAUSES and cause != 'unknown':
+        failure = exc if isinstance(exc, AccessFailure) else AccessFailure('Jira', cause, getattr(exc, 'tool', None))
+        return {'service': failure.service, 'cause': failure.cause, 'tool': failure.tool}
+    return {'error': type(exc).__name__}
+
+
+def failure_from_record(text):
+    """Rebuild a failure from a record. Only known services, causes, tools and type names pass;
+    anything else is a generic failure, so helper output never reaches the dashboard as text."""
+    try:
+        record = json.loads(text)
+    except ValueError:
+        record = None
+    if isinstance(record, dict) and set(record) <= {'service', 'cause', 'tool'}:
+        if (record.get('service') in KNOWN_SERVICES and record.get('cause') in CAUSES
+                and record.get('tool') in (None, *TOOLS)):
+            return AccessFailure(record['service'], record['cause'], record.get('tool'))
+    if isinstance(record, dict) and set(record) == {'error'} and re.fullmatch(r'[A-Z][A-Za-z]{0,40}', str(record['error'])):
+        return RuntimeError('Collection failed (' + record['error'] + '). Run sidequest-data collect in your '
+                            'terminal to see which source failed. Previous data retained.')
+    return AccessFailure('sidequest-data', 'unknown')
 
 
 def failure_for(service, detail):
