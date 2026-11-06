@@ -184,317 +184,90 @@ states, source bytes and edit-driven reloads are covered. The real PTY navigatio
 script switches between both tabs and observes their distinct content. No ticket
 documents, services, worktrees or shared databases are modified by these checks.
 
-2026-11-06: Code review of the review fixes.
+2026-11-06: Reviews, refactors and fixes (PRs #3-#19).
 
-Failing regressions first reproduced each finding. Git errors showed the
-"Preparing worktree" progress line instead of the fatal reason; they now show the
-fatal or error line, else the last line. Three ticket-key rules disagreed: the
-GitHub reader upper-cased "python 3" into PYTHON-3, the collector fetched other
-keys than the queue grouped, and worktree mapping accepted keys inside a slug.
-sidequest/ticket_keys.py now owns one rule for the reader, collector and queue;
-the collector derives PR keys after assigned keys are known, as the queue does.
-Worktree mapping uses the lookup segment rule, so w and Space n agree. A moved
-PR-derived Jira issue reports status 301 and drops out like a hidden one; assigned
-issue errors still fail Jira. The header marks lower-case, unconfigured and
-source-less refresh failures. Only a missing gh binary reads as "gh is not
-installed". Rework statuses match after normalising, and one REWORK list in
-workflow.py feeds ALIASES. Snapshots written before this change keep their stored
-PR ticket until the next refresh replaces them.
-Verification: bin/check passed 114 helper/service/spec tests and 146 UI tests
-(two optional browser checks skipped). Tests use mocks and temporary repositories.
+Every change started with a failing test at a public boundary. Code reviews and
+architecture reviews ran in a loop; the loop stopped when each fix round began to
+add about as much risk as it removed. This entry states the final result; it
+replaces 21 entries written during the day.
 
-2026-11-06: One ticket key module.
+Ticket keys. sidequest/ticket_keys.py owns every key rule: is_key, pr_ticket,
+branch_keys, branch_ticket, mentions and without_leading_key. Guessing rules
+(pr_ticket, branch_ticket) trust a lower-case key only for a configured
+jira.projects prefix, so "python 3.12" or chore/python-3-bump never becomes
+PYTHON-3. The collector, GitHub reader, queue, worktree map, tmux, work log,
+standup, ship-check, qa-shot, review-app and worktree helpers all use it; no helper
+assumes DEMO keys. review-app expands a bare number only with exactly one
+configured project; find_pr searches open PR titles first, then the newest 500
+open PR branches, and matches a PR whose title or branch ticket is the key.
 
-Nine local key rules answered four questions differently. sidequest/ticket_keys.py
-now answers all of them: is_key (workspace naming, lookup, plan-init, Jira links),
-pr_ticket, branch_keys (lookup and the worktree map), branch_ticket (ship-check and
-qa-shot) and mentions/without_leading_key (tmux titles, work log, standup). Guessing
-rules (pr_ticket, branch_ticket) trust lower-case keys only for configured Jira
-projects; mentions also accept "APP 12" because they only match known tickets.
-Failing tests first showed ship-check warning on every non-DEMO branch and qa-shot
-reading chore/python-3-bump as PYTHON-3. The unused extract_ticket and
-commits_for_day helpers are removed. The Jira client keeps its own upper-case key
-check at the transport.
-Verification: bin/check passed 126 helper/service/spec tests and 146 UI tests
-(two optional browser checks skipped). Tests use temporary repositories only.
+Dashboard structure. ticket-tui/queue_evidence.py (QueueEvidence) owns queue
+data: the newest copy at startup, refresh validation through the shared
+sidequest.snapshots.source_problem, merging, saving and per-source failure sets
+({"jira"}, {"prs"} or {"all"}). ticket-tui/detail_views.py (DetailViews) builds
+every detail tab as rows of text and a style name, so draw never guesses styles
+from text. App.press applies one key; App.loop only reads keys, runs timers,
+draws and hands off the terminal. App.viewport derives page sizes from the
+terminal size, and App.fit keeps selection and scroll in range; draw changes no
+navigation state. The pass-through ticket-tui/launcher.py and environments.py are
+removed; the browser opener is sidequest.terminal.open_browser and takes the
+browser command as an argument, because a headless spec forbids the workspace
+layer from reading global configuration.
 
-2026-11-06: Helpers without DEMO keys.
+Service errors (frozen; change only for a clear user-facing bug).
+sidequest.access.AccessFailure carries a service and a cause (missing_tool,
+credentials, login, denied, dns, tls, network, timeout, server, rate_limited,
+not_found, unknown). One advice table gives each cause a problem, an action and
+whether pressing r helps; str() is the dashboard text and terminal_text the
+command-line text. services.run_tool is the only gh/heroku runner and names the
+service from the program. JiraError records its cause from the HTTP status (429
+rate_limited, 5xx server) or connection error (TLS, DNS, timeout including Python
+3.9's socket.timeout, network), and a permanent flag for errors a retry cannot
+fix (bad key, unsupported path, read-only refusal, missing jira.site, moved
+issue). Word matching remains only for text-only tool output: a missing file is
+never a missing tool or another cause, a traceback is classified only by tool
+names, and gh, heroku or a missing interpreter is a missing tool. When jira.site
+refuses the token and the cloud gateway answers differently, the gateway's cause
+is kept with the note "The Jira site refused the token; if it is not a scoped
+token, renew SIDEQUEST_JIRA_TOKEN" (user decision: one request cannot tell a
+scoped token from an expired one). sidequest-data prints terminal text and a
+"sidequest-data-failure: {"text": ...}" line; the dashboard shows that text only
+when it is one printable line of at most 300 characters (describe_failure clips
+to that), and otherwise a generic failure (user decision, after six review rounds
+of mismatches from rebuilding messages). Dashboard text comes only from
+Sidequest's templates and its own Jira messages; a moved issue names its new key
+only when the response gives a valid key. The terminal adds only an OSError's own
+reason, never other exception text.
 
-Failing tests first showed three DEMO-only rules. review-app turned a bare number
-into DEMO-###; it now uses the one project in jira.projects, or asks for the full
-key. review_apps.find_pr only matched titles that start with the key; it now uses
-the title or branch ticket (see the next entry). worktree printed only DEMO and OPS keys in
-capitals; it now uses is_key. Tests use a temporary config and no gh binary.
+Repository, base and Jira dates. sidequest/repository.py (no configuration
+import) uses SIDEQUEST_REPO only when it names an existing folder, else
+workspace.repository; the dashboard, workspace actions and helpers share it. The
+work log and ship-check use workspace.base_ref, and ship-check --fetch fetches the
+remote of its base. Jira status dates match when the changelog's target status id
+or name matches the current status, so a renamed status keeps its date; the last
+of simultaneous transitions is the newest; only both differing fails the source,
+which keeps previous data and the next refresh resolves.
 
-2026-11-06: Review of the helper key change.
-
-A code review found that find_pr trusted only the key's own project, missed PRs
-beyond the newest 200, ignored the branch when the title named another ticket,
-and failed on lower-case keys. Failing tests reproduced each case. find_pr now
-searches open PR titles for the key first, so a PR of any age is found in one
-call. Only when that misses does it list the newest 500 open PRs to match
-branches, and it asks for --pr N when that list is full. A PR matches when its
-title ticket or branch ticket is the key, using every configured project. Without
-a key or --pr, review-app uses the current branch's ticket instead of whatever PR
-the branch has. worktree capitalises a target only when it is a trusted key, so
-release-2 stays as typed. qa-shot help no longer shows DEMO-only keys. Lookup of
-a key-shaped branch name such as release-2 still uses the ticket-key segment rule.
-
-2026-11-06: Queue evidence module.
-
-App held the retain-last-good-data rule in four places, repeated the snapshot
-checks, and found failed sources by reading error text. Module tests written first
-failed until ticket-tui/queue_evidence.py existed. QueueEvidence now loads the
-newest copy, runs the read-only collector, applies results and saves a failure set
-({"jira"}, {"prs"} or {"all"}) beside the messages. Errors saved before this change
-have no set and are read once with the previous text rule. SnapshotStore.publish
-and the dashboard share sidequest.snapshots.source_problem. The unused "issue" and
-"status" events were removed. Tests that set App fields now build QueueEvidence
-and drive failures through collect and finish_refresh. CLI list and standup modes
-still collect worktrees and the work log without saving them.
-Verification: bin/check passed 135 helper/service/spec tests and 156 UI tests
-(two optional browser checks skipped).
-
-2026-11-06: Key handling and UI shims.
-
-Eighteen key tests written first failed until App.press existed. The key chain
-moved out of App.loop unchanged, except that prefix state is stored on App and
-prompts use App.blocking. The tests cover movement, paging, gg/G, gl/gL lane
-jumps, views, focus, Escape, detail tabs, search, the Space menu, resize, command
-keys, sort order, standup copy, quit, unknown keys and action errors.
-ticket-tui/launcher.py and ticket-tui/environments.py only forwarded calls; no
-skill, script or document outside their tests imported them. Their tests moved
-to tests/ against sidequest.tmux and sidequest.environments, and both files were
-removed. The one real function, the browser opener, is sidequest.terminal.
-open_browser. It takes the browser command as an argument, because a headless
-spec forbids the workspace layer from reading global configuration.
-Verification: bin/check passed 151 helper/service/spec tests and 160 UI tests
-(two optional browser checks skipped), with no git re-init warnings.
-
-2026-11-06: Review of the key and shim change.
-
-A failing test showed that a resize during a waiting Space or g prefix never
-cleared the screen; press now handles the resize first and keeps the prefix.
-tests/test_environments.py failed outside the repository root; it now adds the
-root to sys.path like the other tests. The moved tmux tests call sidequest.tmux
-directly instead of copies of the removed shims, a duplicate split_command test
-is removed, and the worktree window test reads the tmux session from the test
-configuration. The docs no longer claim that the dashboard imports tmux.
-
-2026-11-06: Detail views and viewport.
-
-Tests written first failed until ticket-tui/detail_views.py existed. DetailViews
-returns styled rows for every tab, marks the current workflow step from the stage
-index instead of the "YOU ARE HERE" text, and takes Activity line kinds from
-layout.timeline_rows. App.viewport and App.fit replace the page_size,
-preview_page_size and offset updates that draw used to make; a resize reaches
-fit through KEY_RESIZE, and one resize test now sends that key. Key and title
-lines that the panel border already shows are no longer built, even when refresh
-errors precede them. Wrapped continuations of headings are plain. A render of all
-seven tabs at 145x40, 80x24 and 64x18 matched the previous commit in text and
-paint attributes (595 lines, 1,852 paint calls).
-Verification: bin/check passed 150 helper/service/spec tests and 172 UI tests
-(two optional browser checks skipped).
-
-2026-11-06: Access failures as data.
-
-Every service error used to reach recovery text through one substring classifier,
-so Jira's HTTP status and a missing gh binary were turned into text and guessed
-back. Thirteen tests written first failed until sidequest.access.AccessFailure
-existed. AccessFailure is a RuntimeError with a service and a cause (missing_tool,
-credentials, login, denied, dns, tls, network, not_found, unknown); its message is
-the same recovery text as before. JiraError now records a cause from the HTTP
-status, missing credentials, TLS, DNS or network failure, and the collector uses
-it directly. The gh runner reports a missing gh as missing_tool. Word matching
-remains only for text-only tool output (gh stderr and dashboard helper runs), and
-200 service/text pairs give the same text as before. Two Jira messages are more
-precise: DNS failures now say "DNS lookup failed" instead of "network
-unavailable", and invalid JSON says "request failed". Heroku already maps its own
-HTTP statuses and is unchanged. The dashboard run() no longer special-cases the
-ticket, my-tickets and pr-feedback commands or an old Keychain diagnostic. The
-dashboard only runs collect; sidequest-data still offers ticket and pr-feedback
-(my-tickets no longer exists).
-Verification: bin/check passed 163 helper/service/spec tests and 172 UI tests
-(two optional browser checks skipped).
-
-2026-11-06: Review of access failures.
-
-Failing tests reproduced five bugs. Jira TLS errors raised while reading the body
-carry a text reason, so the cause is now taken from the error itself and they are
-tls again. A connection dropped mid-body (http.client.IncompleteRead) is a network
-failure instead of a traceback. JiraError without a known status keeps cause None,
-so its text is still classified; unknown cause names are refused. A gh timeout is
-a network failure, and the collector catches subprocess errors per source, so Jira
-still collects and the snapshot is published. A failed sidequest-data run in the
-dashboard reads "request failed" instead of guessing "login" from the helper's
-generic sentence. review_apps uses the shared missing-tool message, the collector
-keeps an AccessFailure as raised, and access_error is removed. README lists the new
-error messages.
-
-2026-11-06: Second review of access failures.
-
-Failing tests first. AccessFailure gained timeout, server and rate_limited causes
-and terminal_text, the same advice without "press r" or "Previous data retained"
-for command-line helpers. services.run_tool runs gh and heroku for the collector
-and review_apps alike: a missing program names its CLI, a timeout is "timeout"
-(gh may wait for a prompt, so it is not called a network failure), and a failed
-heroku command is a Heroku failure, not a GitHub one. JiraError always has a cause:
-HTTP 429 is rate_limited, 5xx is server, a read timeout is timeout, and anything
-else is unknown, so Jira text is never guessed. A 401 on the first Jira base is
-reported even when a second base fails differently. sidequest-data prints
-"sidequest-data: " plus the real cause (Jira advice for ticket, a neutral
-"Collection failed (TypeName)" for collect), and the dashboard shows that one line
-and never other helper output. The redundant AccessFailure branch in failure_for
-and the unreachable subprocess handlers in the collector are removed.
-
-2026-11-06: Third review of access failures.
-
-Failing tests first. One advice table in sidequest/access.py now gives each cause a
-problem, an action and whether pressing r helps; the dashboard text and
-terminal_text are both built from it, and every service, cause and tool pair is
-checked to give both forms. 408 of 432 messages are unchanged; the others are a
-timeout without a tool (Jira now says the service did not answer in time instead
-of asking to run a command) and a missing heroku (now "run heroku login").
-run_tool is the only CLI runner, names the service from the program's basename,
-and marks missing programs and timeouts with the tool. Jira treats Python 3.9's
-socket.timeout as a timeout. After a 401 on the first base, only a 404 or an
-unreachable second base is hidden; 403, 429 and 5xx from a base that accepted the
-token are reported. sidequest-data prints terminal_text for people and a
-failure line (now a JSON record); Jira's own messages are kept,
-and other errors name only their type. The dashboard rebuilds its message from the
-failure line and ignores argparse and other output.
-
-2026-11-06: Fourth review of access failures.
-
-Failing tests first. sidequest-data now prints one JSON failure record (service,
-cause and tool, or only the error type); the dashboard rebuilds identical advice
-from it, keeps "Collection failed (TypeName)" for other errors, and refuses
-unknown services, causes, tools, type names or malformed records. "No such file or
-directory" is a missing command only when it names a bare program, so missing
-config files and paths are no longer called missing tools. After a 401 on the
-first Jira base, only 403, 429 and 5xx from the second base replace it; a broken
-second base that answers 5xx is reported as a server error. sidequest-data ticket
-keeps "issue APP-1 moved to APP-9" and no longer doubles the Jira prefix. The
-diagnostics guard in the dashboard has a test again, github.run_command is renamed
-gh_output without its unused strict flag, and README lists the new messages.
-
-2026-11-06: Idle and per-key efficiency.
-
-Measured on demo data with the real loop: idle, it woke 19 times a second; each key
-built and wrapped the detail tab twice. App.wait_ms now waits 250 ms for a key when
-nothing is loading, no message waits and no prefix key waits, and 50 ms otherwise;
-keys still end the wait at once, so only background results can appear up to 0.2 s
-later. Prompts restore that wait instead of a fixed 50 ms. fit keeps its viewport
-with a key of everything the viewport depends on, and draw reuses it only while the
-key is unchanged; any background result discards it. Three existing tests that
-change state without a key caught an earlier version that reused a stale view.
-Result: 4 idle wake-ups a second instead of 19 (0.06% of one core over 5 s, was
-0.23%), and one detail build per key instead of two.
-
-2026-11-06: Fifth review of access failures (Jira bases decided).
-
-Three reviews disagreed on which error to show when the Jira site refuses the token
-and the cloud gateway answers differently. One request cannot tell a scoped token
-(only the gateway works, so its answer is real) from an expired one with a wrong
-cloud_id. Decision (user, option 2): keep the gateway's cause and add a fixed note,
-"The Jira site refused the token; if it is not a scoped token, renew
-SIDEQUEST_JIRA_TOKEN". Failure records carry the note by name. Failing tests first
-for the rest: "No such file or directory" is a missing tool only for gh, heroku or
-a missing interpreter ("env: node: ..."); records name Jira only for Jira errors
-and only known services, so terminal and dashboard text agree; the generic record
-names the failed command; type names may contain digits and underscores; and Jira
-messages drop both retention suffixes and a doubled "Jira".
-
-2026-11-06: Sixth review of access failures.
-
-failure_record had several overlapping rules, and each review found a case where one
-skipped the others. Failing tests first; now one rule applies: an error that names
-a known service and a cause (AccessFailure, or JiraError through its service
-attribute) becomes a record with that cause, tool and note, including "unknown".
-So a gateway 400 after the site refused the token keeps the note in the terminal
-and the dashboard. Other errors become CommandFailure, which gives the same
-"X failed (Type). Run sidequest-data X" text in both places. Records with
-non-string values are refused instead of raising. Jira keeps the note for an
-invalid gateway body. A missing file name never suggests login, TLS or network,
-and GNU env output counts as a missing interpreter. Jira messages that already
-name Jira are not prefixed again.
-
-2026-11-06: One failure message, two forms (design change, user decision).
-
-Six review rounds kept finding cases where the dashboard's rebuilt message differed
-from the terminal's, because the dashboard rebuilt text from a few validated fields.
-Decision (user): sidequest-data chooses the finished dashboard text and sends it in
-the failure record; the dashboard shows it only when it is one printable line of at
-most 300 characters, and otherwise a generic failure. describe_failure produces both
-texts from AccessFailure templates or from messages Sidequest's own code writes
-(Jira's sentences and notes); it never includes tracebacks or raw tool output in the
-dashboard text. The terminal text may include the error's detail, such as "disk
-full", because it stays on the user's screen. Permanent Jira errors (a bad key, an
-unsupported path) no longer ask for a retry, and a moved issue keeps its new key in
-both places. failure_record, failure_from_record and CommandFailure are removed.
-Fixes from the same review: a missing file line no longer hides a real cause in the
-same output, and an interpreter given as a path counts as missing. Loop rule (user):
-code review continues until a round finds no behavior bug; style-only findings get
-one cleanup pass.
-
-2026-11-06: Review of the failure-text change.
-
-Six behavior bugs, each with a failing test first. JiraError has a permanent flag
-for a bad key, an unsupported path, the read-only refusal, missing jira.site and a
-moved issue; only those skip "Press r to try again", so temporary Jira errors ask
-for a retry again. A moved issue names its new key only when the response gives a
-valid ticket key, so the dashboard shows only Sidequest's own text. A Python
-traceback is classified only by known tool names, and every missing file name in
-the output is checked for gh and heroku. The terminal adds only an OSError's own
-reason, never other exception text that may repeat commands or response bodies.
-describe_failure clips dashboard text to the dashboard's 300-character limit, and
-any AccessFailure keeps its own advice. Known limit: the dashboard raises a plain
-RuntimeError for a failed sidequest-data run; no caller branches on its type.
-
-2026-11-06: Whole-codebase review.
-
-A review of the whole repository, with the error-message area frozen, found ten
-behavior bugs that no test caught. Each now has a failing test first. A PR commit
-by an author without a GitHub account no longer crashes the Work log and Standup
-tabs. A Jira status renamed by an admin keeps its status_since date (see the next
-entry for how). A
-snapshot.json that is valid JSON but not an object is refused like other bad
-files. The dashboard, workspace actions and work history now share one repository
-(SIDEQUEST_REPO, then workspace.repository), and the work log and ship-check use
-workspace.base_ref instead of origin/main. ship-check no longer crashes on a
-non-migration file in db/migrate (reproduced with the previous code). A bad
-SIDEQUEST_TERMINAL is a status-line message instead of closing the dashboard.
+Other fixes. Git errors show Git's fatal line, not progress output. The header
+marks every kind of refresh failure. Rework statuses match after normalising, and
+one REWORK list in workflow.py feeds ALIASES. A PR commit by an author without a
+GitHub account no longer crashes the Work log and Standup tabs. A snapshot.json
+that is not a JSON object is refused like other bad files. ship-check no longer
+crashes on a non-migration file in db/migrate. A bad SIDEQUEST_TERMINAL is a
+status message, not an exit. A resize during a Space or g prefix clears the screen.
 --refresh with --list, --standup or --update-report prints cached results marked
-incomplete when collection fails. Spinner frames reuse the fitted viewport while
-nothing it depends on changes.
+incomplete when collection fails, and --update-report reports only that run's
+failure.
 
-2026-11-06: Review of the whole-codebase fixes.
+Efficiency. Measured with the real loop on demo data: App.wait_ms waits 250 ms for
+a key when nothing is loading or waiting, and 50 ms otherwise (keys still end the
+wait at once), so idle wake-ups fell from 19 to 4 a second (0.23% to 0.06% of one
+core). cached_viewport builds the detail tab once per key instead of twice and
+reuses it across spinner frames; drain() and rebuild() clear it.
 
-Two of the previous fixes were regressions, each now with a failing test. Leaving
-status_since unknown on a status mismatch published a guess instead of keeping the
-previous data when a ticket moved during collection. workflow_dates now compares
-the changelog's target status id with the current status id: a rename keeps its
-id and its date, and a different id still fails the source so previous data and
-timestamps are retained (names are compared, ignoring case, only when ids are
-missing). Preferring SIDEQUEST_REPO made a stale value break every helper run
-(see the next entry for the final rule). Also: --update-report
-returns 1 and says the report was written from cached results when the refresh
-failed; ship-check --fetch fetches the remote of its base, and its help names
-workspace.base_ref; the worktree and workspace helpers use the shared repository
-and base settings; one cached_viewport helper serves fit and draw, and its key
-includes fallback data and the current minute.
-
-2026-11-06: Regressions from the previous round; review loop stopped.
-
-Five findings were regressions from the previous fixes, each now with a failing
-test. Running helpers from the Sidequest folder when the repository folder was
-missing could map a ticket to a Sidequest worktree; run() uses the repository
-folder again, and sidequest.repository.repository_from ignores a SIDEQUEST_REPO
-that names a missing folder for the dashboard, workspace actions and helpers alike
-(it imports no configuration, as the headless spec requires). Jira status dates
-match when the status id or the name matches, and the last of simultaneous
-transitions is the newest; only both differing fails the source, which the next
-refresh resolves. --update-report reports only this run's refresh failure, also
-on the draft path. Every rebuild clears the cached viewport, and the cache key
-no longer uses object ids. The review loop stops here (user rule: each round's
-fixes added new risk); remaining review notes are style-only.
+Known limits. The dashboard raises a plain RuntimeError for a failed sidequest-data
+run; no caller branches on its type. With both jira.site and jira.cloud_id set, a
+broken gateway that answers 5xx after the site refused the token reads as a server
+error with the note above. Local runs used Python 3.11; CI covers Python 3.9.
+Verification: bin/check passed 233 helper/service/spec tests and 176 UI tests (two
+optional browser checks skipped), on every PR and on main after each merge.
