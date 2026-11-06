@@ -2,6 +2,7 @@
 """Sidequest: a keyboard-driven attention queue for Jira and GitHub."""
 
 import argparse
+from collections import namedtuple
 import curses
 import json
 import os
@@ -10,10 +11,9 @@ import re
 import subprocess
 import sys
 import threading
-import textwrap
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -27,15 +27,13 @@ from core import Store, now, parse_time, rank, tickets_from
 from sidequest.environments import fetch_environments
 from sidequest.ticket_keys import branch_keys, is_key
 from sidequest.worktrees import parse_worktrees
-from worklog import collect_worklog, daily_summary
-from workflow import next_owner, ownership, stage_context, workflow_path, workflow_strip
+from worklog import collect_worklog
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
-from activity import ticket_activity
-from layout import (DAY_RULE, EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, pr_glyph_offset,
-                    relative, scroll_label, table_header, table_row, timeline, panel_rects)
+from layout import (EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, pr_glyph_offset,
+                    relative, scroll_label, table_header, table_row, panel_rects)
 import standup
 from queue_evidence import EVERY, QueueEvidence
-from plan_document import document_views
+from detail_views import DetailViews, readable_date, source_age, wrap  # noqa: F401 - readable_date is public
 
 WORKFLOW = Path(__file__).resolve().parents[1]
 ROOT = Path(config.get('workspace', 'repository') or WORKFLOW).expanduser().resolve()
@@ -55,25 +53,6 @@ FOOTER = [("MOVE", [("j/k", "tickets", ""), ("h/l", "pane", ""), ("1-4", "lane",
 SPACE_MENU = [("Open", [("j", "Jira"), ("o", "PR"), ("w", "worktree"), ("s", "agent")]),
               ("Work", [("n", "create/open local worktree")])]
 DETAIL_WORKERS = 4
-PLAN_HEADING = "\x00"          # marks a markdown heading in the Plan tab; stripped before drawing
-
-
-def readable_date(value):
-    stamp = parse_time(value)
-    if not stamp:
-        return "Not recorded"
-    local = stamp.astimezone(now().tzinfo)
-    days = (now().date() - local.date()).days
-    day = "Today" if days == 0 else "Yesterday" if days == 1 else local.strftime("%d %b %Y")
-    return f"{day}, {local:%H:%M}"
-
-
-def source_age(value):
-    stamp = parse_time(value)
-    if not stamp:
-        return "not loaded"
-    minutes = max(0, int((now() - stamp).total_seconds() // 60))
-    return "just now" if minutes < 1 else f"{minutes}m ago" if minutes < 60 else f"{minutes // 60}h ago" if minutes < 1440 else f"{minutes // 1440}d ago"
 
 
 # Space s: run the configured agent in the ticket's worktree, using bundled prompts.
@@ -165,6 +144,9 @@ def demo_sources():
 EVIDENCE_EVENTS = ("jira", "prs", "worklog", "worktrees", "heroku", "heroku_error")
 
 
+Viewport = namedtuple("Viewport", "list_rect preview_rect list_rows summary detail_lines detail_rows detail_width detail_top")
+
+
 class App:
     def __init__(self, store, snapshots, demo=False, stale_days=2, escalate_days=5, standup_time=standup.DEFAULT_TIME,
                  workflow_factory=None):
@@ -175,7 +157,6 @@ class App:
         self.view, self.query, self.index, self.offset = "All", "", 0, 0
         self.preview_scroll = 0
         self.list_fraction = 0.3
-        self.page_size = self.preview_page_size = 1
         self.focus_pane = "list"
         self.detail_tab = "Activity"     # Jira + GitHub events only, newest first
         self.message = "+/- resize sections   = reset   Space: menu   ?: help"
@@ -191,7 +172,6 @@ class App:
         self.pending = self.space_hint = self.space_before = ""
         self.dirty = True
         self.styles = {}
-        self.plan_cache = {}
         settings = store.get("@app")
         fraction = settings.get("list_fraction", 0.3)
         if isinstance(fraction, (int, float)) and 0 < fraction < 1:
@@ -201,6 +181,7 @@ class App:
             self.sort_mode = "Attention"
         self.sort_descending = settings.get("sort_descending", True)
         self.evidence = QueueEvidence(store, snapshots, demo_sources() if demo else None)
+        self.views = DetailViews(self.evidence, stale_days)
         self.rebuild()
         if demo:
             for key in ("DEMO-902", "DEMO-903"):
@@ -215,6 +196,7 @@ class App:
         self.tickets = ordered(self.tickets, self.sort_mode, self.sort_descending, self.evidence.worklog)
         if previous:
             self.index = next((i for i, t in enumerate(self.visible()) if t.key == previous.key), self.index)
+        self.fit()
         self.dirty = True
 
     def set_sort(self, mode, descending=None):
@@ -409,17 +391,7 @@ class App:
             self.background("worklog", "Loading dated work history", lambda: collect_worklog(tickets, ROOT, run), "worklog")
 
     def environment(self, ticket):
-        entries = self.evidence.environments.get("entries", {})
-        statuses = [entries[str(p["number"])].get("status", "Unknown")
-                    for p in ticket.prs if str(p["number"]) in entries]
-        if statuses:
-            stale = self.evidence.environment_error or any(
-                not parse_time(entries[str(p["number"])].get("checked_at")) or
-                (now() - parse_time(entries[str(p["number"])].get("checked_at"))).total_seconds() > 300
-                for p in ticket.prs if str(p["number"]) in entries)
-            suffix = " (refreshing)" if "heroku" in self.jobs else " (cached)" if stale else ""
-            return " / ".join(dict.fromkeys(statuses)) + suffix
-        return "Loading" if "heroku" in self.jobs else "Unavailable" if self.evidence.environment_error else "Not checked" if ticket.prs else "No linked PR"
+        return self.views.environment(ticket, "heroku" in self.jobs)
 
     def pr_label(self, ticket):
         return " / ".join(f"#{p['number']}" for p in ticket.prs) if ticket.prs else "none linked"
@@ -562,110 +534,46 @@ class App:
         except (OSError, subprocess.SubprocessError):
             self.message = "Couldn't copy (pbcopy unavailable); use sidequest --standup in a terminal"
 
+    def detail_rows(self, ticket):
+        ages = lambda: (f"Jira {source_age((self.evidence.jira or self.evidence.fallback).get('generated_at'))} · "
+                        f"GitHub {source_age(self.evidence.prs.get('generated_at'))} · "
+                        f"git {source_age(self.evidence.worklog.get('generated_at'))}")
+        return self.views.rows(self.detail_tab, ticket, PLANS, "heroku" in self.jobs,
+                               lambda: standup.view_lines(self.standup_data(), ages()))
+
     def details(self, ticket):
-        errors = ["REFRESH ERROR (cached data)", *self.evidence.refresh_errors, ""] if self.evidence.refresh_errors else []
-        return errors + self.ticket_details(ticket)
+        return [row.text for row in self.detail_rows(ticket)]
 
-    def ticket_details(self, ticket):
-        if self.detail_tab == "Standup":
-            jira_time = (self.evidence.jira or self.evidence.fallback).get("generated_at")
-            return standup.view_lines(self.standup_data(),
-                                      f"Jira {source_age(jira_time)} · GitHub {source_age(self.evidence.prs.get('generated_at'))} · "
-                                      f"git {source_age(self.evidence.worklog.get('generated_at'))}")
-        if not ticket:
-            return ["No tickets in this view.", "Press r to refresh, / to search, or 1 for All."]
-        if self.detail_tab in ("Plan", "Updates"):
-            return self.plan_lines(ticket, self.detail_tab)
-        if self.detail_tab == "Activity":
-            events = ticket_activity(ticket)
-            comments = ("Jira comments not loaded yet (r)" if ticket.jira_comment_total is None else
-                        f"Jira comments {len(ticket.jira_comments)} of {ticket.jira_comment_total}, "
-                        f"checked {source_age(ticket.jira_comments_checked_at)}")
-            return [f"{len(events)} events, newest first · {comments}", ""] + (
-                timeline(events, now()) if events else ["No dated activity loaded."])
-        if self.detail_tab == "Workflow":
-            stage = stage_context(ticket)
-            return [ticket.key + " · WORKFLOW", ticket.title, "",
-                    *workflow_strip(ticket), "Turn: " + next_owner(ticket) + " (" + ownership(ticket)[1] + ")",
-                    "Your next action: " + ticket.action, "",
-                    "WORKFLOW", *workflow_path(ticket), "",
-                    "To move forward: " + stage["next"],
-                    f"Jira status: {ticket.status}",
-                    "", "Clock source: " + ticket.wait_source,
-                    "Since: " + readable_date(ticket.wait_since),
-                    "First assigned to you: " + readable_date(ticket.first_assigned_at),
-                    "Jira status since: " + readable_date(ticket.status_since),
-                    "Configure thresholds with --stale-days N and --escalate-days N.",
-                    "Earlier/later indicate position, not verified completion. Review or QA can return work to implementation."]
-        if self.detail_tab == "Work log":
-            return [ticket.key + " · DATED WORK SUMMARY", ticket.title, "",
-                    "Your commits (git + PR), grouped by local date.",
-                    "Commit timestamps are evidence, not hours worked or ticket completion.",
-                    "Git coverage: latest 2,000 authored commits from the past 90 days.", ""] + daily_summary(
-                        ticket, self.evidence.worklog.get("entries", {}).get(ticket.key, [])) + [
-                        "", "Source checked: " + readable_date(self.evidence.worklog.get("generated_at")),
-                        *self.evidence.worklog.get("errors", []), "a: activity · v: overview"]
-        stage = stage_context(ticket)
-        lines = [ticket.key, ticket.title, "", "STATUS", *workflow_strip(ticket),
-                 "Turn: " + next_owner(ticket) + " (" + ownership(ticket)[1] + ")",
-                 "To move forward: " + stage["next"],
-                 f"Priority: {ticket.priority or 'unknown'} · Jira status: {ticket.status}", "",
-                 "DATES",
-                 f"Last commit: {readable_date(last_commit(ticket, self.evidence.worklog))}",
-                 f"Last Jira update: {readable_date(ticket.updated)}",
-                 f"First assigned to you: {readable_date(ticket.first_assigned_at)}",
-                 f"Jira status since: {readable_date(ticket.status_since)}",
-                 f"Clock source: {ticket.wait_source}",
-                 f"Since: {readable_date(ticket.wait_since)} · {ticket.wait_label} business time"
-                 f" (follow up after {self.stale_days} business days)",
-                 "", "HEROKU ENVIRONMENT", self.environment(ticket)]
-        for pr in ticket.prs:
-            env = self.evidence.environments.get("entries", {}).get(str(pr["number"]), {})
-            if env:
-                lines += [f"PR #{pr['number']}: {env.get('status', 'Unknown')} · {source_age(env.get('checked_at'))}",
-                          env.get("app", ""), env.get("url", "")]
-                if env.get("warning"):
-                    lines += [env["warning"]]
-        if self.evidence.environment_error:
-            lines += ["Last refresh failed; cached results may be stale.", self.evidence.environment_error]
-        lines += ["Web up means a web dyno is up; HTTP readiness is not checked.", ""]
-        for pr in ticket.prs:
-            decision = (pr.get("review_decision") or "Awaiting review").replace("_", " ").lower()
-            lines += ["GITHUB PR", f"PR #{pr['number']}: {pr.get('title') or ticket.title}",
-                      f"{decision} · CI: {pr.get('ci', 'unknown')}",
-                      "Reviewers: " + (", ".join(pr.get("requested_reviewers", [])) or "none requested") +
-                      f" · {pr.get('unresolved_count', 0)} unresolved threads",
-                      pr.get("url") or "No PR URL in this snapshot",
-                      f"Branch: {pr.get('branch') or 'unknown'}" + (" · Draft" if pr.get("wip") else ""),
-                      f"Source activity: {readable_date(pr.get('updated_at'))}"]
-        lines += ["", "WORKSPACE", "Worktree: " + (ticket.worktree or "not found"),
-                  "w / gw: open the existing tmux ticket window"]
-        return lines
+    def viewport(self):
+        """Panel sizes, page sizes and the wrapped detail rows for the current terminal size."""
+        height, width = self.screen.getmaxyx() if getattr(self, "screen", None) else (24, 80)
+        list_rect, preview_rect = panel_rects(height, width, self.focus_pane, self.list_fraction)
+        summary, lines, detail_rows, detail_width, detail_top = [], [], 1, 10, 0
+        ticket = self.selected()
+        if preview_rect:
+            top, _, panel_h, pw = preview_rect
+            detail_width, detail_top = pw - 4, top + 3
+            if ticket and self.detail_tab != "Standup":
+                summary = card(ticket, now(), last_commit(ticket, self.evidence.worklog), self.environment(ticket),
+                               self.stale_days)
+                summary = summary[:2] if panel_h < 16 else summary
+                detail_top += len(summary) + 1
+            lines = wrap(self.detail_rows(ticket), detail_width)
+            while lines and not lines[0].text.strip():
+                lines = lines[1:]
+            detail_rows = max(1, top + panel_h - 1 - detail_top)
+        return Viewport(list_rect, preview_rect, max(1, list_rect[2] - 3) if list_rect else 1,
+                        summary, lines, detail_rows, detail_width, detail_top)
 
-    def plan_lines(self, ticket, view="Plan"):
-        """Read the selected document view; cache both views until the file changes."""
-        path = PLANS / ticket.key / "plan.md"
-        try:
-            mtime = path.stat().st_mtime
-        except OSError:
-            if view == "Updates":
-                return [f"No updates recorded yet for {ticket.key}.", "", str(path)]
-            return [f"No plan yet for {ticket.key}.", "",
-                    f'Space s → Custom: "start {ticket.key} and write the plan" asks your agent to write it to',
-                    str(path)]
-        cached = self.plan_cache.get(ticket.key)
-        if not cached or cached[0] != mtime:
-            try:
-                text = path.read_text(errors="replace")
-            except OSError as exc:
-                return [f"Couldn't read {path}: {exc.strerror}"]
-            cached = (mtime, document_views(text, PLAN_HEADING))
-            self.plan_cache[ticket.key] = cached
-        stamp = datetime.fromtimestamp(cached[0], tz=now().tzinfo).isoformat()
-        age = relative(stamp, now())
-        edited = "edited just now" if age == "now" else f"edited {age} ago"
-        lines = cached[1][view] or [f"No {view.lower()} recorded yet for {ticket.key}."]
-        return [f"{path.parent.parent.name}/{path.parent.name}/{path.name} · {edited}", ""] + lines
+    def fit(self):
+        """Keep the selection inside the list page and the detail scroll inside its rows."""
+        view = self.viewport()
+        self.index = max(0, min(self.index, len(self.visible()) - 1))
+        if view.list_rect:
+            self.offset = min(self.offset, self.index)
+            if self.index >= self.offset + view.list_rows:
+                self.offset = self.index - view.list_rows + 1
+        self.preview_scroll = max(0, min(self.preview_scroll, len(view.detail_lines) - view.detail_rows))
 
     def style(self, name):
         return self.styles.get(name, 0)
@@ -770,7 +678,8 @@ class App:
         rows = self.visible()
         ticket = self.selected()
         list_active = self.focus_pane == "list"
-        list_rect, preview_rect = panel_rects(height, width, self.focus_pane, self.list_fraction)
+        view = self.viewport()
+        list_rect, preview_rect = view.list_rect, view.preview_rect
         if list_rect:
             top, _, panel_h, list_w = list_rect
             title = f"Tickets {len(rows)}" + (f"  /{self.query}" if self.query else "")
@@ -778,11 +687,7 @@ class App:
             with_when = self.sort_mode in DATE_SORTS
             cols = columns(inner_w, with_when)
             self.put(top + 1, 1, table_header(cols), curses.A_DIM, inner_w)
-            capacity = max(1, panel_h - 3)
-            self.page_size = capacity
-            self.offset = min(self.offset, self.index)
-            if self.index >= self.offset + capacity:
-                self.offset = self.index - capacity + 1
+            capacity = view.list_rows
             self.draw_box(top, 0, panel_h, list_w, title, list_active, scroll_label(self.offset, capacity, len(rows)))
             ci_x = 1 + cols["glyph"] + pr_glyph_offset(cols)
             for i, item in enumerate(rows[self.offset:self.offset + capacity], self.offset):
@@ -814,54 +719,27 @@ class App:
             if sum(len(t) for t, _ in tabs) > detail_width:
                 tabs = tab_strip(True)
             self.put_parts(top + 1, x - 1, tabs, x + detail_width)
-            y0 = top + 3
-            if ticket and self.detail_tab != "Standup":
-                summary = card(ticket, clock, last_commit(ticket, self.evidence.worklog), self.environment(ticket), self.stale_days)
-                if panel_h < 16:
-                    summary = summary[:2]
-                for i, line in enumerate(summary):
-                    attr = (bold | self.style(ticket.lane)) if i == 0 else curses.A_BOLD if line.startswith("→") else 0
-                    self.put(y0 + i, x, line, attr, detail_width)
-                    if line.startswith("PR #"):
-                        pieces = line.split(" ")
-                        if len(pieces) > 2 and pieces[2] in TONE:
-                            self.put(y0 + i, x + len(pieces[0]) + len(pieces[1]) + 2, pieces[2],
-                                     bold | self.tone(pieces[2]), 1)
+            summary, y0 = view.summary, top + 3
+            for i, line in enumerate(summary):
+                attr = (bold | self.style(ticket.lane)) if i == 0 else curses.A_BOLD if line.startswith("→") else 0
+                self.put(y0 + i, x, line, attr, detail_width)
+                if line.startswith("PR #"):
+                    pieces = line.split(" ")
+                    if len(pieces) > 2 and pieces[2] in TONE:
+                        self.put(y0 + i, x + len(pieces[0]) + len(pieces[1]) + 2, pieces[2],
+                                 bold | self.tone(pieces[2]), 1)
+            if summary:
                 self.put(y0 + len(summary), x, "─" * detail_width, curses.A_DIM, detail_width)
-                y0 += len(summary) + 1
-            lines = []
-            details = self.details(ticket)
-            if ticket and len(details) > 1 and details[0].startswith(ticket.key) and details[1] == ticket.title:
-                details = details[2:]                    # key and title are already in the panel border
-            while details and not details[0].strip():
-                details = details[1:]
-            for line in details:
-                indent = " " * (len(line) - len(line.lstrip(" ")))
-                if self.detail_tab == "Activity" and re.match(r"\d\d:\d\d ", line):
-                    indent = " " * EVENT_INDENT
-                lines += textwrap.wrap(line, max(10, detail_width), subsequent_indent=indent) or [""]
-            body_height = max(1, top + panel_h - 1 - y0)
-            self.preview_page_size = body_height
-            self.preview_scroll = min(self.preview_scroll, max(0, len(lines) - body_height))
+            lines, body_height, y0 = view.detail_lines, view.detail_rows, view.detail_top
             self.draw_box(top, px, panel_h, pw, title, not list_active,
                           scroll_label(self.preview_scroll, body_height, len(lines)))
-            for y, line in enumerate(lines[self.preview_scroll:self.preview_scroll + body_height], y0):
-                if line.startswith(DAY_RULE) or line.startswith(PLAN_HEADING):
-                    line = line[len(PLAN_HEADING):] if line.startswith(PLAN_HEADING) else line
-                    self.put(y, x, line, bold | accent, detail_width)
-                    continue
-                if self.detail_tab == "Activity" and line.startswith(" "):
-                    self.put(y, x, line, curses.A_DIM, detail_width)
-                    continue
-                if self.detail_tab == "Activity" and re.match(r"\d\d:\d\d ", line):
-                    self.put(y, x, line, 0, detail_width)
-                    mark = line[EVENT_INDENT - 2:EVENT_INDENT - 1]
+            styles = {"heading": bold | accent, "day": bold | accent, "current": bold | curses.A_REVERSE,
+                      "dim": curses.A_DIM}
+            for y, row in enumerate(lines[self.preview_scroll:self.preview_scroll + body_height], y0):
+                self.put(y, x, row.text, styles.get(row.style, 0), detail_width)
+                if row.style == "event":
+                    mark = row.text[EVENT_INDENT - 2:EVENT_INDENT - 1]
                     self.put(y, x + EVENT_INDENT - 2, mark, bold | (self.tone(mark) or accent), 1)
-                    continue
-                heading = line in ("STATUS", "DATES", "WORKFLOW", "HEROKU ENVIRONMENT", "GITHUB PR", "WORKSPACE", "STANDUP PREVIEW") \
-                    or (self.detail_tab == "Standup" and line.endswith(":") and not line.startswith("-"))
-                current = "YOU ARE HERE" in line
-                self.put(y, x, line, (bold | curses.A_REVERSE) if current else bold | accent if heading else 0, detail_width)
 
         # Bottom: the keys that work right now, then the message line.
         footer = [(label, [(k, ("scroll" if self.focus_pane == "preview" else d) if k == "j/k" else d, *rest)
@@ -995,6 +873,7 @@ class App:
         self.setup_colors()
         screen.keypad(True)
         screen.timeout(50)
+        self.fit()
         self.load_worktrees()
         self.refresh_environments(quiet=True)
         last_ranked = time.monotonic()
@@ -1081,10 +960,10 @@ class App:
                     self.index += delta
                     self.preview_scroll = 0
             elif key in ("\x06", "\x02", "G"):
-                self.index = len(self.visible()) - 1 if key == "G" else self.index + (1 if key == "\x06" else -1) * self.page_size
+                self.index = len(self.visible()) - 1 if key == "G" else self.index + (1 if key == "\x06" else -1) * self.viewport().list_rows
                 self.preview_scroll = 0
             elif key in ("\x04", "\x15"):
-                self.preview_scroll = max(0, self.preview_scroll + (1 if key == "\x04" else -1) * max(1, self.preview_page_size // 2))
+                self.preview_scroll = max(0, self.preview_scroll + (1 if key == "\x04" else -1) * max(1, self.viewport().detail_rows // 2))
             elif key in ("+", "-", "="):
                 self.resize_sections({"+": 1, "-": -1, "=": 0}[key])
             elif key in ("h", "l", "\n", "\r"):
@@ -1119,6 +998,7 @@ class App:
                 self.help()
         except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
             self.message = str(exc)
+        self.fit()
         if self.message != before:
             self.user_message_at = time.monotonic()
         return True

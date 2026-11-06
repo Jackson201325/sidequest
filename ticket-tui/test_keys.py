@@ -35,7 +35,7 @@ class KeyTests(unittest.TestCase):
         self.assertEqual(self.app.index, 0)
 
     def test_j_and_k_scroll_details_when_the_detail_pane_has_focus(self):
-        self.press("l", "j", "j")
+        self.press("v", "j", "j")
         self.assertEqual((self.app.focus_pane, self.app.index, self.app.preview_scroll), ("preview", 0, 2))
         self.press("k", "k", "k")
         self.assertEqual(self.app.preview_scroll, 0)
@@ -47,13 +47,17 @@ class KeyTests(unittest.TestCase):
         self.assertEqual(self.app.index, 0)
 
     def test_page_keys_move_by_a_page_and_half_page_keys_scroll_details(self):
-        self.app.page_size, self.app.preview_page_size = 2, 10
-        self.press("\x06")
+        from test_responsive import Screen
+        self.app.screen = Screen(18, 80)
+        self.press("v")
+        view = self.app.viewport()
+        self.assertEqual(view.list_rows, 2, "an 18-row terminal shows two list rows")
+        self.press("h", "\x06")
         self.assertEqual(self.app.index, 2)
         self.press("\x02")
         self.assertEqual(self.app.index, 0)
         self.press("\x04")
-        self.assertEqual(self.app.preview_scroll, 5)
+        self.assertEqual(self.app.preview_scroll, max(1, view.detail_rows // 2))
         self.press("\x15", "\x15")
         self.assertEqual(self.app.preview_scroll, 0)
 
@@ -143,6 +147,9 @@ class KeyTests(unittest.TestCase):
 
             def clear(self):
                 Screen.cleared += 1
+
+            def getmaxyx(self):
+                return 40, 120
 
             def timeout(self, value):
                 pass

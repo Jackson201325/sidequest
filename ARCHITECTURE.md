@@ -33,6 +33,7 @@ flowchart TD
 | `collector.py` and `snapshots.py` | Shared collection, validation, atomic publication and last-good retention |
 | `ticket-tui/plan_document.py` | Read-only Plan/Updates section partition and readable Markdown rendering |
 | `ticket-tui/queue_evidence.py` | Queue data: newest copy at startup, refresh validation, merging and saving updates, per-source failure sets |
+| `ticket-tui/detail_views.py` | Every detail tab as styled rows (text plus a style name), Heroku status labels, the plan file cache and wrapping |
 | `ticket-tui/` | Input, rendering, background scheduling, UI state and curses handoff |
 
 Terminal adapters receive a selected directory and optional argument vector. They
