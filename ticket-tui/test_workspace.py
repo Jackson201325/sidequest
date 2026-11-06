@@ -5,12 +5,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core import Store, Ticket
+from sidequest import config
 from sidequest.tmux import find_window
 from tui import App, readable_date
-
-
-def find_tw_window(panes, ticket):
-    return find_window(panes, ticket.key, ticket.worktree, "example-project")
 
 
 class WorkspaceTests(unittest.TestCase):
@@ -59,8 +56,9 @@ class WorkspaceTests(unittest.TestCase):
                  "example-project\t@2\tDEMO-420\t/tmp/DEMO-420\n"
                  "example-project\t@3\tEditor\t/tmp/DEMO-42-stock/app\n"
                  "example-project\t@4\tDEMO-42\t/tmp/unrelated\n")
-        self.assertEqual(find_tw_window(panes, ticket), ("@3", "Editor"))
-        self.assertIsNone(find_tw_window(panes, Ticket("DEMO-4")))
+        session = config.get("workspace", "tmux_session")
+        self.assertEqual(find_window(panes, ticket.key, ticket.worktree, session), ("@3", "Editor"))
+        self.assertIsNone(find_window(panes, "DEMO-4", "", session))
 
     def test_loading_stays_observable_and_work_does_not_block_ui(self):
         store = Store(":memory:")

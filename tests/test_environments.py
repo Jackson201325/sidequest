@@ -1,7 +1,11 @@
 import io
 import json
+from pathlib import Path
+import sys
 import unittest
 from unittest.mock import patch
+
+sys.path[:0] = [str(Path(__file__).resolve().parents[1])]
 
 from sidequest.environments import fetch_environments, review_status
 

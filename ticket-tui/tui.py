@@ -1039,7 +1039,11 @@ class App:
         self.dirty = True
         before = self.message
         try:
-            if self.pending:
+            if key == curses.KEY_RESIZE:
+                # A resize is not the key a waiting Space or g prefix expects; keep it waiting.
+                if getattr(self, "screen", None):
+                    self.screen.clear()
+            elif self.pending:
                 prefix, self.pending = self.pending, ""
                 if prefix == " ":
                     # The menu hint only lives while Space is waiting; Esc or any key puts the
@@ -1113,8 +1117,6 @@ class App:
                 self.focus_pane = "preview"
             elif key == "?":
                 self.help()
-            elif key == curses.KEY_RESIZE and getattr(self, "screen", None):
-                self.screen.clear()
         except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
             self.message = str(exc)
         if self.message != before:

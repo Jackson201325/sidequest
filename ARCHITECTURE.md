@@ -73,7 +73,8 @@ Workspace CLI flags/output, default preview, configured base and explicit `--ope
 remain. Space n and CLI `--open` keep opening foreground shells even inside tmux.
 Other in-tmux navigation and agent launches keep their existing behavior.
 Compatibility helpers in `workspace.py` delegate to package implementations.
-The dashboard imports tmux, Heroku and browser opening from the package directly;
+The dashboard reaches tmux only through WorkspaceWorkflow, and imports Heroku reading
+and browser opening from the package directly;
 the former `ticket-tui/launcher.py` and `ticket-tui/environments.py` are removed. Headless modules
 never import those UI shims.
 
