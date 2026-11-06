@@ -19,7 +19,8 @@ import argparse, functools, json, os, re, subprocess, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest import gitutil, qa as qa_evidence
+from sidequest import config, gitutil, qa as qa_evidence
+from sidequest.ticket_keys import branch_ticket
 
 LOCAL = re.compile(r"^(\.claude/|\.codex/|\.opencode/|\.sidequest/|\.env|AGENTS\.md$|config/master\.key$|"
                    r"config/credentials/.*\.key$|log/|.*\.log$|tmp/|coverage/|\.idea/|\.vscode/|"
@@ -117,10 +118,9 @@ def main():
     r = {"warnings": []}
     branch = git("branch", "--show-current").strip()
     r["branch"] = branch
-    m = re.search(r"DEMO-(\d+)", branch, re.I)
-    r["ticket"] = "DEMO-" + m.group(1) if m else None
+    r["ticket"] = branch_ticket(branch, config.get("jira", "projects", []))
     if not r["ticket"]:
-        r["warnings"].append("branch name has no DEMO-### key")
+        r["warnings"].append("branch name has no ticket key")
 
     if not a.no_fetch:
         p = subprocess.run(["git", "fetch", "--quiet", "origin"], capture_output=True, text=True, timeout=120)

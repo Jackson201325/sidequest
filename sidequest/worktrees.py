@@ -1,7 +1,5 @@
 """Find the checkout that holds a ticket's work, from `git worktree list --porcelain` and branch names."""
-import re
-
-KEY = re.compile(r"[A-Z][A-Z0-9_]*-[0-9]+", re.I)
+from sidequest.ticket_keys import branch_keys, is_key
 
 
 def parse_worktrees(porcelain):
@@ -20,17 +18,9 @@ def parse_worktrees(porcelain):
 
 def matcher(target):
     """Branch predicate: a ticket key matches `prefix/KEY` or `prefix/KEY-slug` (so DEMO-6 skips DEMO-61); anything else is an exact branch name."""
-    if KEY.fullmatch(target):
-        pattern = re.compile(r"(?:^|/)" + re.escape(target.upper()) + r"(?:-|$)")
-        return lambda branch: not branch.startswith("backup/") and bool(pattern.search(branch))
+    if is_key(target):
+        return lambda branch: target.upper() in branch_keys(branch)
     return lambda branch: branch == target
-
-
-def branch_keys(branch):
-    """Ticket keys that `lookup` would match in this branch, e.g. feature/APP-1-revert-APP-2 → [APP-1]."""
-    if branch.startswith("backup/"):
-        return []
-    return [match.upper() for match in re.findall(r"(?:^|/)([A-Z][A-Z0-9_]*-[0-9]+)(?=-|$)", branch, re.I)]
 
 
 def lookup(target, porcelain, branches):

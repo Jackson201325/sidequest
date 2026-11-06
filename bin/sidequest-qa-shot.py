@@ -33,7 +33,8 @@ import urllib.parse, urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest import gitutil, qa as qa_evidence, review_apps
+from sidequest import config, gitutil, qa as qa_evidence, review_apps
+from sidequest.ticket_keys import branch_ticket, is_key
 
 EDGE = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "chromium", "chromium-browser", "google-chrome", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge", "microsoft-edge", "microsoft-edge-stable", "msedge")
 STEPS = {"click": (), "click_text": (), "fill": ("value",), "select": ("value",), "wait_for": (),
@@ -416,11 +417,10 @@ def main():
 
     key = (a.key or "").upper()
     if not key:
-        m = re.search(r"[A-Z][A-Z0-9_]*-\d+", git("branch", "--show-current"), re.I)
-        if not m:
+        key = branch_ticket(git("branch", "--show-current"), config.get("jira", "projects", [])) or ""
+        if not key:
             raise Usage("give the ticket key (sidequest-data qa-shot DEMO-###) or run inside its worktree")
-        key = m.group().upper()
-    if not re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", key):
+    if not is_key(key):
         raise Usage("ticket key must look like APP-123")
     folder = qa_evidence.review_qa_dir(key) if a.review_app else qa_evidence.qa_dir(key)
     if a.pr_markdown:

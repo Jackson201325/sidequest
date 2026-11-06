@@ -1,14 +1,13 @@
 """Dated evidence from git and PRs; not an estimate of hours or completion."""
 
-import re
 import subprocess
 from collections import defaultdict
 
 from core import TZ, now, parse_time
 from sidequest.identity import GIT_AUTHOR, is_my_author
 from sidequest.evidence import parse_commits
+from sidequest.ticket_keys import mentions
 
-MENTION = re.compile(r"\b([A-Z][A-Z0-9_]*)[ -](\d+)\b", re.I)
 
 
 def collect_worklog(tickets, root, run):
@@ -20,8 +19,7 @@ def collect_worklog(tickets, root, run):
     all_commits = parse_commits(raw)
     entries, errors = {}, []
     for ticket in tickets:
-        related = {c["sha"]: c for c in all_commits if ticket["key"] in
-                   [f"{m[1].upper()}-{m[2]}" for m in MENTION.finditer(c["subject"])]}
+        related = {c["sha"]: c for c in all_commits if ticket["key"] in mentions(c["subject"])}
         if ticket.get("worktree"):
             try:
                 branch = run(["git", "-C", ticket["worktree"], "log", "origin/main..HEAD", *flags], timeout=15)

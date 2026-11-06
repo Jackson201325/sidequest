@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sidequest.identity import TZ
 from sidequest.evidence import parse_time
-from sidequest.ticket_keys import KEY, pr_ticket, ticket_key  # noqa: F401
+from sidequest.ticket_keys import pr_ticket, ticket_key  # noqa: F401
 from workflow import ALIASES, REWORK
 
 

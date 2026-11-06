@@ -29,7 +29,7 @@ flowchart TD
 | `sidequest/tmux.py` | Session-scoped pane matching, windows, selection and quoting |
 | `sidequest/herdr.py` | Caller-workspace-scoped tab/pane discovery, layout and private agent launchers |
 | `sidequest/environments.py` | Read-only Heroku authentication, pagination and status mapping |
-| `sidequest/ticket_keys.py` | The one rule for reading ticket keys from PR fields; collector, GitHub reader and queue share it |
+| `sidequest/ticket_keys.py` | Every ticket key question: valid key, PR ticket, branch keys and branch ticket, mentions in text, leading-key removal |
 | `collector.py` and `snapshots.py` | Shared collection, validation, atomic publication and last-good retention |
 | `ticket-tui/plan_document.py` | Read-only Plan/Updates section partition and readable Markdown rendering |
 | `ticket-tui/` | Input, rendering, background scheduling, UI state and curses handoff |
