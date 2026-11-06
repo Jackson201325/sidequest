@@ -26,6 +26,19 @@ def atomic_write(path, text):
             os.unlink(temporary)
 
 
+REQUIRED_LISTS = {"prs": "open_prs", "jira": "tickets"}
+
+
+def source_problem(name, data):
+    """Why collected data cannot replace a source's last good copy, or None. Shared by
+    publication and the dashboard, which reads the collector's output across a process."""
+    if not isinstance(data, dict) or (name in REQUIRED_LISTS and not isinstance(data.get(REQUIRED_LISTS[name]), list)):
+        return "invalid " + name + " snapshot"
+    if name == "jira" and data.get("jira_available") is not True:
+        return "Jira unavailable; existing file retained"
+    return None
+
+
 class SnapshotStore:
     def __init__(self, directory):
         self.directory = Path(directory)
@@ -40,17 +53,15 @@ class SnapshotStore:
         return data
 
     def publish(self, updates, failures=None):
-        validators = {"prs": "open_prs", "jira": "tickets"}
         for name, data in updates.items():
             if not isinstance(data, dict) or not data.get("generated_at"):
                 raise ValueError("source requires its own collection timestamp")
             collected = datetime.fromisoformat(str(data["generated_at"]).replace("Z", "+00:00"))
             if collected.tzinfo is None:
                 raise ValueError("collection timestamp requires a timezone")
-            if name in validators and not isinstance(data.get(validators[name]), list):
-                raise ValueError("invalid " + name + " snapshot")
-            if name == "jira" and data.get("jira_available") is not True:
-                raise ValueError("Jira unavailable; existing file retained")
+            problem = source_problem(name, data)
+            if problem:
+                raise ValueError(problem)
         previous = self.read()
         result = {"version": 1, "generated_at": stamp(),
                   "sources": {**previous["sources"], **updates}, "failures": failures or {}}

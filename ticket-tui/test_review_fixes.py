@@ -8,7 +8,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path[:0] = [str(Path(__file__).resolve().parent), str(Path(__file__).resolve().parents[1])]
-from core import Ticket, infer, ticket_key, tickets_from
+from core import Store, Ticket, infer, ticket_key, tickets_from
+from queue_evidence import EVERY, QueueEvidence
 from workflow import stage_context
 import tui
 
@@ -66,9 +67,10 @@ class WorkerTests(unittest.TestCase):
     def app(self):
         app = tui.App.__new__(tui.App)
         app.events, app.jobs, app.refreshing, app.demo, app.dirty = queue.Queue(), {}, False, False, False
-        app.snapshots = Path("/nonexistent")
+        store = Store(":memory:")
+        self.addCleanup(store.close)
+        app.evidence = QueueEvidence(store, Path("/nonexistent"))
         return app
-
     def drain(self, app, until):
         deadline, seen = time.monotonic() + 5, []
         while time.monotonic() < deadline:
@@ -84,8 +86,10 @@ class WorkerTests(unittest.TestCase):
         app = self.app()
         with patch.object(tui, "run", side_effect=KeyError("sources")):
             app.refresh()
-            events = self.drain(app, "done")
-        self.assertIn("failed unexpectedly", events[-1][1][0])
+            events = self.drain(app, "refreshed")
+        updates, messages, failed = events[-1][1]
+        self.assertIn("failed unexpectedly", messages[0])
+        self.assertEqual((updates, failed), ({}, {EVERY}))
 
     def test_background_job_reports_an_unexpected_error(self):
         app = self.app()
@@ -141,39 +145,52 @@ class FirstRunTests(unittest.TestCase):
     def test_header_marks_unconfigured_and_failed_sources(self):
         app = tui.App.__new__(tui.App)
         app.refreshing, app.jobs, app.sort_descending, app.sort_mode, app.styles = False, {}, True, "Attention", {}
-        app.fallback = {}
-        app.jira = {"enabled": False, "generated_at": tui.now().isoformat()}
-        app.prs = {"enabled": True, "generated_at": tui.now().isoformat()}
-        app.refresh_errors = []
+        store = Store(":memory:")
+        self.addCleanup(store.close)
+        app.evidence = QueueEvidence(store, Path("/nonexistent"))
+        app.evidence.jira = {"enabled": False, "generated_at": tui.now().isoformat()}
+        app.evidence.prs = {"enabled": True, "generated_at": tui.now().isoformat()}
         text = app.header_status()[0]
         self.assertIn("Jira off", text)
         self.assertNotIn("STALE", text)
-        app.refresh_errors = ["GitHub: request failed. Previous data retained."]
+        app.evidence.finish_refresh(({}, ["GitHub: request failed. Previous data retained."], {"prs"}))
         self.assertIn("GitHub failed, data now", app.header_status()[0])
 
     def test_header_marks_every_kind_of_refresh_failure(self):
         app = tui.App.__new__(tui.App)
         app.refreshing, app.jobs, app.sort_descending, app.sort_mode, app.styles = False, {}, True, "Attention", {}
-        app.fallback = {}
-        app.jira = {"enabled": True, "generated_at": tui.now().isoformat()}
-        app.prs = {"enabled": True, "generated_at": tui.now().isoformat()}
-        cases = {"Jira unavailable; keeping previous data": ("Jira failed",),
-                 "Jira is not configured; configure jira.site. Previous data retained.": ("Jira failed",),
-                 "Command timed out after 300 seconds": ("Jira failed", "GitHub failed")}
-        for error, expected in cases.items():
-            with self.subTest(error=error):
-                app.refresh_errors = [error]
+        store = Store(":memory:")
+        self.addCleanup(store.close)
+        app.evidence = QueueEvidence(store, Path("/nonexistent"))
+        fresh = {"enabled": True, "jira_available": True, "tickets": [], "open_prs": []}
+
+        def timed_out(args, timeout):
+            raise OSError("Command timed out after 300 seconds")
+        cases = {"rejected Jira": (lambda args, timeout: json.dumps({"sources": {"prs": fresh, "jira": {}}}), ("Jira failed",)),
+                 "unconfigured Jira": (lambda args, timeout: json.dumps({"sources": {"prs": fresh}, "failures": {
+                     "jira": "Jira is not configured; configure jira.site. Previous data retained."}}), ("Jira failed",)),
+                 "timed-out run": (timed_out, ("Jira failed", "GitHub failed"))}
+        for case, (run, expected) in cases.items():
+            with self.subTest(case=case):
+                app.evidence.jira = app.evidence.prs = dict(fresh, generated_at=tui.now().isoformat())
+                app.evidence.finish_refresh(app.evidence.collect(run))
                 text = app.header_status()[0]
                 for marker in expected:
                     self.assertIn(marker, text)
+                if len(expected) == 1:
+                    self.assertNotIn("GitHub failed", text)
 
     def test_refresh_names_rejected_sources_as_the_header_does(self):
-        app = WorkerTests().app()
+        worker = WorkerTests()
+        worker.addCleanup = self.addCleanup
+        app = worker.app()
         data = json.dumps({"sources": {"jira": {"tickets": []}, "prs": {"open_prs": "bad"}}, "failures": {}})
         with patch.object(tui, "run", return_value=data):
             app.refresh()
-            events = WorkerTests().drain(app, "done")
-        self.assertEqual(events[-1][1], ["Jira unavailable; keeping previous data", "GitHub unavailable; keeping previous data"])
+            events = worker.drain(app, "refreshed")
+        _, messages, failed = events[-1][1]
+        self.assertEqual(messages, ["Jira unavailable; keeping previous data", "GitHub unavailable; keeping previous data"])
+        self.assertEqual(failed, {"jira", "prs"})
 
 
 if __name__ == "__main__":
