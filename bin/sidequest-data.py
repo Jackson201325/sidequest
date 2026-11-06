@@ -8,7 +8,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest.access import COMMANDS, failure_record
+from sidequest.access import NOTES, failure_record
 from sidequest.collector import DEFAULT_OUT, collect
 from sidequest.jira import client
 from sidequest.snapshots import SnapshotStore
@@ -53,22 +53,18 @@ def main():
         return 1 if data.get('failures') else 0
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         failure, record = failure_record(exc, args.command)
-        if failure and getattr(exc, 'status', None) != 301:
-            text = failure.terminal_text
-        elif isinstance(exc, client.JiraError):
-            text = 'Jira: ' + jira_text(exc)  # its own words; a moved issue names its new key
-        else:
-            text = (COMMANDS[args.command] + ' failed (' + record['error'] + '). Check the snapshot folder and '
-                    'configuration. Previous data retained.')
+        text = failure.terminal_text
+        if isinstance(exc, client.JiraError) and (failure.cause == 'unknown' or exc.status == 301):
+            # Jira's own words explain these (a bad key, a moved issue's new key); keep any note.
+            text = jira_text(exc) + (' ' + NOTES[failure.note] + '.' if failure.note else '')
         print('sidequest-data: ' + text, file=sys.stderr)
         print(FAILURE_LINE + json.dumps(record), file=sys.stderr)
         return 2
 
 
 def jira_text(exc):
-    text = re.sub(r';\s*(previous data retained|retain the previous snapshot)\.?$', '', str(exc))
-    text = re.sub(r'^(Invalid |invalid |incomplete |Incomplete )?Jira ', r'\1', text)
-    return text.rstrip('.') + '.'
+    text = re.sub(r';\s*(previous data retained|retain the previous snapshot)\.?$', '', str(exc)).rstrip('.')
+    return (text if 'jira' in text.lower() else 'Jira: ' + text) + '.'
 
 if __name__ == '__main__':
     raise SystemExit(main())

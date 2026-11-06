@@ -404,3 +404,17 @@ a missing interpreter ("env: node: ..."); records name Jira only for Jira errors
 and only known services, so terminal and dashboard text agree; the generic record
 names the failed command; type names may contain digits and underscores; and Jira
 messages drop both retention suffixes and a doubled "Jira".
+
+2026-11-06: Sixth review of access failures.
+
+failure_record had several overlapping rules, and each review found a case where one
+skipped the others. Failing tests first; now one rule applies: an error that names
+a known service and a cause (AccessFailure, or JiraError through its service
+attribute) becomes a record with that cause, tool and note, including "unknown".
+So a gateway 400 after the site refused the token keeps the note in the terminal
+and the dashboard. Other errors become CommandFailure, which gives the same
+"X failed (Type). Run sidequest-data X" text in both places. Records with
+non-string values are refused instead of raising. Jira keeps the note for an
+invalid gateway body. A missing file name never suggests login, TLS or network,
+and GNU env output counts as a missing interpreter. Jira messages that already
+name Jira are not prefixed again.
