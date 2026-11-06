@@ -25,7 +25,7 @@ class PlainTerminalTests(unittest.TestCase):
         self.store = Store(':memory:')
         self.app = App(self.store, self.path, demo=True)
         self.app.demo = False
-        self.app.windows = {'DEMO-901': str(self.path)}
+        self.app.evidence.windows = {'DEMO-901': str(self.path)}
         self.app.rebuild()
         self.ticket = next(ticket for ticket in self.app.tickets if ticket.key == 'DEMO-901')
         self.env = patch.dict(os.environ, {'SHELL': '/bin/sh', 'TMUX': ''})

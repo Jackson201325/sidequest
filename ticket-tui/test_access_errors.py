@@ -36,7 +36,7 @@ class AccessErrorTests(unittest.TestCase):
             self.addCleanup(store.close)
             app = App(store, Path(folder), demo=True)
             app.demo = False
-            app.refresh_errors = ['GitHub login expired. Run gh auth login.']
+            app.evidence.finish_refresh(({}, ['GitHub login expired. Run gh auth login.'], {'prs'}))
             data = {'version': 1, 'sources': {'jira': {'generated_at': '2026-10-29T10:00:00-03:00', 'jira_available': True, 'tickets': []},
                                             'prs': {'generated_at': '2026-10-29T10:00:00-03:00', 'open_prs': []}}, 'failures': {}}
             def response(args, **kwargs):
@@ -47,7 +47,7 @@ class AccessErrorTests(unittest.TestCase):
                 while (app.refreshing or app.jobs) and time.monotonic() < deadline:
                     app.drain()
                     time.sleep(.01)
-            self.assertEqual(app.refresh_errors, [])
+            self.assertEqual((app.evidence.refresh_errors, app.evidence.failed_sources), ([], set()))
             self.assertNotIn('ERROR', app.header_status()[0])
             self.assertEqual(store.source('refresh_errors')['messages'], [])
 
@@ -56,7 +56,7 @@ class AccessErrorTests(unittest.TestCase):
         store = Store(':memory:')
         self.addCleanup(store.close)
         app = App(store, Path('/tmp'), demo=True)
-        app.refresh_errors = ['GitHub: login expired. Run gh auth login, then press r.']
+        app.evidence.finish_refresh(({}, ['GitHub: login expired. Run gh auth login, then press r.'], {'prs'}))
         for width in (80, 145, 220):
             with self.subTest(width=width):
                 app.screen = Screen(40, width)
