@@ -460,8 +460,8 @@ and exits 3. There is no scheduler or check-in service.
 | "timed out without an answer" | Run the same gh or heroku command in a terminal; it may be waiting for a prompt |
 | "the service did not answer in time" | Jira was slow or unreachable; try again in a few minutes |
 | "server error" or "rate limited" | The service is busy or failing; wait a few minutes, then press r |
-| "Collection failed (…)" or "request failed" | Run ./bin/sidequest-data collect --json in a terminal to see which source failed |
-| "Jira: issue … moved to …" | The ticket has a new key; use that key |
+| "Collection failed (…)" or "request failed" | Run ./bin/sidequest-data collect --json in a terminal; it prints the error itself |
+| "Jira issue … moved to …" | The ticket has a new key; use that key |
 | "The Jira site refused the token" | With both jira.site and jira.cloud_id set, the site refused the token and the cloud gateway's answer is shown. A scoped token only works on the gateway, so its answer is the real one; otherwise renew SIDEQUEST_JIRA_TOKEN |
 | Old rows after a failed refresh | Cached data is being retained; the error and source timestamp explain why |
 | No local work log | Configure workspace.repository and identity.git_author |

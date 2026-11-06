@@ -78,11 +78,13 @@ def classify(text):
     text = str(text).casefold()
     if 'no jira credentials' in text or 'no jira token' in text:
         return 'credentials', None
-    if re.search(r"(?:^|/)env: \W?[\w.+-]+\W?: no such file or directory", text, re.M):
+    if re.search(r"(?:^|/)env: \W?[\w./+-]+\W?: no such file or directory", text, re.M):
         return 'missing_tool', None  # a CLI's interpreter (BSD or GNU env output)
     missing = re.search(r"no such file or directory: '([^']+)'", text)
-    if missing:  # a known CLI, or a file: a file name must not suggest login, TLS or network
-        return ('missing_tool', missing[1]) if missing[1] in TOOLS else ('unknown', None)
+    if missing and missing[1] in TOOLS:
+        return 'missing_tool', missing[1]
+    # A missing file is not a cause, and its name ("login.json") must not suggest one.
+    text = re.sub(r"no such file or directory: '[^']*'", '', text)
     for cause, words in (('login', ('401', 'token expired', 'invalid token', 'bad credentials', 'unauthorized',
                                     'not logged', 'authentication', 'login')),
                          ('denied', ('403', 'forbidden', 'permission', 'access denied', 'eacces')),
@@ -96,48 +98,40 @@ def classify(text):
     return 'unknown', None
 
 
-class CommandFailure(RuntimeError):
-    """A sidequest-data command failed for a reason other than a service: named by error type only."""
-
-    def __init__(self, command, error):
-        self.command, self.error = command, error
-        self.terminal_text = (f'{COMMANDS[command]} failed ({error}). Run sidequest-data {command} again '
-                              'in your terminal to see why.')
-        super().__init__(f'{COMMANDS[command]} failed ({error}). Run sidequest-data {command} in your terminal '
-                         'to see why.' + RETAINED)
+def jira_text(exc):
+    """A JiraError's own sentence, without retention wording, naming Jira once."""
+    text = re.sub(r';\s*(previous data retained|retain the previous snapshot)\.?$', '', str(exc)).rstrip('.')
+    return (text if re.search(r'\bJira\b(?!-)', text) else 'Jira: ' + text) + '.'
 
 
-def failure_record(exc, command):
-    """(failure, record) for an error that ended a sidequest-data command. Errors that name a
-    service and cause (AccessFailure, JiraError) keep them, including unknown causes and notes."""
+def describe_failure(exc, command):
+    """(terminal text, dashboard text) for an error that ended a sidequest-data command.
+    Every text comes from these templates or from messages Sidequest's own code wrote."""
     service, cause = service_name(getattr(exc, 'service', '')), getattr(exc, 'cause', None)
     if service in KNOWN_SERVICES and cause in CAUSES:
         failure = AccessFailure(service, cause, getattr(exc, 'tool', None), getattr(exc, 'note', None))
-        return failure, failure.record()
-    if cause in CAUSES and cause != 'unknown':
-        failure = AccessFailure('sidequest-data', cause, getattr(exc, 'tool', None), getattr(exc, 'note', None))
-        return failure, failure.record()
-    failure = CommandFailure(command, type(exc).__name__)
-    return failure, {'error': failure.error, 'command': command}
+        if service == 'Jira' and not isinstance(exc, AccessFailure) and (
+                cause == 'unknown' or getattr(exc, 'status', None) == 301):
+            # Jira's own words explain these (a bad key, a moved issue's new key); a retry will not help.
+            text = jira_text(exc) + (' ' + NOTES[failure.note] + '.' if failure.note else '')
+            return text, text + RETAINED
+        return failure.terminal_text, str(failure)
+    label, error = COMMANDS[command], type(exc).__name__
+    detail = ': ' + ' '.join(str(exc).split()) if str(exc).strip() else ''
+    return (f'{label} failed ({error}{detail}).',
+            f'{label} failed ({error}). Run sidequest-data {command} in your terminal to see the error.' + RETAINED)
 
 
-def failure_from_record(text):
-    """Rebuild a failure from a record. Only known services, causes, tools, notes, commands and
-    type names pass; anything else is a generic failure, so helper output never shows as text."""
+def dashboard_text(record_text):
+    """The message from a sidequest-data failure record, or None when it is not one safe line."""
     try:
-        record = json.loads(text)
+        record = json.loads(record_text)
     except ValueError:
-        record = None
-    if not isinstance(record, dict) or not all(isinstance(value, (str, type(None))) for value in record.values()):
-        return AccessFailure('sidequest-data', 'unknown')
-    if set(record) <= {'service', 'cause', 'tool', 'note'}:
-        if (record.get('service') in KNOWN_SERVICES and record.get('cause') in CAUSES
-                and record.get('tool') in (None, *TOOLS) and record.get('note') in (None, *NOTES)):
-            return AccessFailure(record['service'], record['cause'], record.get('tool'), record.get('note'))
-    if (set(record) == {'error', 'command'} and record['command'] in COMMANDS
-            and re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,60}', str(record['error']))):
-        return CommandFailure(record['command'], record['error'])
-    return AccessFailure('sidequest-data', 'unknown')
+        return None
+    text = record.get('text') if isinstance(record, dict) and set(record) == {'text'} else None
+    if isinstance(text, str) and text and len(text) <= 300 and text.isprintable():
+        return text
+    return None
 
 
 def failure_for(service, detail):

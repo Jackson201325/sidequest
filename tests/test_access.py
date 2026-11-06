@@ -1,6 +1,7 @@
 """Access failures carry their cause as data; text is guessed only for text-only tools."""
 import http.client
 import io
+import json
 from pathlib import Path
 import socket
 import ssl
@@ -75,6 +76,13 @@ class AccessFailureTests(unittest.TestCase):
         for text in ('env: node: No such file or directory', "/usr/bin/env: \u2018node\u2019: No such file or directory"):
             with self.subTest(text=text):
                 self.assertEqual(failure_for('heroku', text).cause, 'missing_tool')
+
+    def test_a_missing_file_line_does_not_hide_a_real_cause(self):
+        text = "HTTP 401: Bad credentials\nwarning: No such file or directory: '/home/u/.config/gh/hosts.yml'"
+        self.assertEqual(failure_for('GitHub', text).cause, 'login')
+
+    def test_a_missing_interpreter_path_is_a_missing_tool(self):
+        self.assertEqual(failure_for('heroku', 'env: /opt/node/bin/node: No such file or directory').cause, 'missing_tool')
 
     def test_a_missing_file_name_never_suggests_another_cause(self):
         for name in ('ssl-bundle.pem', 'login.json', 'network.cfg'):
@@ -338,86 +346,72 @@ class DashboardRunTests(unittest.TestCase):
                 run(list(args))
         return failure.exception
 
-    def failure_line(self, record):
+    def failure_line(self, text):
         import json
-        return 'sidequest-data-failure: ' + json.dumps(record) + '\n'
+        return 'sidequest-data-failure: ' + json.dumps({'text': text}) + '\n'
 
-    def test_the_dashboard_rebuilds_the_same_advice_the_terminal_shows(self):
-        error = self.dashboard_error(2, self.failure_line({'service': 'GitHub', 'cause': 'missing_tool', 'tool': 'gh'}))
-        self.assertEqual(str(error), str(AccessFailure('GitHub', 'missing_tool', 'gh')))
-        error = self.dashboard_error(2, self.failure_line({'service': 'Jira', 'cause': 'credentials'}))
-        self.assertEqual((error.service, error.cause), ('Jira', 'credentials'))
+    def describe(self, exc, command='ticket'):
+        from sidequest.access import describe_failure
+        return describe_failure(exc, command)
 
-    def test_the_dashboard_names_other_collection_errors_by_type(self):
-        error = self.dashboard_error(2, 'sidequest-data: Collection failed (OSError). ...\n' + self.failure_line({'error': 'OSError', 'command': 'collect'}))
-        self.assertIn('Collection failed (OSError)', str(error))
+    def test_the_dashboard_shows_the_message_sidequest_data_chose(self):
+        message = 'Jira issue APP-1 moved to APP-9. Previous data retained.'
+        self.assertEqual(str(self.dashboard_error(2, self.failure_line(message))), message)
 
-    def test_records_and_terminal_text_agree_for_unknown_services(self):
-        from sidequest.access import failure_record
-        failure, record = failure_record(AccessFailure('git', 'login'), 'collect')
-        self.assertEqual(record['service'], 'sidequest-data')
-        self.assertEqual(str(self.dashboard_error(2, self.failure_line(record))), str(failure))
-
-    def test_a_jira_error_with_an_unknown_cause_keeps_its_note_everywhere(self):
-        from sidequest.access import failure_record
-        error = client.JiraError('Jira HTTP 400; previous data retained', 400, note='site_refused_token')
-        failure, record = failure_record(error, 'ticket')
-        self.assertEqual(record, {'service': 'Jira', 'cause': 'unknown', 'tool': None, 'note': 'site_refused_token'})
-        self.assertIn('renew SIDEQUEST_JIRA_TOKEN', str(self.dashboard_error(2, self.failure_line(record))))
-        code, lines = self.run_data(['ticket', 'APP-1'], error)
-        self.assertIn('renew SIDEQUEST_JIRA_TOKEN', lines[0])
-
-    def test_an_access_failure_with_an_unknown_cause_keeps_its_service(self):
-        from sidequest.access import failure_record
-        failure, record = failure_record(AccessFailure('gh', 'unknown'), 'collect')
-        self.assertEqual(record['service'], 'GitHub')
-
-    def test_the_generic_text_is_the_same_in_the_terminal_and_the_dashboard(self):
-        code, lines = self.run_data(['ticket', 'APP-1'], ValueError('bad'))
-        record = lines[1][len('sidequest-data-failure: '):]
-        dashboard = str(self.dashboard_error(2, 'sidequest-data-failure: ' + record + '\n'))
-        self.assertEqual(lines[0], 'sidequest-data: Ticket lookup failed (ValueError). Run sidequest-data ticket again '
-                                   'in your terminal to see why.')
-        self.assertTrue(dashboard.startswith('Ticket lookup failed (ValueError). Run sidequest-data ticket'))
-        self.assertNotIn('snapshot folder', lines[0])
-
-    def test_records_blame_jira_only_for_jira_errors(self):
-        from sidequest.access import failure_record
-
-        class Other(RuntimeError):
-            cause = 'login'
-        self.assertEqual(failure_record(Other('x'), 'collect')[1]['service'], 'sidequest-data')
-        self.assertEqual(failure_record(client.JiraError('x', 401), 'ticket')[1]['service'], 'Jira')
-
-    def test_the_generic_record_names_the_command_that_failed(self):
-        error = self.dashboard_error(2, self.failure_line({'error': 'Base64Error', 'command': 'ticket'}))
-        self.assertIn('Ticket lookup failed (Base64Error)', str(error))
-        self.assertIn('Previous data retained', str(error))
-        self.assertIn('sidequest-data ticket', str(error))
-
-    def test_the_jira_note_reaches_the_dashboard(self):
-        record = {'service': 'Jira', 'cause': 'not_found', 'tool': None, 'note': 'site_refused_token'}
-        self.assertIn('The Jira site refused the token', str(self.dashboard_error(2, self.failure_line(record))))
-
-    def test_the_dashboard_refuses_records_it_does_not_know(self):
+    def test_the_dashboard_refuses_unsafe_or_malformed_records(self):
         import json
         bad = ['sidequest-data: error: the following arguments are required: key\n',
                'Traceback (most recent call last):\n  token=secret-fixture\nKeyError: x\n',
-               self.failure_line({'service': 'secret-fixture', 'cause': 'login'}),
-               self.failure_line({'service': 'Jira', 'cause': 'not-a-cause'}),
-               self.failure_line({'service': 'GitHub', 'cause': 'missing_tool', 'tool': 'secret-fixture'}),
-               self.failure_line({'error': 'secret fixture text', 'command': 'collect'}),
-               self.failure_line({'error': 'OSError', 'command': 'rm -rf'}),
-               self.failure_line({'error': 'OSError', 'command': ['collect']}),
-               self.failure_line({'service': ['Jira'], 'cause': 'login', 'tool': None, 'note': None}),
-               self.failure_line({'service': 'Jira', 'cause': 'login', 'tool': None, 'note': 'secret-fixture'}),
+               self.failure_line('two\nlines secret-fixture'),
+               self.failure_line('x' * 301 + ' secret-fixture'),
+               self.failure_line('bell\x07 secret-fixture'),
+               self.failure_line(''),
+               'sidequest-data-failure: ' + json.dumps({'text': None}) + '\n',
+               'sidequest-data-failure: ' + json.dumps({'text': ['secret-fixture']}) + '\n',
+               'sidequest-data-failure: ' + json.dumps({'text': 'ok', 'extra': 'secret-fixture'}) + '\n',
                'sidequest-data-failure: not json secret-fixture\n']
         for stderr in bad:
-            with self.subTest(stderr=stderr):
+            with self.subTest(stderr=stderr[:40]):
                 error = self.dashboard_error(2, stderr)
                 self.assertNotIn('secret', str(error))
                 self.assertNotIn('arguments are required', str(error))
                 self.assertIn('request failed', str(error))
+
+    def test_access_failures_keep_their_advice_in_both_places(self):
+        failure = AccessFailure('gh', 'missing_tool', 'gh')
+        self.assertEqual(self.describe(failure, 'collect'), (failure.terminal_text, str(failure)))
+
+    def test_jira_messages_and_notes_reach_both_places(self):
+        error = client.JiraError('Jira HTTP 400; previous data retained', 400, note='site_refused_token')
+        terminal, dashboard = self.describe(error)
+        self.assertEqual(terminal, 'Jira HTTP 400. The Jira site refused the token; if it is not a scoped token, '
+                                   'renew SIDEQUEST_JIRA_TOKEN.')
+        self.assertEqual(dashboard, terminal + ' Previous data retained.')
+        moved = client.JiraError('Jira issue APP-1 moved to APP-9; previous data retained', 301)
+        self.assertEqual(self.describe(moved)[1], 'Jira issue APP-1 moved to APP-9. Previous data retained.')
+
+    def test_permanent_jira_errors_do_not_ask_for_a_retry(self):
+        for message in ('Expected a Jira key such as APP-123', 'Unsupported Jira request path', 'Jira adapter is read-only'):
+            with self.subTest(message=message):
+                terminal, dashboard = self.describe(client.JiraError(message))
+                self.assertNotIn('press r', dashboard)
+                self.assertTrue(dashboard.startswith(message))
+
+    def test_jira_is_named_once_even_when_a_key_contains_jira(self):
+        self.assertEqual(self.describe(client.JiraError('Unsupported Jira request path'))[0], 'Unsupported Jira request path.')
+        self.assertEqual(self.describe(client.JiraError('issue JIRA-12 not found'))[0], 'Jira: issue JIRA-12 not found.')
+
+    def test_other_errors_show_their_detail_in_the_terminal_only(self):
+        terminal, dashboard = self.describe(OSError('disk full'), 'collect')
+        self.assertEqual(terminal, 'Collection failed (OSError: disk full).')
+        self.assertEqual(dashboard, 'Collection failed (OSError). Run sidequest-data collect in your terminal to see '
+                                    'the error. Previous data retained.')
+
+    def test_only_service_errors_name_a_service(self):
+        class Other(RuntimeError):
+            cause = 'login'
+        terminal, dashboard = self.describe(Other('x'), 'collect')
+        self.assertTrue(dashboard.startswith('Collection failed (Other)'), dashboard)
 
     def test_run_still_rejects_successful_output_with_diagnostics(self):
         from tui import run
@@ -439,8 +433,9 @@ class DashboardRunTests(unittest.TestCase):
     def test_sidequest_data_prints_terminal_advice_and_a_failure_line(self):
         code, lines = self.run_data(['ticket', 'APP-1'], client.JiraError('No Jira credentials', cause='credentials'))
         self.assertEqual(code, 2)
-        self.assertEqual(lines, ['sidequest-data: ' + AccessFailure('Jira', 'credentials').terminal_text,
-                                 'sidequest-data-failure: {"service": "Jira", "cause": "credentials", "tool": null, "note": null}'])
+        failure = AccessFailure('Jira', 'credentials')
+        self.assertEqual(lines, ['sidequest-data: ' + failure.terminal_text,
+                                 'sidequest-data-failure: ' + json.dumps({'text': str(failure)})])
 
     def test_sidequest_data_keeps_a_moved_issue_message(self):
         error = client.JiraError('Jira issue APP-1 moved to APP-9; previous data retained', 301)
@@ -464,8 +459,7 @@ class DashboardRunTests(unittest.TestCase):
         self.assertNotIn('not installed', lines[0])
         self.assertIn('FileNotFoundError', lines[0])
         code, lines = self.run_data(['collect', '--json'], OSError('disk full'))
-        self.assertTrue(lines[0].startswith('sidequest-data: Collection failed (OSError)'), lines)
-        self.assertIn('Run sidequest-data collect', lines[0])
+        self.assertEqual(lines[0], 'sidequest-data: Collection failed (OSError: disk full).')
         self.assertNotIn('login', lines[0])
 
 if __name__ == '__main__':
