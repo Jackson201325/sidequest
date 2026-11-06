@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """sidequest-data ship-check — the mechanical part of "ship DEMO-###", in one short report.
 
-  sidequest-data ship-check                 check this worktree's branch against origin/main
-  sidequest-data ship-check --no-fetch      skip `git fetch origin` (offline / sandbox)
-  sidequest-data ship-check --base REF      compare with REF instead of origin/main
+  sidequest-data ship-check                 check this worktree's branch against workspace.base_ref
+  sidequest-data ship-check --fetch         first fetch the remote of that base (off by default)
+  sidequest-data ship-check --base REF      compare with REF instead of workspace.base_ref
   sidequest-data ship-check --json          machine-readable output
 
 Reports: ticket key, uncommitted changes, ahead/behind, commits, changed files, and flags for
@@ -123,7 +123,9 @@ def main():
         r["warnings"].append("branch name has no ticket key")
 
     if not a.no_fetch:
-        p = subprocess.run(["git", "fetch", "--quiet", "origin"], capture_output=True, text=True, timeout=120)
+        remotes = git("remote").split()
+        remote = a.base.split("/", 1)[0] if "/" in a.base and a.base.split("/", 1)[0] in remotes else "origin"
+        p = subprocess.run(["git", "fetch", "--quiet", remote], capture_output=True, text=True, timeout=120)
         if p.returncode != 0:
             r["warnings"].append("git fetch failed, %s may be stale: %s" % (a.base, p.stderr.strip()[:200]))
 
