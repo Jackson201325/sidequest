@@ -60,8 +60,8 @@ def jira(method, path, body=None):
             if exc.code == 401 and not _base[0]:
                 rejected = True
                 continue
-            if rejected and exc.code == 404:
-                break  # a wrong second base must not hide the first base's refusal of the token
+            if rejected and not (exc.code in (403, 429) or exc.code >= 500):
+                break  # only a base that accepted the token may replace the first base's refusal
             raise JiraError('Jira HTTP %d; previous data retained' % exc.code, exc.code) from None
         except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
             if rejected:

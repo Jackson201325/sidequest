@@ -360,6 +360,20 @@ and marks missing programs and timeouts with the tool. Jira treats Python 3.9's
 socket.timeout as a timeout. After a 401 on the first base, only a 404 or an
 unreachable second base is hidden; 403, 429 and 5xx from a base that accepted the
 token are reported. sidequest-data prints terminal_text for people and a
-"sidequest-data-failure: <service> <cause>" line; Jira's own messages are kept,
+failure line (now a JSON record); Jira's own messages are kept,
 and other errors name only their type. The dashboard rebuilds its message from the
 failure line and ignores argparse and other output.
+
+2026-11-06: Fourth review of access failures.
+
+Failing tests first. sidequest-data now prints one JSON failure record (service,
+cause and tool, or only the error type); the dashboard rebuilds identical advice
+from it, keeps "Collection failed (TypeName)" for other errors, and refuses
+unknown services, causes, tools, type names or malformed records. "No such file or
+directory" is a missing command only when it names a bare program, so missing
+config files and paths are no longer called missing tools. After a 401 on the
+first Jira base, only 403, 429 and 5xx from the second base replace it; a broken
+second base that answers 5xx is reported as a server error. sidequest-data ticket
+keeps "issue APP-1 moved to APP-9" and no longer doubles the Jira prefix. The
+diagnostics guard in the dashboard has a test again, github.run_command is renamed
+gh_output without its unused strict flag, and README lists the new messages.

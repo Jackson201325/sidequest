@@ -18,7 +18,7 @@ try:
         raise RuntimeError('Configure github.repository first')
     if args.number:
         fields = 'number,title,url,headRefName,headRefOid,createdAt,updatedAt,isDraft,reviewDecision,reviewRequests,statusCheckRollup'
-        header = json.loads(github.run_command(['gh', 'pr', 'view', str(args.number), '--repo', identity.GITHUB_REPO, '--json', fields]))
+        header = json.loads(github.gh_output(['gh', 'pr', 'view', str(args.number), '--repo', identity.GITHUB_REPO, '--json', fields]))
         data = {'pr': github.enrich_pr(header, include_threads=True, include_activity=args.activity)}
     else:
         data = collect_prs()

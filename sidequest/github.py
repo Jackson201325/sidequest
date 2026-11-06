@@ -8,7 +8,7 @@ from sidequest.reviews import ci_summary
 GITHUB_REPO = tr.GITHUB_REPO
 GITHUB_OWNER, GITHUB_NAME = (GITHUB_REPO.split('/', 1) if '/' in GITHUB_REPO else ('', ''))
 
-def run_command(args, *, strict=False):
+def gh_output(args):
     raw = tr.run_tool(args)
     if not raw:
         raise RuntimeError('GitHub returned no data; previous data retained')
@@ -18,7 +18,7 @@ def run_command(args, *, strict=False):
 def list_open_prs(limit=100, *, include_activity=False):
     fields = ('number,title,url,isDraft,reviewDecision,statusCheckRollup,updatedAt,headRefName,'
               'headRefOid,createdAt,isCrossRepository,reviewRequests')
-    raw = run_command(['gh', 'pr', 'list', '--repo', GITHUB_REPO, '--author',
+    raw = gh_output(['gh', 'pr', 'list', '--repo', GITHUB_REPO, '--author',
                        tr.configured_author(), '--state', 'open', '--json', fields, '--limit', str(limit)])
     try:
         rows = json.loads(raw)
@@ -35,7 +35,7 @@ def rest_pages(path):
     rows, page = [], 1
     while True:
         try:
-            chunk = json.loads(run_command(['gh', 'api', path + '?per_page=100&page=' + str(page)]))
+            chunk = json.loads(gh_output(['gh', 'api', path + '?per_page=100&page=' + str(page)]))
         except ValueError:
             raise RuntimeError('Invalid GitHub activity response; previous data retained') from None
         if not isinstance(chunk, list) or not all(isinstance(row, dict) for row in chunk):
@@ -82,7 +82,7 @@ def unresolved_threads_for_pr(number: int, *, strict: bool = False) -> list[dict
         for key, value in variables.items():
             args += ["-F" if isinstance(value, int) else "-f", f"{key}={value}"]
         try:
-            result = json.loads(run_command(args, strict=True))
+            result = json.loads(gh_output(args))
         except json.JSONDecodeError:
             raise SystemExit("Invalid GitHub review response; retain the previous snapshot")
         if result.get("errors") or not isinstance(result.get("data"), dict):
