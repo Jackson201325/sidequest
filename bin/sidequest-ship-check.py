@@ -108,7 +108,7 @@ def spec_for(path):
 def main():
     ap = argparse.ArgumentParser(prog="sidequest-data ship-check", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--base", default="origin/main")
+    ap.add_argument("--base", default=config.base_ref())
     ap.add_argument("--no-fetch", action="store_true", default=True)
     ap.add_argument("--fetch", action="store_false", dest="no_fetch", help="Explicitly refresh origin before checking")
     ap.add_argument("--json", action="store_true")
@@ -171,8 +171,9 @@ def main():
                 if leaked:
                     fl.append("tables changed that no migration here touches (likely other branches): " + ", ".join(leaked))
                 ver = re.search(r"define\(version:\s*([\d_]+)", git("show", "HEAD:db/schema.rb", check=False))
-                newest = max(re.match(r"db/migrate/(\d+)", m_).group(1) for m_ in migrations)
-                if ver and ver.group(1).replace("_", "") < newest:
+                stamps = [m_.group(1) for m_ in (re.match(r"db/migrate/(\d+)", path) for path in migrations) if m_]
+                newest = max(stamps, default="")
+                if ver and newest and ver.group(1).replace("_", "") < newest:
                     fl.append("schema version %s is older than migration %s: schema.rb not regenerated?" % (ver.group(1), newest))
         if p == ".gitignore":
             fl.append(".gitignore changed: if it's only for your machine, use .git/info/exclude instead")

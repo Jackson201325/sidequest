@@ -14,5 +14,5 @@ GITHUB_REPO = config.get('github', 'repository')
 def is_my_author(authors):
     if isinstance(authors, dict):
         authors = authors.get("nodes", [])
-    return any((GITHUB_LOGIN and a.get("login", "").lower() == GITHUB_LOGIN.lower()) or
+    return any((GITHUB_LOGIN and (a.get("login") or "").lower() == GITHUB_LOGIN.lower()) or
                (GIT_AUTHOR and a.get("name") == GIT_AUTHOR) for a in authors or [])

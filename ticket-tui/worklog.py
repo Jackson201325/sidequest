@@ -5,6 +5,7 @@ from collections import defaultdict
 
 from core import TZ, now, parse_time
 from sidequest.identity import GIT_AUTHOR, is_my_author
+from sidequest import config
 from sidequest.evidence import parse_commits
 from sidequest.ticket_keys import mentions
 
@@ -22,7 +23,7 @@ def collect_worklog(tickets, root, run):
         related = {c["sha"]: c for c in all_commits if ticket["key"] in mentions(c["subject"])}
         if ticket.get("worktree"):
             try:
-                branch = run(["git", "-C", ticket["worktree"], "log", "origin/main..HEAD", *flags], timeout=15)
+                branch = run(["git", "-C", ticket["worktree"], "log", config.base_ref() + "..HEAD", *flags], timeout=15)
                 related.update({c["sha"]: c for c in parse_commits(branch)})
             except (OSError, RuntimeError, subprocess.TimeoutExpired):
                 errors.append(ticket["key"] + ": branch history unavailable")
