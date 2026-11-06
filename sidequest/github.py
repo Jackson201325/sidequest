@@ -9,7 +9,7 @@ GITHUB_REPO = tr.GITHUB_REPO
 GITHUB_OWNER, GITHUB_NAME = (GITHUB_REPO.split('/', 1) if '/' in GITHUB_REPO else ('', ''))
 
 def run_command(args, *, strict=False):
-    raw = tr.run_command(args)
+    raw = tr.run_tool(args)
     if not raw:
         raise RuntimeError('GitHub returned no data; previous data retained')
     return raw
