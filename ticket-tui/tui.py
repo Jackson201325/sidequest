@@ -31,8 +31,6 @@ from worklog import collect_worklog, daily_summary
 from workflow import next_owner, ownership, stage_context, workflow_path, workflow_strip
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
 from activity import ticket_activity
-from launcher import (agent_command, find_tw_window, jump_to_window, new_window_command,  # noqa: F401
-                      open_in_edge, start_agent, switch_client)
 from layout import (DAY_RULE, EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, pr_glyph_offset,
                     relative, scroll_label, table_header, table_row, timeline, panel_rects)
 import standup
@@ -190,6 +188,7 @@ class App:
         self.refresh_started = 0
         self.jobs = {}
         self.foreground_target = None
+        self.pending = self.space_hint = self.space_before = ""
         self.dirty = True
         self.styles = {}
         self.plan_cache = {}
@@ -918,7 +917,7 @@ class App:
         if self.demo or not url or urlsplit(url).scheme != 'https' or urlsplit(url).hostname not in allowed:
             self.message = "No supported link available" if not self.demo else "Demo: external actions disabled"
             return
-        self.background("browser", "Opening browser", lambda: open_in_edge(run, url))
+        self.background("browser", "Opening browser", lambda: terminal.open_browser(run, url, config.get('workspace', 'browser')))
 
     def jump(self, ticket):
         if self.demo:
@@ -998,8 +997,6 @@ class App:
         screen.timeout(50)
         self.load_worktrees()
         self.refresh_environments(quiet=True)
-        pending = ""
-        space_hint = space_before = ""
         last_ranked = time.monotonic()
         last_spinner = -1
         while True:
@@ -1023,97 +1020,106 @@ class App:
                 key = screen.get_wch()
             except curses.error:
                 continue
-            self.dirty = True
-            before = self.message
-            try:
-                if pending:
-                    prefix, pending = pending, ""
-                    if prefix == " ":
-                        # The menu hint only lives while Space is waiting; Esc or any key puts the
-                        # bar back to what it said before (an action may then set its own message).
-                        if self.message == space_hint:
-                            self.message = before = space_before
-                        screen.timeout(-1)
-                        try:
-                            self.action(key)
-                        finally:
-                            screen.timeout(50)
-                    elif key == "g":
-                        self.index, self.preview_scroll = 0, 0
-                    elif key == "w":
-                        ticket = self.selected()
-                        if ticket:
-                            self.jump(ticket)
-                    elif key in ("l", "L"):
-                        rows = self.visible()
-                        direction = 1 if key == "l" else -1
-                        for step in range(1, len(rows) + 1):
-                            i = (self.index + direction * step) % len(rows)
-                            if rows[i].lane in ("Needs me", "Clarify") or rows[i].age >= self.stale_days:
-                                self.index, self.preview_scroll = i, 0
-                                break
-                elif key in ("q", "\x11"):
-                    return
-                elif key in (" ", "g"):
-                    pending = key
-                    if key == " ":
-                        space_before = self.message
-                        space_hint = self.message = "Space → " + "  │  ".join(
-                            label + ": " + "  ".join(f"{k} {d}" for k, d in keys) for label, keys in SPACE_MENU)
-                elif key in ("j", curses.KEY_DOWN, "k", curses.KEY_UP):
-                    delta = 1 if key in ("j", curses.KEY_DOWN) else -1
-                    if self.focus_pane == "preview":
-                        self.preview_scroll = max(0, self.preview_scroll + delta)
-                    else:
-                        self.index += delta
-                        self.preview_scroll = 0
-                elif key in ("\x06", "\x02", "G"):
-                    self.index = len(self.visible()) - 1 if key == "G" else self.index + (1 if key == "\x06" else -1) * self.page_size
-                    self.preview_scroll = 0
-                elif key in ("\x04", "\x15"):
-                    self.preview_scroll = max(0, self.preview_scroll + (1 if key == "\x04" else -1) * max(1, self.preview_page_size // 2))
-                elif key in ("+", "-", "="):
-                    self.resize_sections({"+": 1, "-": -1, "=": 0}[key])
-                elif key in ("h", "l", "\n", "\r"):
-                    self.focus_pane = "list" if key == "h" else "preview"
-                elif isinstance(key, str) and key in "1234":
-                    self.view, self.index, self.preview_scroll = VIEWS[int(key) - 1], 0, 0
-                elif key == "/":
-                    screen.timeout(-1)
-                    try:
-                        query = self.prompt("Search", self.query)
-                    finally:
-                        screen.timeout(50)
-                    if query is not None:
-                        self.query, self.index = query, 0
-                elif key == "\x1b":
-                    self.query, self.focus_pane, self.preview_scroll = "", "list", 0
-                elif key == "r":
-                    self.refresh()
-                elif key == "e":
-                    self.refresh_environments()
-                elif key == "o":
-                    self.choose_sort()
-                elif key == "O":
-                    self.set_sort(self.sort_mode, not self.sort_descending)
+            if not self.press(key):
+                return
+
+    def blocking(self, show):
+        """Run a prompt or menu without the 50 ms key timeout; tests have no screen."""
+        screen = getattr(self, "screen", None)
+        if screen is None:
+            return show()
+        screen.timeout(-1)
+        try:
+            return show()
+        finally:
+            screen.timeout(50)
+
+    def press(self, key):
+        """Apply one key. Returns False when the key quits the dashboard."""
+        self.dirty = True
+        before = self.message
+        try:
+            if self.pending:
+                prefix, self.pending = self.pending, ""
+                if prefix == " ":
+                    # The menu hint only lives while Space is waiting; Esc or any key puts the
+                    # bar back to what it said before (an action may then set its own message).
+                    if self.message == self.space_hint:
+                        self.message = before = self.space_before
+                    self.blocking(lambda: self.action(key))
+                elif key == "g":
+                    self.index, self.preview_scroll = 0, 0
                 elif key == "w":
                     ticket = self.selected()
                     if ticket:
                         self.jump(ticket)
-                elif key == "y" and self.detail_tab == "Standup":
-                    self.copy_standup()
-                elif key in TAB_KEYS:
-                    self.detail_tab = TAB_KEYS[key]
+                elif key in ("l", "L"):
+                    rows = self.visible()
+                    direction = 1 if key == "l" else -1
+                    for step in range(1, len(rows) + 1):
+                        i = (self.index + direction * step) % len(rows)
+                        if rows[i].lane in ("Needs me", "Clarify") or rows[i].age >= self.stale_days:
+                            self.index, self.preview_scroll = i, 0
+                            break
+            elif key in ("q", "\x11"):
+                return False
+            elif key in (" ", "g"):
+                self.pending = key
+                if key == " ":
+                    self.space_before = self.message
+                    self.space_hint = self.message = "Space → " + "  │  ".join(
+                        label + ": " + "  ".join(f"{k} {d}" for k, d in keys) for label, keys in SPACE_MENU)
+            elif key in ("j", curses.KEY_DOWN, "k", curses.KEY_UP):
+                delta = 1 if key in ("j", curses.KEY_DOWN) else -1
+                if self.focus_pane == "preview":
+                    self.preview_scroll = max(0, self.preview_scroll + delta)
+                else:
+                    self.index += delta
                     self.preview_scroll = 0
-                    self.focus_pane = "preview"
-                elif key == "?":
-                    self.help()
-                elif key == curses.KEY_RESIZE:
-                    screen.clear()
-            except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
-                self.message = str(exc)
-            if self.message != before:
-                self.user_message_at = time.monotonic()
+            elif key in ("\x06", "\x02", "G"):
+                self.index = len(self.visible()) - 1 if key == "G" else self.index + (1 if key == "\x06" else -1) * self.page_size
+                self.preview_scroll = 0
+            elif key in ("\x04", "\x15"):
+                self.preview_scroll = max(0, self.preview_scroll + (1 if key == "\x04" else -1) * max(1, self.preview_page_size // 2))
+            elif key in ("+", "-", "="):
+                self.resize_sections({"+": 1, "-": -1, "=": 0}[key])
+            elif key in ("h", "l", "\n", "\r"):
+                self.focus_pane = "list" if key == "h" else "preview"
+            elif isinstance(key, str) and key in "1234":
+                self.view, self.index, self.preview_scroll = VIEWS[int(key) - 1], 0, 0
+            elif key == "/":
+                query = self.blocking(lambda: self.prompt("Search", self.query))
+                if query is not None:
+                    self.query, self.index = query, 0
+            elif key == "\x1b":
+                self.query, self.focus_pane, self.preview_scroll = "", "list", 0
+            elif key == "r":
+                self.refresh()
+            elif key == "e":
+                self.refresh_environments()
+            elif key == "o":
+                self.choose_sort()
+            elif key == "O":
+                self.set_sort(self.sort_mode, not self.sort_descending)
+            elif key == "w":
+                ticket = self.selected()
+                if ticket:
+                    self.jump(ticket)
+            elif key == "y" and self.detail_tab == "Standup":
+                self.copy_standup()
+            elif key in TAB_KEYS:
+                self.detail_tab = TAB_KEYS[key]
+                self.preview_scroll = 0
+                self.focus_pane = "preview"
+            elif key == "?":
+                self.help()
+            elif key == curses.KEY_RESIZE and getattr(self, "screen", None):
+                self.screen.clear()
+        except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
+            self.message = str(exc)
+        if self.message != before:
+            self.user_message_at = time.monotonic()
+        return True
 
 
 def main():

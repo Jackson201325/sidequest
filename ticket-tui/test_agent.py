@@ -7,7 +7,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core import Store
-from tui import AGENT_TASKS, App, agent_command
+from sidequest.terminal import agent_argv
+from sidequest.tmux import split_command
+from tui import AGENT_TASKS, App
 
 PANES = "example-project\t@7\tDEMO-901\t/wt/DEMO-901-bulk\n"
 
@@ -48,7 +50,7 @@ class AgentTests(unittest.TestCase):
         return calls
 
     def test_command_quotes_the_prompt_and_uses_the_worktree(self):
-        self.assertEqual(agent_command("@7", "/wt/a b", "handle feedback on DEMO-1"),
+        self.assertEqual(split_command("@7", "/wt/a b", agent_argv("handle feedback on DEMO-1")),
                          ["tmux", "split-window", "-h", "-t", "@7", "-c", "/wt/a b", "claude 'handle feedback on DEMO-1'"])
 
     def test_presets_are_self_contained_review_prompts(self):
