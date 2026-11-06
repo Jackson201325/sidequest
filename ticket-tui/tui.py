@@ -168,6 +168,7 @@ class App:
         self.jobs = {}
         self.foreground_target = None
         self.pending = self.space_hint = self.space_before = ""
+        self.fitted_cache = None
         self.dirty = True
         self.styles = {}
         settings = store.get("@app")
@@ -434,7 +435,7 @@ class App:
                 name, data = self.events.get_nowait()
             except queue.Empty:
                 break
-            self.dirty = True
+            self.dirty, self.fitted_cache = True, None
             if name in EVIDENCE_EVENTS:
                 changed = self.evidence.apply(name, data) or changed
                 if name == "worktrees":
@@ -563,9 +564,23 @@ class App:
         return Viewport(list_rect, preview_rect, max(1, list_rect[2] - 3) if list_rect else 1,
                         summary, lines, detail_rows, detail_width, detail_top)
 
+    def view_key(self):
+        """Everything a viewport depends on; a fitted viewport is reused only while this is unchanged."""
+        evidence, selected = self.evidence, self.selected()
+        size = self.screen.getmaxyx() if getattr(self, "screen", None) else None
+        return (size, self.focus_pane, self.list_fraction, self.view, self.query, self.detail_tab,
+                selected.key if selected else None, tuple(self.jobs), id(evidence.jira), id(evidence.prs),
+                id(evidence.environments), id(evidence.worklog), tuple(evidence.refresh_errors),
+                evidence.environment_error, self.standup_time)
+
+    def fitted_view(self, key):
+        return self.fitted_cache[1] if self.fitted_cache and self.fitted_cache[0] == key else None
+
     def fit(self):
-        """Keep the selection inside the list page and the detail scroll inside its rows."""
+        """Keep the selection inside the list page and the detail scroll inside its rows.
+        The viewport is kept for the next draw; any new background result discards it."""
         view = self.viewport()
+        self.fitted_cache = (self.view_key(), view)
         self.index = max(0, min(self.index, len(self.visible()) - 1))
         if view.list_rect:
             self.offset = min(self.offset, self.index)
@@ -676,7 +691,8 @@ class App:
         rows = self.visible()
         ticket = self.selected()
         list_active = self.focus_pane == "list"
-        view = self.viewport()
+        view = self.fitted_view(self.view_key()) or self.viewport()
+        self.fitted_cache = None
         list_rect, preview_rect = view.list_rect, view.preview_rect
         if list_rect:
             top, _, panel_h, list_w = list_rect
@@ -860,9 +876,7 @@ class App:
             heading = line and not line.startswith(" ") and line.isupper() or line.startswith(("VIEWS", "OPEN"))
             self.put(y, 1, line, (curses.A_BOLD | self.style("accent")) if heading or y == 0 else 0)
         self.screen.refresh()
-        self.screen.timeout(-1)
-        self.screen.get_wch()
-        self.screen.timeout(50)
+        self.blocking(self.screen.get_wch)
 
     def loop(self, screen):
         self.screen = screen
@@ -870,7 +884,8 @@ class App:
         curses.set_escdelay(25)
         self.setup_colors()
         screen.keypad(True)
-        screen.timeout(50)
+        wait = self.wait_ms()
+        screen.timeout(wait)
         self.fit()
         self.load_worktrees()
         self.refresh_environments(quiet=True)
@@ -893,6 +908,9 @@ class App:
             if self.deferred_message and time.monotonic() - self.user_message_at >= 4:
                 self.message, self.deferred_message = self.deferred_message, None
                 self.dirty = True
+            if self.wait_ms() != wait:
+                wait = self.wait_ms()
+                screen.timeout(wait)
             try:
                 key = screen.get_wch()
             except curses.error:
@@ -900,8 +918,14 @@ class App:
             if not self.press(key):
                 return
 
+    def wait_ms(self):
+        """How long the loop waits for a key. Keys end the wait at once; a longer idle wait
+        only delays background results, so wake often only while something is changing."""
+        busy = self.refreshing or self.jobs or self.deferred_message or self.pending
+        return 50 if busy else 250
+
     def blocking(self, show):
-        """Run a prompt or menu without the 50 ms key timeout; tests have no screen."""
+        """Run a prompt or menu with no key timeout; tests have no screen."""
         screen = getattr(self, "screen", None)
         if screen is None:
             return show()
@@ -909,7 +933,7 @@ class App:
         try:
             return show()
         finally:
-            screen.timeout(50)
+            screen.timeout(self.wait_ms())
 
     def press(self, key):
         """Apply one key. Returns False when the key quits the dashboard."""

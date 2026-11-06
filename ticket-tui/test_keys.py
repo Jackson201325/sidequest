@@ -182,3 +182,53 @@ class KeyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EfficiencyTests(unittest.TestCase):
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.store = Store(":memory:")
+        self.addCleanup(self.store.close)
+        self.app = App(self.store, Path(folder.name), demo=True)
+
+    def test_the_loop_waits_longer_when_nothing_is_happening(self):
+        self.assertEqual(self.app.wait_ms(), 250)
+        cases = {"refreshing": lambda: setattr(self.app, "refreshing", True),
+                 "a background job": lambda: self.app.jobs.update(heroku=("Loading", 0)),
+                 "a waiting message": lambda: setattr(self.app, "deferred_message", "Refreshed"),
+                 "a waiting prefix": lambda: setattr(self.app, "pending", " ")}
+        for case, start in cases.items():
+            with self.subTest(case=case):
+                start()
+                self.assertEqual(self.app.wait_ms(), 50)
+                self.app.refreshing, self.app.jobs, self.app.deferred_message, self.app.pending = False, {}, None, ""
+
+    def test_prompts_restore_the_current_wait_not_a_fixed_one(self):
+        class Screen:
+            def __init__(self):
+                self.timeouts = []
+
+            def timeout(self, value):
+                self.timeouts.append(value)
+        self.app.screen = Screen()
+        self.app.blocking(lambda: None)
+        self.assertEqual(self.app.screen.timeouts, [-1, 250])
+
+    def test_a_key_and_its_draw_build_the_detail_tab_once(self):
+        from test_responsive import Screen
+        self.app.screen = Screen(40, 145)
+        with patch.object(self.app.views, "rows", wraps=self.app.views.rows) as rows:
+            self.app.press("j")
+            self.app.draw()
+        self.assertEqual(rows.call_count, 1)
+
+    def test_a_background_result_after_a_key_is_drawn_fresh(self):
+        from test_responsive import Screen
+        self.app.screen = Screen(40, 145)
+        self.app.press("j")
+        self.app.events.put(("heroku_error", "Heroku: DNS lookup failed."))
+        self.app.drain()
+        with patch.object(self.app.views, "rows", wraps=self.app.views.rows) as rows:
+            self.app.draw()
+        self.assertEqual(rows.call_count, 1, "a stale detail view must not be reused after new evidence")
