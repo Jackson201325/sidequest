@@ -35,7 +35,7 @@ tool output. str() is the dashboard text; terminal_text is for command-line help
 Both come from one advice table (problem, action, whether r can help). sidequest-data
 prints terminal_text plus one "sidequest-data-failure: <JSON record>" line (service,
 cause and tool, or an error type). The dashboard rebuilds its message from that record
-only, and accepts only known services, causes, tools and type names.
+only, and accepts only known services, causes, tools, notes, commands and type names.
 
 `bin/sidequest` launches curses or the list/standup modes. The bundled `bin/sidequest-data`
 supports read-only `collect`, `snapshot` and `ticket` helpers, plus independent
