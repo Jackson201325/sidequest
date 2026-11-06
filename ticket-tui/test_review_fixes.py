@@ -94,5 +94,46 @@ class WorktreeTests(unittest.TestCase):
             self.assertEqual(tui.worktrees(), {"APP-7": "/wt/app-7"})
 
 
+class FirstRunTests(unittest.TestCase):
+    """Found by the fresh-install e2e run on Python 3.9."""
+
+    def test_jira_offsets_without_a_colon_parse_on_every_supported_python(self):
+        from sidequest.evidence import parse_time
+        stamp = parse_time("2026-11-04T10:35:58.000+0000")
+        self.assertIsNotNone(stamp)
+        self.assertEqual(stamp.utcoffset().total_seconds(), 0)
+        self.assertEqual(parse_time("2026-11-04T07:35:58-0300"), parse_time("2026-11-04T10:35:58Z"))
+
+    def test_jira_comments_and_updates_reach_the_activity_tab(self):
+        from activity import ticket_activity
+        ticket = Ticket("APP-43", updated="2026-11-04T10:00:00.000+0000",
+                        jira_comments=[{"author": "Rae", "body": "Off by a cent",
+                                        "created_at": "2026-11-04T10:35:58.000+0000",
+                                        "updated_at": "2026-11-04T10:35:58.000+0000"}])
+        self.assertEqual([e["title"] for e in ticket_activity(ticket)], ["Comment added", "Ticket updated"])
+
+    def test_first_run_errors_name_the_missing_piece(self):
+        from sidequest.access import access_error
+        gh = access_error("GitHub", "[Errno 2] No such file or directory: 'gh'")
+        self.assertIn("GitHub CLI (gh) is not installed", gh)
+        jira = access_error("Jira", "No Jira credentials: configure jira.email and set SIDEQUEST_JIRA_TOKEN")
+        self.assertIn("no credentials yet", jira)
+        self.assertNotIn("expired", jira)
+        self.assertIn("login unavailable or expired", access_error("Jira", "Jira HTTP 401; previous data retained"))
+
+    def test_header_marks_unconfigured_and_failed_sources(self):
+        app = tui.App.__new__(tui.App)
+        app.refreshing, app.jobs, app.sort_descending, app.sort_mode, app.styles = False, {}, True, "Attention", {}
+        app.fallback = {}
+        app.jira = {"enabled": False, "generated_at": tui.now().isoformat()}
+        app.prs = {"enabled": True, "generated_at": tui.now().isoformat()}
+        app.refresh_errors = []
+        text = app.header_status()[0]
+        self.assertIn("Jira off", text)
+        self.assertNotIn("STALE", text)
+        app.refresh_errors = ["GitHub: request failed. Previous data retained."]
+        self.assertIn("GitHub failed, data now", app.header_status()[0])
+
+
 if __name__ == "__main__":
     unittest.main()

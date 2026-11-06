@@ -36,6 +36,26 @@ class WorkspaceSpecs(unittest.TestCase):
         self.assertFalse(reused['created'])
         self.assertEqual((reused['path'], reused['branch']), (applied['path'], applied['branch']))
 
+    def test_new_branch_does_not_track_its_base_but_remote_branch_does(self):
+        origin = self.folder / 'origin.git'
+        subprocess.check_call(['git', 'init', '-q', '--bare', str(origin)])
+        self.git('remote', 'add', 'origin', str(origin))
+        self.git('push', '-q', 'origin', 'main', 'main:feature/APP-13-existing')
+        self.git('fetch', '-q', 'origin')
+        workspace = GitWorkspace(self.repo, base_ref='origin/main')
+        fresh = workspace.apply(workspace.preview('APP-12', 'A workspace'))
+        upstream = subprocess.run(['git', '-C', fresh['path'], 'rev-parse', '--abbrev-ref', '@{u}'],
+                                  text=True, capture_output=True)
+        self.assertNotEqual(upstream.returncode, 0, 'a new branch must not track origin/main')
+        existing = workspace.apply(workspace.preview('APP-13', 'Existing'))
+        self.assertEqual(subprocess.check_output(['git', '-C', existing['path'], 'rev-parse', '--abbrev-ref', '@{u}'],
+                                                 text=True).strip(), 'origin/feature/APP-13-existing')
+
+    def test_git_failures_keep_the_reason(self):
+        with self.assertRaises(RuntimeError) as failure:
+            GitWorkspace(self.repo, base_ref='origin/missing').preview('APP-12', 'A workspace')
+        self.assertIn('Git command failed:', str(failure.exception))
+
     def test_changed_base_requires_a_new_preview(self):
         plan = self.workspace.preview('APP-12', 'A workspace')
         self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
@@ -88,14 +108,6 @@ class WorkspaceSpecs(unittest.TestCase):
     def test_invalid_key_cannot_reuse_an_unrelated_checkout(self):
         with self.assertRaises(ValueError):
             self.workspace.preview('main', 'Invalid ticket')
-
-    def test_remote_tracking_base_keeps_git_upstream_behavior(self):
-        self.git('config', 'remote.origin.url', str(self.repo))
-        self.git('config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*')
-        self.git('update-ref', 'refs/remotes/origin/main', 'HEAD')
-        workspace = GitWorkspace(self.repo, base_ref='origin/main')
-        result = workspace.apply(workspace.preview('APP-12', 'A workspace'))
-        self.assertEqual(self.git('rev-parse', '--abbrev-ref', result['branch'] + '@{upstream}'), 'origin/main')
 
     def test_explicit_repository_and_destination_ignore_process_defaults(self):
         workspace = GitWorkspace(self.repo, self.folder / 'worktrees', base_ref='main')

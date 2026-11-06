@@ -3,7 +3,15 @@
 def access_error(service, detail):
     text = str(detail).casefold()
     name = {'prs': 'GitHub', 'merged': 'GitHub', 'fetch': 'GitHub', 'jira': 'Jira'}.get(service, service)
-    if any(word in text for word in ('401', 'token expired', 'invalid token', 'bad credentials', 'unauthorized', 'not logged', 'authentication', 'login', 'no jira token', 'no jira credentials', 'SIDEQUEST_JIRA_TOKEN')):
+    if 'no such file or directory' in text and name == 'GitHub':
+        # A missing gh binary surfaces as FileNotFoundError, which read as a vague "request failed".
+        cause = 'GitHub CLI (gh) is not installed or not on PATH. Install it, run gh auth login, then press r.'
+    elif 'no jira credentials' in text or 'no jira token' in text:
+        cause = ('no credentials yet. Set jira.email in your config and export SIDEQUEST_JIRA_TOKEN '
+                 'in the terminal you start Sidequest from, then restart it.')
+    elif 'no such file or directory' in text:
+        cause = 'a required command is not installed or not on PATH. Check the setup steps, then press r.'
+    elif any(word in text for word in ('401', 'token expired', 'invalid token', 'bad credentials', 'unauthorized', 'not logged', 'authentication', 'login', 'no jira token', 'no jira credentials', 'SIDEQUEST_JIRA_TOKEN')):
         recovery = ('Run gh auth login in your terminal, then press r.' if name == 'GitHub' else
                     'Renew SIDEQUEST_JIRA_TOKEN in your terminal, then press r.' if name == 'Jira' else
                     'Check the helper login in your terminal, then press r.')
