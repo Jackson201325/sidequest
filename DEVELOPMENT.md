@@ -17,8 +17,7 @@ and schedules actions in background jobs. QueueEvidence (ticket-tui/queue_eviden
 owns queue data, retention and failed sources; DetailViews (ticket-tui/detail_views.py)
 builds each detail tab as styled rows; App only draws them. App.viewport computes
 page sizes from the terminal size, and App.fit keeps selection and scroll in range.
-Service errors are sidequest.access.AccessFailure (service + cause). Adapters that know the
-cause report it; failure_for guesses from words only for text-only tool output. Only its event loop changes UI state
+Only App's event loop changes UI state
 and performs curses handoffs. Shell/tmux policy no longer lives in App.
 GitWorkspace owns read-only preview and live revalidation before apply. A stale
 plan is refused; Git still guards concurrent branch/path conflicts. No fetch,
@@ -28,6 +27,11 @@ and calls sidequest.environments and sidequest.terminal.open_browser directly. H
 headless QA lookup never imports the UI or changes sys.path. Provider-specific
 UI cache keys, global configuration in older collection modules and the existing
 CLI dispatcher remain; whole-application multi-profile support is not implemented.
+
+Service errors are sidequest.access.AccessFailure (service + cause). Adapters that
+know the cause report it (Jira from HTTP status and connection errors, run_tool from
+missing programs and timeouts); failure_for guesses from words only for text-only
+tool output. str() is the dashboard text; terminal_text is for command-line helpers.
 
 `bin/sidequest` launches curses or the list/standup modes. The bundled `bin/sidequest-data`
 supports read-only `collect`, `snapshot` and `ticket` helpers, plus independent

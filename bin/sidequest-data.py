@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sidequest.access import CAUSES, failure_for
 from sidequest.collector import DEFAULT_OUT, collect
 from sidequest.jira import client
 from sidequest.snapshots import SnapshotStore
@@ -48,8 +49,13 @@ def main():
         if not getattr(args, 'quiet', False):
             print(json.dumps(data, indent=2))
         return 1 if data.get('failures') else 0
-    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
-        print('Collection failed. Check configuration, network and service login. Previous data retained.', file=sys.stderr)
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        if args.command == 'ticket' or getattr(exc, 'cause', None) in CAUSES:
+            message = str(failure_for('Jira' if args.command == 'ticket' else 'sidequest-data', exc))
+        else:
+            message = ('Collection failed (' + type(exc).__name__ + '). Check the snapshot folder and configuration. '
+                       'Previous data retained.')
+        print('sidequest-data: ' + message, file=sys.stderr)
         return 2
 
 
