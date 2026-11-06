@@ -79,9 +79,7 @@ def agent_prompt(key, phrase, skill):
 
 def run(args, timeout=45):
     executable = [sys.executable, '-B', str(WORKFLOW / 'bin' / 'sidequest-data.py'), *args[1:]] if args[0] == 'sidequest-data' else args
-    # A stale SIDEQUEST_REPO must not stop helpers that do not need the repository.
-    result = subprocess.run(executable, cwd=ROOT if ROOT.is_dir() else WORKFLOW, text=True, capture_output=True,
-                            timeout=timeout)
+    result = subprocess.run(executable, cwd=ROOT, text=True, capture_output=True, timeout=timeout)
     if result.returncode == 1 and args[:2] == ["sidequest-data", "collect"]:
         # A completed partial collection is a versioned snapshot, not a process failure.
         # The queue applies each healthy source and reports the failed ones separately.
@@ -198,6 +196,7 @@ class App:
         self.tickets = ordered(self.tickets, self.sort_mode, self.sort_descending, self.evidence.worklog)
         if previous:
             self.index = next((i for i, t in enumerate(self.visible()) if t.key == previous.key), self.index)
+        self.fitted_cache = None  # new tickets and evidence: the cached view is out of date
         self.fit()
         self.dirty = True
 
@@ -568,12 +567,11 @@ class App:
                         summary, lines, detail_rows, detail_width, detail_top)
 
     def view_key(self):
-        """Everything a viewport depends on; a fitted viewport is reused only while this is unchanged."""
+        """UI state a viewport depends on. Evidence changes clear the cache in drain() and rebuild()."""
         evidence, selected = self.evidence, self.selected()
         size = self.screen.getmaxyx() if getattr(self, "screen", None) else None
         return (size, self.focus_pane, self.list_fraction, self.view, self.query, self.detail_tab,
-                selected.key if selected else None, tuple(self.jobs), id(evidence.jira), id(evidence.prs),
-                id(evidence.environments), id(evidence.worklog), id(evidence.fallback), tuple(evidence.refresh_errors),
+                selected.key if selected else None, tuple(self.jobs), tuple(evidence.refresh_errors),
                 evidence.environment_error, self.standup_time, int(time.time() // 60))
 
     def cached_viewport(self):
@@ -1089,14 +1087,15 @@ def main():
             if result:
                 print(f"Standup updated in {result['path']} (for {data['meeting']:%a %d %b %H:%M}).")
                 print(f"Previous version: {result['backup']}")
-                if app.evidence.refresh_errors:
-                    print('Written from cached results; refresh incomplete: ' + ' | '.join(app.evidence.refresh_errors),
-                          file=sys.stderr)
+                if refresh_error:
+                    print('Written from cached results; refresh incomplete: ' + refresh_error, file=sys.stderr)
                     return 1
             else:
                 print(f"No report for {clock:%Y-%m-%d} yet (reports are supplied by you), so nothing was changed. "
                       f"Draft for {data['meeting']:%a %d %b %H:%M}:\n")
                 print(standup.as_text(data))
+                if refresh_error:
+                    print('Draft from cached results; refresh incomplete: ' + refresh_error, file=sys.stderr)
                 raise SystemExit(3)
             return
         if args.standup:
