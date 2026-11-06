@@ -26,6 +26,7 @@ from sidequest.application import build_workflow
 
 from core import KEY, Store, now, parse_time, rank, tickets_from
 from sidequest.environments import fetch_environments
+from sidequest.worktrees import parse_worktrees
 from worklog import collect_worklog, daily_summary
 from workflow import next_owner, ownership, stage_context, workflow_path, workflow_strip
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
@@ -127,6 +128,10 @@ def run(args, timeout=45):
     return result.stdout
 
 
+def unexpected(label, exc):
+    return f"{label} failed unexpectedly ({type(exc).__name__}: {exc}); please report this"
+
+
 def read_json(path):
     try:
         data = json.loads(path.read_text())
@@ -140,13 +145,10 @@ def worktrees():
     if not config.get('workspace', 'repository'):
         return result
     try:
-        path = ""
-        for line in run(["git", "worktree", "list", "--porcelain"]).splitlines():
-            if line.startswith("worktree "):
-                path = line[9:]
-            elif line.startswith("branch "):
-                match = KEY.search(line)
-                if match:
+        # Same parsing and backup/ rule as sidequest.worktrees.lookup, so w and Space n agree.
+        for path, branch in parse_worktrees(run(["git", "worktree", "list", "--porcelain"])):
+            if branch and not branch.startswith("backup/"):
+                for match in KEY.finditer(branch):
                     result[match.group().upper()] = path
     except (RuntimeError, OSError, subprocess.TimeoutExpired):
         pass
@@ -235,7 +237,8 @@ class App:
     def rebuild(self):
         previous = self.selected() if hasattr(self, "tickets") else None
         self.tickets = [rank(t, self.store, stale_days=self.stale_days, escalate_days=self.escalate_days)
-                        for t in tickets_from(self.jira, self.prs, self.fallback, self.windows)]
+                        for t in tickets_from(self.jira, self.prs, self.fallback, self.windows,
+                                              config.get('jira', 'projects', []))]
         self.tickets = ordered(self.tickets, self.sort_mode, self.sort_descending, self.worklog)
         if previous:
             self.index = next((i for i, t in enumerate(self.visible()) if t.key == previous.key), self.index)
@@ -399,6 +402,8 @@ class App:
                 self.events.put((event, task()))
             except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
                 self.events.put(("heroku_error" if name == "heroku" else "message", str(exc)))
+            except Exception as exc:  # noqa: BLE001 - a worker bug must reach the status line, not draw a traceback over curses
+                self.events.put(("heroku_error" if name == "heroku" else "message", unexpected(label, exc)))
             finally:
                 self.events.put(("job_done", name))
 
@@ -487,7 +492,11 @@ class App:
                     self.events.put((name, source))
             except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
                 errors.append(str(exc))
-            self.events.put(("done", errors))
+            except Exception as exc:  # noqa: BLE001 - see background(); refresh must still finish
+                errors.append(unexpected("Refresh", exc))
+            finally:
+                # Always finish, or self.refreshing stays True and r silently does nothing.
+                self.events.put(("done", [str(error) for error in errors]))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -504,7 +513,7 @@ class App:
                     previous = {t["key"]: t for t in self.jira.get("tickets", [])}
                     for issue in data.get("tickets", []):
                         for field in ("jira_comments", "jira_comment_total", "jira_comments_checked_at"):
-                            if field not in issue and field in previous.get(issue["key"], {}):
+                            if field not in issue and field in previous.get(issue.get("key"), {}):
                                 issue[field] = previous[issue["key"]][field]
                 self.store.source(name, data)
                 setattr(self, name, data)
@@ -762,17 +771,29 @@ class App:
         extra = f" +{len(loading) - 1}" if len(loading) > 1 else ""
         return f"{spinner} {label} · {int(time.monotonic() - started)}s{extra}"
 
+    def source_failed(self, name):
+        return any(str(error).startswith(name + ":") for error in self.refresh_errors)
+
     def header_status(self):
         """Right side of the header: what's loading, else the sort and how fresh the data is."""
         loading = self.loading_line()
         if loading:
             return loading, self.style("accent"), False
-        jira_time = (self.jira or self.fallback).get("generated_at")
-        pr_time = self.prs.get("generated_at")
-        stale = any(not parse_time(v) or (now() - parse_time(v)).total_seconds() > 3600 for v in (jira_time, pr_time))
+        sources = (("Jira", self.jira or self.fallback), ("GitHub", self.prs))
+        # A source that is not configured is "off", not stale; one whose last refresh failed says so
+        # next to the age of the data still shown, instead of reading as freshly refreshed.
+        active = [(name, data) for name, data in sources if data.get("enabled") is not False]
+        stale = any(not parse_time(data.get("generated_at")) or
+                    (now() - parse_time(data.get("generated_at"))).total_seconds() > 3600 for _, data in active)
+
+        def label(name, data):
+            if data.get("enabled") is False and not self.source_failed(name):
+                return name + " off"
+            age = relative(data.get("generated_at"), now()) or "not loaded"
+            return f"{name} {'failed, data ' + age if self.source_failed(name) else age}"
         arrow = "↓" if self.sort_descending else "↑"
-        text = (f"Sort: {self.sort_mode} {arrow}  ·  Refreshed Jira {relative(jira_time, now()) or 'not loaded'}"
-                f" · GitHub {relative(pr_time, now()) or 'not loaded'}" + ("  STALE" if stale else ""))
+        text = (f"Sort: {self.sort_mode} {arrow}  ·  Refreshed " + " · ".join(label(n, d) for n, d in sources)
+                + ("  STALE" if stale else ""))
         if self.refresh_errors:
             text = "ERROR · " + text
         return text, curses.A_BOLD if self.refresh_errors else curses.A_DIM, stale or bool(self.refresh_errors)

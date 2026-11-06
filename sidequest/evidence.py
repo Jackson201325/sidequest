@@ -1,11 +1,13 @@
 """Dated evidence and source-aware time parsing shared by readers."""
+import re
 from datetime import datetime, time, timedelta
 from sidequest.identity import TZ, GIT_AUTHOR
 
 
 def parse_time(value, naive_zone=TZ):
     try:
-        stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        # Jira sends "+0000"; fromisoformat only reads "+00:00" before Python 3.11.
+        stamp = datetime.fromisoformat(re.sub(r"([+-]\d{2})(\d{2})$", r"\1:\2", str(value).replace("Z", "+00:00")))
         return stamp.replace(tzinfo=naive_zone) if stamp.tzinfo is None else stamp
     except (ValueError, TypeError):
         return None

@@ -40,7 +40,8 @@ class GitWorkspace:
     def _git(self, *args, required=True):
         result = subprocess.run(['git', '-C', str(self.repository), *args], text=True, capture_output=True)
         if required and result.returncode:
-            raise RuntimeError('Git command failed; check the repository and base ref')
+            detail = next((line.strip() for line in result.stderr.splitlines() if line.strip()), '')
+            raise RuntimeError('Git command failed' + (': ' + detail[:200] if detail else '; check the repository and base ref'))
         return result
 
     def preview(self, key, summary, issue_type='', prefix=None, base=None):
@@ -75,9 +76,11 @@ class GitWorkspace:
         if current.state != 'preview':
             return current.result()
         Path(current.path).parent.mkdir(parents=True, exist_ok=True)
-        # Keep Git's normal upstream setup for remote-tracking bases. The revision
-        # above detects stale plans; Git rejects concurrent path/branch conflicts.
-        args = ['worktree', 'add'] + ([] if current.local else ['-b', current.branch])
+        # An existing remote branch keeps tracking origin/<branch>. A new branch must not track its
+        # base: with origin/main upstream, the first `git push` fails and suggests pushing to main.
+        # The revision above detects stale plans; Git rejects concurrent path/branch conflicts.
+        new_branch = not current.local and current.base != 'origin/' + current.branch
+        args = ['worktree', 'add'] + ([] if current.local else ['-b', current.branch]) + (['--no-track'] if new_branch else [])
         self._git(*args, current.path, current.branch if current.local else current.base)
         return current.result(created=True)
 
