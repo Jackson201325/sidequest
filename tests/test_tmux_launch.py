@@ -1,8 +1,32 @@
+"""tmux launch and browser opening through the package, without the UI."""
+from pathlib import Path
+import sys
 import unittest
 from unittest.mock import patch
 
-from core import Ticket
-from launcher import jump_to_window, open_in_edge, start_agent, switch_client
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sidequest import terminal, tmux
+from sidequest.terminal import agent_argv, agent_display_name
+
+SESSION = "example-project"
+
+
+class Ticket:
+    def __init__(self, key, worktree=""):
+        self.key, self.worktree = key, worktree
+
+
+def start_agent(run, ticket, prompt, inside):
+    argv = agent_argv(prompt)
+    return tmux.start_agent(run, ticket.key, ticket.worktree, argv, inside, SESSION, agent_display_name(argv))
+
+
+def jump_to_window(run, ticket, inside):
+    return tmux.jump(run, ticket.key, ticket.worktree, inside, SESSION)
+
+
+def switch_client(run, inside):
+    return tmux.switch_client(run, inside, SESSION)
 
 PANES = "example-project\t@3\tEditor\t/wt/DEMO-1\nother\t@9\tDEMO-1\t/elsewhere\n"
 LIST_PANES = ["tmux", "list-panes", "-a", "-F", "#{session_name}\t#{window_id}\t#{window_name}\t#{pane_current_path}"]
@@ -82,9 +106,18 @@ class LauncherTests(unittest.TestCase):
 
     def test_browser_uses_os_opener_without_sourcing_a_shell(self):
         run = FakeRun()
-        with patch('launcher.sys.platform', 'darwin'):
-            self.assertEqual(open_in_edge(run, 'https://github.com/o/r/pull/1?a=b&c=d'), 'Opened in browser')
+        with patch('sidequest.terminal.sys.platform', 'darwin'):
+            self.assertEqual(terminal.open_browser(run, 'https://github.com/o/r/pull/1?a=b&c=d'), 'Opened in browser')
         self.assertEqual(run.calls, [['open', 'https://github.com/o/r/pull/1?a=b&c=d']])
+
+    def test_browser_uses_the_configured_command(self):
+        run = FakeRun()
+        terminal.open_browser(run, 'https://github.com/o/r/pull/1', 'firefox --new-tab')
+        self.assertEqual(run.calls, [['firefox', '--new-tab', 'https://github.com/o/r/pull/1']])
+
+    def test_split_command_quotes_the_prompt_and_uses_the_worktree(self):
+        self.assertEqual(tmux.split_command("@7", "/wt/a b", agent_argv("handle feedback on DEMO-1"))[:-1],
+                         ["tmux", "split-window", "-h", "-t", "@7", "-c", "/wt/a b"])
 
 
 if __name__ == "__main__":
