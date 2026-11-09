@@ -709,6 +709,10 @@ Sidequest chooses the project in this order:
    folder (the deepest match), so agents and `sqapp` inside a worktree need no flag.
 3. The only profile, when there is one.
 
+Sidequest starts tmux without `SIDEQUEST_PROJECT`, so a pane in any session picks its project
+by folder. A tmux server started by an older Sidequest may still pass one project to every pane;
+run `tmux set-environment -g -u SIDEQUEST_PROJECT`, then open new panes.
+
 With several profiles and none chosen (for example in `~`), `sidequest up` and `sidequest start`
 do not guess: they name the projects and exit 2. In a terminal, `sidequest` and `sidequest up`
 open the project overview instead. `sidequest projects` opens it from anywhere:

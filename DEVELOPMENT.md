@@ -56,7 +56,8 @@ the bundled dispatcher by its absolute location, never a global personal command
 the `credentials` setting); `sidequest/projects.py` writes (`project init`) and checks (`project check`) profiles.
 `sidequest/config.py` picks a project profile (SIDEQUEST_PROJECT or --project via
 sidequest/project_flag.py, else the profile whose repository/worktrees folder holds the cwd,
-else the only one), applies projects/NAME/config.json over the shared config.json, then
+else the only one; terminal_mode.run_tmux drops SIDEQUEST_* so a tmux server never pins one project
+for every pane), applies projects/NAME/config.json over the shared config.json, then
 SIDEQUEST_<SECTION>_<KEY> environment variables on top (config.KEYS lists every
 setting, including qa.browser and qa.email; unknown names fail; config.NOT_SETTINGS lists the
 credential variables); SIDEQUEST_DATA_DIR/STATE_DIR move storage; all services are

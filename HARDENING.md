@@ -512,3 +512,11 @@ fake-server layout, reuse, Main rename, start-and-adopt, controls and attach; th
 overview's tab count; and a real server in a temporary XDG_CONFIG_HOME built both workspaces once over two
 runs (stopped afterwards only when its socket is inside that folder). Auto now prefers Herdr inside Herdr
 for `up`, as the dashboard already did. A Herdr window's command is typed into its shell, which stays.
+
+2026-11-09: tmux sessions no longer keep one project's selection. A tmux server passes the environment
+it starts with to every pane of every session. `sidequest up --all` started it with SIDEQUEST_PROJECT set
+to the first project, so `sidequest` in any pane (another project's folder included) opened that project.
+tmux commands from `sidequest up` now run without SIDEQUEST_* variables, as Herdr's server start already
+did, so a pane picks its project by folder. A server that is already running keeps its old environment:
+`tmux set-environment -g -u SIDEQUEST_PROJECT` clears it for new panes. Test first failed: `tmux
+new-session` received the full environment.

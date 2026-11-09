@@ -77,8 +77,8 @@ class TmuxTerminal:
         return LaunchResult(message=tmux.start_window(self.run, key, path, True, self.session))
 
 
-def run_command(args, timeout=45):
-    result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
+def run_command(args, timeout=45, env=None):
+    result = subprocess.run(args, text=True, capture_output=True, timeout=timeout, env=env)
     if result.returncode:
         raise RuntimeError('Terminal command failed; check your terminal session')
     return result.stdout
