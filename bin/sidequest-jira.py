@@ -62,7 +62,9 @@ def jira(method, path, body=None):
     for base in ([_base[0]] if _base[0] else BASES):
         request = urllib.request.Request(base + path, method=method,
             data=None if body is None else json.dumps(body).encode(),
-            headers={'Authorization': _auth(), 'Accept': 'application/json', 'Content-Type': 'application/json'})
+            headers={'Accept': 'application/json', 'Content-Type': 'application/json'})
+        # urllib repeats ordinary headers on every redirect, to any host; this one goes to `base` only.
+        request.add_unredirected_header('Authorization', _auth())
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
                 raw = response.read()
@@ -209,8 +211,9 @@ def download_attachments(key, folder):
             continue
         error = None
         for base_url in ([_base[0]] if _base[0] else BASES):
-            request = urllib.request.Request(base_url + '/rest/api/3/attachment/content/%s' % item['id'],
-                                             headers={'Authorization': _auth()})
+            request = urllib.request.Request(base_url + '/rest/api/3/attachment/content/%s' % item['id'])
+            # Jira answers with a redirect to its media host, which must not receive the token.
+            request.add_unredirected_header('Authorization', _auth())
             try:
                 with urllib.request.urlopen(request, timeout=60) as response, open(str(path) + '.part', 'wb') as out:
                     while True:

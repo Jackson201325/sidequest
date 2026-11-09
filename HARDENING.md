@@ -540,3 +540,14 @@ credentials) and calls through variables are not resolved.
 `workspace.browser` or the OS default, as ticket links do. The test first failed at `bin/sidequest map --open`
 with a fake browser from SIDEQUEST_CONFIG. The page stays outside the checkout; nothing is fetched or written
 elsewhere.
+
+2026-11-09: whole-app review fixes (tests/test_app_review_fixes.py; each test failed first). The Jira token is an
+unredirected header, so a redirect (the attachment media host, a moved site) never receives it. A branch with its
+own upstream under another name counts as pushed and is not rebased. tmux looks the session up by exact name
+(`=NAME`), and the first window of a new session gets its `keys`. `sidequest up -r` is refused (exit 2) from inside
+the session it would close; `--dry-run` no longer writes window-order.json. Cleanup keeps a worktree when `git status`
+fails or when a workspace.copy_files copy differs from the main checkout; other ignored files still go with the
+worktree. A refresh without sync keeps the recorded sync_tickets/merged_prs failures (the dashboard reports only
+jira and prs), and they do not defeat --max-age. A refused jira-start (exit 3) writes a failure record, so Space n
+shows its reason. Not changed: a ticket with a merged PR is still skipped by `sidequest up` when it returns for
+rework; that needs a decision on the branch for the second round and on cleanup of the first.

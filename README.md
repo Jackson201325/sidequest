@@ -646,7 +646,10 @@ it, or when its branch diverged from its origin branch. Uncommitted work is auto
 rebase or merge is aborted, and nothing is ever pushed. `--dry-run` prints the plan, the updates
 ("would …"), windows and hooks without changing anything; `--offline` (`-n`) uses the last
 collected data and neither fetches nor updates. `-u` is `--update`. `-r` (`--rebuild`) closes the
-tmux session first and builds it again. This stops what runs in its windows, so save first.
+tmux session first and builds it again. This stops what runs in its windows, so save first. Run
+`-r` from a terminal outside that session: inside it, the command is refused, because closing the
+session would stop the command before the rebuild. A branch counts as pushed when it has its own
+upstream (under any name) or a branch of the same name on origin.
 Short options combine: `sidequest up -rn`.
 
 `sidequest up --all` prepares every project in turn, each in its own tmux session (the project's
@@ -703,10 +706,12 @@ so the session's own Sidequest window never loops. Herdr sessions are not opened
 Before creating anything, it can remove worktrees whose PR merged (`sync.cleanup`: `ask`, the
 default, asks per worktree in a terminal; `on` removes; `off` skips; `--cleanup` considers them
 when off and `--yes` answers yes). A worktree is removed only when you are not in it, the app is
-not booked for it, no agent works in it, it has no uncommitted or untracked files, every commit of
+not booked for it, no agent works in it, it has no uncommitted or untracked files, its
+`workspace.copy_files` copies (such as `.env`) equal the main checkout's, every commit of
 its branch is in the merged PR's head, and GitHub, asked at that moment, still reports the PR as
 merged with that head. Then its window closes, `git worktree remove` runs without `--force`, and
-the local branch is deleted. The main checkout is never removed; `--offline` and a run without a
+the local branch is deleted. Other files that Git ignores (dependencies, logs, a local database)
+go with the worktree. The main checkout is never removed; `--offline` and a run without a
 terminal (unless `--yes`) remove nothing.
 
 ### Start one ticket (`sidequest start`)

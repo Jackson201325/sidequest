@@ -109,7 +109,7 @@ def update_all(repository, base='origin/main', merge_base=False, busy=None, dry_
         behind = int(_out(path, 'rev-list', '--count', 'HEAD..' + base) or 0)
         if not behind or branch == base_branch:
             continue
-        pushed = bool(_out(path, 'rev-parse', '-q', '--verify', 'refs/remotes/origin/' + branch))
+        pushed = bool(upstream or _out(path, 'rev-parse', '-q', '--verify', 'refs/remotes/origin/' + branch))
         if not pushed:
             if dry_run:
                 lines.append(_row('would', name, 'rebase onto ' + base + ' (+' + str(behind) + ')'))

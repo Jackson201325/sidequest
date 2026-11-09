@@ -10,14 +10,15 @@ window) gets one window per worktree, in the order the tickets were assigned to 
 plus workspace.windows; windows are reused and moved, never closed. workspace.on_up commands run
 last, and the session is attached (or switched to inside tmux). Nothing is removed or pushed. --dry-run prints the plan and changes no Git state or windows; --offline uses the last
 collected data and does not fetch (-n). -r closes the tmux session first, which stops what runs in
-its windows, and builds it again. After a successful fetch, branches are updated: each takes new
+its windows, and builds it again (refused from inside that session). After a successful fetch, branches are updated: each takes new
 commits from its own origin branch (fast-forward), main follows origin/main, a branch never pushed is
 rebased onto the base, and a pushed branch behind the base is listed (--update merges the base in).
 A worktree is skipped while a merge/rebase is in progress, the app is booked for it, an agent works
 in it, or its branch diverged; a failed rebase or merge is aborted. Nothing is ever pushed.
 First, worktrees whose PR merged are removed (sync.cleanup: ask asks per worktree in a terminal,
 on removes, off skips; --cleanup considers them when off, --yes answers yes) only when you are not
-in it, nothing is booked or running there, it has no uncommitted or untracked changes, every commit
+in it, nothing is booked or running there, it has no uncommitted or untracked changes, its
+workspace.copy_files copies equal the main checkout's (other ignored files go with it), every commit
 is in the merged head, and GitHub, asked at that moment, still reports the PR merged with that head.
 --when-due syncs only when the last sync is older than sync.every_minutes; before that it attaches to
 the open session, or builds it without network. --all does this for every project in turn, each in its own tmux session, then attaches to the first.
@@ -89,15 +90,15 @@ def shown(window):
     return '  $ ' + command if command else ''
 
 
-def session_windows(snapshot, repository):
-    """(session name, windows) from `git worktree list` and the settings."""
+def session_windows(snapshot, repository, save=True):
+    """(session name, windows) from `git worktree list` and the settings; save=False writes no state."""
     listed = subprocess.run(['git', '-C', str(repository), 'worktree', 'list', '--porcelain'],
                             capture_output=True, text=True).stdout
     values = config.SETTINGS.get('workspace', {})
     extras = values.get('windows') or [{'name': 'sidequest', 'command': SIDEQUEST, 'at': 'start', 'stay': True}]
     root = values.get('worktrees_dir') or str(Path(repository).parent)
     session = values.get('tmux_session') or config.PROJECT or 'sidequest'
-    remembered = sync.remember_order(config.STATE_DIR / 'window-order.json', snapshot)
+    remembered = sync.remember_order(config.STATE_DIR / 'window-order.json', snapshot, save)
     return session, sync.layout(snapshot, parse_worktrees(listed), extras, root, remembered)
 
 
@@ -155,6 +156,16 @@ def main():
     values = config.SETTINGS.get('workspace', {})
     workspace = GitWorkspace(repository, values.get('worktrees_dir'), config.base_ref(),
                              shlex.split(values.get('copy_files') or ''))
+    if args.rebuild and not args.dry_run and not NOTE:
+        session = values.get('tmux_session') or config.PROJECT or 'sidequest'
+        try:
+            inside = BOX.inside(session)
+        except RuntimeError:
+            inside = False
+        if inside:
+            print('sidequest up: -r closes ' + BOX.noun + ' ' + session + ', and this command runs inside it; '
+                  'run it from a terminal outside that session', file=sys.stderr)
+            return 2
     print('sidequest up: ' + (config.PROJECT or 'this project') + ' (' + str(repository) + ')', flush=True)
     if args.when_due and not args.offline:
         recent = sync.fresh(SnapshotStore(collector.DEFAULT_OUT).read(), config.get('sync', 'every_minutes'),
@@ -213,7 +224,7 @@ def main():
         lines, problems = cleanup.clean(
             repository, merged, cwd=os.getcwd(), busy=sync.busy_check(app_booking.read(), sync.agent_dirs()),
             live_pr=github.pr_state, confirm=sync.confirm_removal(mode, args.yes, interactive),
-            close_window=close_window, dry_run=dry_run)
+            close_window=close_window, dry_run=dry_run, local_files=workspace.copy_files)
         if not interactive and not args.yes and mode == 'ask' and any(line.endswith('you chose to keep it') for line in lines):
             lines.append('cleanup  nobody to ask without a terminal: run sidequest up in one, or add --yes')
         return lines, problems
@@ -231,7 +242,7 @@ def main():
         if note:
             print('windows  not opened: ' + note)
         else:
-            session, windows = session_windows(snapshot, repository)
+            session, windows = session_windows(snapshot, repository, save=False)
             if args.rebuild:
                 print('would close ' + BOX.noun + ' ' + session + ' first; this stops what runs in its windows')
             for window in windows:

@@ -14,7 +14,7 @@ try:
     from sidequest import config
 except ValueError as exc:
     raise SystemExit('sidequest-data: ' + str(exc))
-from sidequest.access import describe_failure
+from sidequest.access import clip, describe_failure
 from sidequest.collector import DEFAULT_OUT, collect
 from sidequest.jira import client
 from sidequest.qa import attachments_dir
@@ -101,6 +101,9 @@ def main():
         if args.command == 'jira-start':
             code, message = client.start_ticket(args.key.upper(), yes=args.yes, dry_run=args.dry_run)
             print(message, file=sys.stdout if code == 0 else sys.stderr)
+            if code:
+                # The dashboard shows only a failure record; without one Space n loses the reason.
+                print(FAILURE_LINE + json.dumps({'text': clip(message)}), file=sys.stderr)
             return code
         if args.command == 'ticket' and args.attachments is not None:
             folder = Path(args.attachments) if args.attachments else attachments_dir(args.key.upper())

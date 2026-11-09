@@ -96,11 +96,14 @@ def open_layout(run, session, windows):
     renamed when its ticket changes), create the missing ones, and move the person's own windows
     after the worktrees and before the end windows. Nothing is closed."""
     try:
-        run(['tmux', 'has-session', '-t', session], timeout=5)
+        # '=' asks for the exact name: a bare name also matches a session that starts with it.
+        run(['tmux', 'has-session', '-t', '=' + session], timeout=5)
     except RuntimeError:
         first = windows[0]
-        run(['tmux', 'new-session', '-d', '-s', session, '-n', first.name, '-c', first.path]
-            + ([process(first)] if first.command else []), timeout=5)
+        made = run(['tmux', 'new-session', '-d', '-s', session, '-n', first.name, '-c', first.path,
+                    '-P', '-F', '#{window_id}'] + ([process(first)] if first.command else []), timeout=5)
+        if getattr(first, 'keys', ''):
+            run(['tmux', 'send-keys', '-t', made.strip(), first.keys, 'Enter'], timeout=5)
     rows = [line.split(' ', 2) for line in run(['tmux', 'list-windows', '-t', session, '-F',
                                                  '#{window_index} #{window_id} #{window_name}'], timeout=5).splitlines()
             if line.count(' ') >= 2]
