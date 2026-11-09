@@ -54,7 +54,7 @@ capture, and explicit skill installation. Ported helper checks use temporary Git
 repositories and process/service fixtures. Skills are installed to temporary
 folders in tests; drift is detected and user edits are never overwritten.
 
-Seven skills share project-neutral rules and use the bundled helper. Browser QA
+Eight skills share project-neutral rules and use the bundled helper. Browser QA
 has no shared login defaults or Keychain dependency, and checks the current host
 after redirects before supplying credentials. Both dashboard plans and CLI evidence
 use the same external folder. The README explains setup, data flow, daily use,
@@ -519,6 +519,16 @@ attachments, ticket activity made after the plan, the code markers and existing 
 differences under the plan's Updates; builds unblocked criteria test-first and asks about blocking open
 questions; then runs the project's checks. It never commits, pushes or changes Jira. Space s lists it as
 "Implement ticket". Test first failed: `sidequest-data skill implement` was unknown.
+
+2026-11-09: sidequest-where skill ("where am I"). Resumes a ticket from the sources behind the
+dashboard's tabs: Jira activity and status history, the worktree and branch (status, commits, ship-check,
+plan markers), the PR with its reviews, checks and review app, plan.md with its Updates, logged questions,
+meetings.md and QA evidence. It orders them into one timeline, picks the furthest stage the evidence
+supports, reports conflicts between sources, and prints state, last activity, done/left, blockers, unknown
+sources and one next step with its skill. It only reads: no edits, no plan or worktree creation, no Jira
+or GitHub change. A failed source is reported as unknown, never as empty; it asks the user only for facts
+no source holds. Space s lists it as "Where am I". Test first failed: `sidequest-data skill where` was
+unknown.
 
 2026-11-09: tmux sessions no longer keep one project's selection. A tmux server passes the environment
 it starts with to every pane of every session. `sidequest up --all` started it with SIDEQUEST_PROJECT set

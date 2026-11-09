@@ -307,6 +307,7 @@ test commands, branch conventions and environment booking rules.
 | `sidequest-ship` | Review, test, prepare scoped commits and a PR |
 | `sidequest-feedback` | Read complete review threads, fix issues and draft replies |
 | `sidequest-triage` | Investigate a supplied error and reproduce it with fixtures |
+| `sidequest-where` | Resume a ticket: print its state, last activity, blockers and next step (read-only) |
 
 In the dashboard, Space `s` runs a selected workflow through your configured agent
 in the ticket's local worktree. In shell mode, the dashboard hands its terminal to

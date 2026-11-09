@@ -69,6 +69,7 @@ AGENT_TASKS = [
     ("QA review app", "QA {key} on its review app", 'sidequest-qa-review-app'),
     ("Ship ticket", "Prepare {key} for shipping", 'sidequest-ship'),
     ("Triage an error", "Investigate the error reported for {key}", 'sidequest-triage'),
+    ("Where am I", "Where am I on {key}", 'sidequest-where'),
     ("Custom prompt...", None, None),
 ]
 
