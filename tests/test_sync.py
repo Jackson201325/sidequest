@@ -9,7 +9,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from sidequest import sync
+from sidequest import sync, tmux
 from sidequest.snapshots import SnapshotStore
 from sidequest.workspace import GitWorkspace
 
@@ -134,8 +134,9 @@ class LayoutTests(unittest.TestCase):
         by_name = {window.name: window for window in windows}
         self.assertEqual(by_name['APP-3'].path, '/p/APP-3-c')
         self.assertEqual(by_name['queue'].path, '/p')
-        self.assertIn('exec', by_name['queue'].command, 'stay: a shell is left when the command ends')
-        self.assertEqual(by_name['report'].command, 'sidequest --report')
+        self.assertEqual((by_name['queue'].command, by_name['queue'].stay), ('sidequest', True))
+        self.assertIn('exec', tmux.process(by_name['queue']), 'stay in tmux: a shell is left when the command ends')
+        self.assertEqual(tmux.process(by_name['report']), 'sidequest --report')
         self.assertIsNone(by_name['notes'].command)
 
     def test_remembered_dates_keep_a_ticket_in_place_after_it_leaves_your_list(self):

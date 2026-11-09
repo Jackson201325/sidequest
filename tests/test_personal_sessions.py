@@ -61,6 +61,21 @@ class PersonalSessionTests(unittest.TestCase):
         self.assertEqual([line.split(' ', 1)[0] for line in listed], ['nvim-config', 'dots'])
         self.assertTrue(listed[1].endswith('/dots'), listed)
 
+    def test_with_herdr_the_dry_run_lists_the_same_layout_without_the_old_unsupported_note(self):
+        self.settings.write_text(json.dumps({
+            'workspace': {'repository': str(self.repo), 'terminal': 'herdr', 'tmux_session': 'proj'},
+            'sessions': self.DOTFILES}))
+        fake = self.home / 'bin'
+        fake.mkdir()
+        (fake / 'herdr').write_text('#!/bin/sh\nexit 1\n')
+        (fake / 'herdr').chmod(0o755)
+        self.env['PATH'] = str(fake) + os.pathsep + self.env.get('PATH', '')
+        ran = self.up('--dry-run')
+        self.assertNotIn('not supported', ran.stdout)
+        self.assertIn('window   Main', ran.stdout)
+        self.assertIn('session  dotfiles', ran.stdout)
+        self.assertIn('window   nvim-config  ' + str(self.home / 'nvim') + '  $ nvim', ran.stdout)
+
     def test_a_session_named_like_the_project_session_is_skipped(self):
         self.write(self.DOTFILES, session='dotfiles')
         ran = self.up('--dry-run')

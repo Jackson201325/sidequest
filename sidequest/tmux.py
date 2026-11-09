@@ -100,7 +100,7 @@ def open_layout(run, session, windows):
     except RuntimeError:
         first = windows[0]
         run(['tmux', 'new-session', '-d', '-s', session, '-n', first.name, '-c', first.path]
-            + ([first.command] if first.command else []), timeout=5)
+            + ([process(first)] if first.command else []), timeout=5)
     rows = [line.split(' ', 2) for line in run(['tmux', 'list-windows', '-t', session, '-F',
                                                  '#{window_index} #{window_id} #{window_name}'], timeout=5).splitlines()
             if line.count(' ') >= 2]
@@ -114,7 +114,7 @@ def open_layout(run, session, windows):
     for window in windows:
         if window.name not in ids:
             made = run(['tmux', 'new-window', '-d', '-P', '-F', '#{window_id}', '-t', session + ':', '-n', window.name,
-                        '-c', window.path] + ([window.command] if window.command else []), timeout=5)
+                        '-c', window.path] + ([process(window)] if window.command else []), timeout=5)
             ids[window.name] = made.strip()
             if getattr(window, 'keys', ''):
                 # Typed into the new window's shell, so its aliases and functions work.
@@ -135,6 +135,13 @@ def open_layout(run, session, windows):
         run(['tmux', 'move-window', '-s', wid, '-t', session + ':' + str(base + offset)], timeout=5)
     run(['tmux', 'set-option', '-u', '-t', session, 'renumber-windows'], timeout=5)
     return len(order)
+
+
+def process(window):
+    """The command a window runs as its process; with stay, a shell is left when it ends."""
+    if window.command and window.stay:
+        return 'trap : INT; ' + window.command + '; exec "${SHELL:-/bin/sh}"'
+    return window.command
 
 
 def attach(session):

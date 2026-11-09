@@ -15,7 +15,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 try:
-    from sidequest import overview, tmux
+    from sidequest import overview, terminal_mode
 except ValueError as exc:
     raise SystemExit('sidequest projects: ' + str(exc))
 
@@ -67,7 +67,7 @@ def choose(screen, rows):
             continue
         kind, value = chosen
         if kind == 'confirm':
-            answer = ask(screen, 'Close tmux session ' + rows[selected]['session'] +
+            answer = ask(screen, 'Close ' + rows[selected]['terminal'] + ' session ' + rows[selected]['session'] +
                          ' and stop what runs in its windows? y/N ')
             if answer.lower() != 'y':
                 continue
@@ -84,7 +84,7 @@ def launch(row, chosen):
     kind, value = chosen
     os.environ['SIDEQUEST_PROJECT'] = row['name']
     if kind == 'attach':
-        tmux.attach(value)
+        terminal_mode.sessions(row['terminal']).attach(value)
         return 0
     command = BIN / ('sidequest-data' if kind == 'data' else 'sidequest')
     sys.stdout.flush()

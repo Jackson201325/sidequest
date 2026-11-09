@@ -2,7 +2,7 @@
 
 Status: workspace coordination, shell/tmux/Herdr adapters and headless Heroku
 lookup are implemented, and so is full startup orchestration (`sidequest up`, below) for tmux.
-A Herdr layout and a second deployment provider remain planned contracts.
+So is the Herdr layout (2026-11-09). A second deployment provider remains a planned contract.
 
 ## Scope and shared workflow
 
@@ -106,7 +106,7 @@ fixture agent. Other versions and agent-specific interactive UIs need separate
 verification. Nothing installs agent integrations, changes keybindings or rewrites
 the user's Herdr/tmux defaults.
 
-## Full workspace startup (`sidequest up`): implemented for tmux (Herdr layout planned), 2026-11-09
+## Full workspace startup (`sidequest up`): implemented for tmux and Herdr, 2026-11-09
 
 `sidequest up` prepares a project's workspace from its Jira tickets and GitHub PRs and opens
 one terminal session for it, so the dashboard, Space n and the agent skills find each
@@ -185,7 +185,10 @@ worktrees on every run; it keeps every guard.
    `GitWorkspace.preview_branch` reuses a PR's existing branch (never the base branch) and `apply` re-checks it.
 3. Session: windows, order, `workspace.windows`, `on_up`; tmux first, Herdr after (test 3). Done 2026-11-09 for
    tmux: `tmux.open_layout`, `sync.layout`, assignment dates kept in the state folder (`window-order.json`),
-   `workspace.windows` entries {name, command?, cwd?, at?, stay?, keys?}; Herdr still reports "not supported yet".
+   `workspace.windows` entries {name, command?, cwd?, at?, stay?, keys?}. Herdr done the same day:
+   `sidequest/herdr_session.py` (one workspace per session, one tab per window, `tab.move` for order, a
+   background server start) behind `sidequest/terminal_mode.py`, which `up`, `start`, the overview and the
+   launcher share. Tested against a fake server and a real Herdr 0.9.5 server in a temporary config folder.
 4. Update and `--update` (tests 4, 5). Done 2026-11-09: `sidequest/updates.py` (Git only; the app booking and
    agent checks come in as `busy(path)` from `sync.busy_check`); updates run only after a successful fetch.
 5. Cleanup (tests 6, 8). Done 2026-11-09: `sidequest/cleanup.py`, `github.pr_state` (asked at removal time),
