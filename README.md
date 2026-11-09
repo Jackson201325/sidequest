@@ -503,6 +503,15 @@ only on the HTTPS Heroku host discovered for that PR. Screenshots and manifests
 stay in `qa/` or `qa-review/`; failed checks save separate evidence in `failures/`.
 No screenshots are uploaded automatically. Re-capture when UI changes make them stale.
 
+### Code map (for development)
+
+```sh
+./bin/sidequest-map.py            # prints the path of the HTML page; open it in a browser
+```
+
+The page shows each module by layer, who calls whom, file writes, config and
+environment reads and external programs. It only reads the source.
+
 ## Keys
 
 | Key | Action |

@@ -47,6 +47,7 @@ flowchart TD
 
 | Module | Responsibility |
 | --- | --- |
+| `sidequest/codemap.py`, `codemap_view.py` | Developer code map: static scan and its offline HTML page (`bin/sidequest-map.py`) |
 | `sidequest/application.py` | Shared prepare/start/open/agent use cases and explicit dependency composition |
 | `sidequest/workspace.py` | Live Git inspection, naming, planning, revalidation and creation |
 | `sidequest/terminal.py` | Common launch interface, shell handoffs and child execution |

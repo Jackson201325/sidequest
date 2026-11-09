@@ -95,6 +95,13 @@ shell or the configured agent, then restore the dashboard on exit. tmux is not
 required. `workspace.agent_command` selects the agent CLI (default claude).
 No scheduler, check-in tool or application/database management is included.
 
+`bin/sidequest-map.py` writes a code map for developers: one self-contained HTML page (default in
+the system temporary folder, `--out` to move it; `--json` prints the scan; `--tests` adds test modules).
+sidequest/codemap.py reads the source with `ast` only, never imports or runs it, and lists calls,
+imports, file writes, config.KEYS reads, environment variables and external programs per function.
+sidequest/codemap_view.py renders it. Its config check flags settings with no direct read; settings
+read through loops or helpers also show there.
+
 Use ./bin/check for all checks. It runs both suites with an external test-only
 configuration, temporary HOME/XDG folders and no service credentials. Test fixtures
 are fictional. CLI portability tests also run without that fixture configuration.
