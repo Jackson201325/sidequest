@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sidequest: a keyboard-driven attention queue for Jira and GitHub."""
+"""Sidequest: local worktrees, a Jira and GitHub queue, environments and your day."""
 
 import argparse
 from collections import namedtuple

@@ -1,9 +1,20 @@
 # Sidequest
 
-Your terminal quest log for Jira tickets, GitHub pull requests and the work between
-them. Sidequest shows whose turn it is, what changed, and what needs attention.
-It also bundles optional agent skills and scripts for planning, local worktrees,
-QA screenshots, review feedback and preparing PRs.
+A terminal app for your whole working day. Sidequest runs on your computer and
+brings four things together:
+
+- **Local worktrees.** One Git worktree per ticket or pull request, created or
+  reused for you and laid out as tmux windows or Herdr tabs.
+- **Jira and GitHub.** A keyboard-driven queue of your tickets and pull requests
+  that shows whose turn it is, what changed and what needs attention.
+- **Environments.** One shared local app that worktrees take turns using, and
+  Heroku review apps for QA.
+- **Your day.** `sidequest up` prepares the workspace each morning, personal
+  sessions keep your notes and dotfiles close, and the standup and daily report
+  sum up what you did.
+
+It also bundles optional agent skills and scripts for planning, QA screenshots,
+review feedback and preparing PRs.
 
 ## Minimum requirements
 
