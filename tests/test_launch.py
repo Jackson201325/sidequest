@@ -25,8 +25,9 @@ class LaunchTests(unittest.TestCase):
         settings.write_text(json.dumps({'workspace': workspace}))
         fake_bin = home / 'bin'
         fake_bin.mkdir()
-        (fake_bin / 'tmux').write_text('#!/bin/sh\nexit 1\n')
-        (fake_bin / 'tmux').chmod(0o755)
+        for tool in ('tmux', 'herdr'):
+            (fake_bin / tool).write_text('#!/bin/sh\nexit 1\n')
+            (fake_bin / tool).chmod(0o755)
         env = {k: v for k, v in os.environ.items() if not k.startswith(('SIDEQUEST_', 'HERDR_')) and k != 'TMUX'}
         env.update(SIDEQUEST_CONFIG=str(settings), XDG_CONFIG_HOME=str(home / 'config'),
                    XDG_STATE_HOME=str(home / 'state'), XDG_DATA_HOME=str(home / 'data'),
@@ -62,8 +63,17 @@ class LaunchTests(unittest.TestCase):
         self.assertNotIn(UP, text)
         self.assertTrue(running, text[-400:])
 
-    def test_without_the_setting_or_with_herdr_plain_sidequest_stays_the_dashboard(self):
-        for workspace in ({}, {'launch': 'session', 'terminal': 'herdr'}, {'launch': 'dashboard'}):
+    def test_launch_session_with_herdr_also_hands_off_to_sidequest_up(self):
+        text, _ = self.run_plain({'launch': 'session', 'terminal': 'herdr'})
+        self.assertIn(UP, text)
+
+    def test_inside_herdr_plain_sidequest_stays_the_dashboard(self):
+        text, running = self.run_plain({'launch': 'session', 'terminal': 'herdr'}, HERDR_ENV='1')
+        self.assertNotIn(UP, text)
+        self.assertTrue(running, text[-400:])
+
+    def test_without_the_setting_or_with_a_shell_terminal_plain_sidequest_stays_the_dashboard(self):
+        for workspace in ({}, {'launch': 'session', 'terminal': 'shell'}, {'launch': 'dashboard'}):
             with self.subTest(workspace=workspace):
                 text, running = self.run_plain(workspace)
                 self.assertNotIn(UP, text)

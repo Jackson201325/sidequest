@@ -44,7 +44,10 @@ only when it is a valid ticket key.
 `bin/sidequest` launches curses or the list/standup modes; with workspace.launch session, a
 plain run in a terminal outside tmux/Herdr hands off to `sidequest up --when-due`. The `sessions`
 setting (sync.personal_sessions, built by `sidequest up` through tmux.open_layout) adds personal tmux
-sessions beside the project's, with workspace.windows-style windows. The bundled `bin/sidequest-data`
+sessions beside the project's, with workspace.windows-style windows. sidequest/terminal_mode.py picks
+tmux or Herdr for those sessions (auto: the terminal this runs in, else tmux) and gives `up`, `start`, the
+overview and the launcher one interface; sidequest/herdr_session.py implements it with Herdr workspaces
+and tabs over the server socket. Window holds the raw command and `stay`; only tmux wraps it. The bundled `bin/sidequest-data`
 supports read-only `collect`, `snapshot` and `ticket` helpers, plus independent
 workflow commands for naming, lookup, plans, PR feedback/checks, QA and skills.
 TUI refresh calls

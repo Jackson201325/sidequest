@@ -19,7 +19,7 @@ from sidequest.project_flag import take
 
 take(sys.argv)
 try:
-    from sidequest import config, start, tmux
+    from sidequest import config, start, terminal_mode
 except ValueError as exc:
     raise SystemExit('sidequest start: ' + str(exc))
 from sidequest.workspace import GitWorkspace
@@ -67,11 +67,15 @@ def main():
     window = up.stdout.find('windows  ') >= 0 and 'not opened' not in up.stdout
     if up.returncode:
         print('note     the layout reported a problem; run sidequest up -n to see it', file=sys.stderr)
-    if window:
-        subprocess.run(['tmux', 'select-window', '-t', session + ':=' + key], capture_output=True)
-    print('DIR ' + made['path'], flush=True)
-    if window and not args.no_attach and sys.stdout.isatty():
-        tmux.attach(session)
+    box = terminal_mode.sessions(terminal_mode.mode(os.environ, config.SETTINGS)) if window else None
+    try:
+        if box:
+            box.select_window(session, key)
+        print('DIR ' + made['path'], flush=True)
+        if box and not args.no_attach and sys.stdout.isatty():
+            box.attach(session)
+    except RuntimeError as exc:
+        print('note     ' + str(exc), file=sys.stderr)
     return 0
 
 

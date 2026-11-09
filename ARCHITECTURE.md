@@ -17,7 +17,7 @@ command line share everything from "Use cases" down.
 | Agent workflows | The skills, per-ticket files (plan, questions, QA evidence) and their helpers | `agents/skills/`, `sidequest/skills.py`, `questions.py`, `qa.py`, `bin/sidequest-{plan-init,ship-check,pr-body-check,qa-shot,feedback,questions,review-app,worktree}.py` |
 | Use cases | One call per action, shared by the dashboard and the commands: prepare, start, open, agent; `sidequest start` from a shell | `sidequest/application.py`, `start.py`, `overview.py` (the project overview's rows, lines and keys) |
 | Local workspace (Git) | Finding, naming, planning and creating worktrees; the app booking lock | `sidequest/workspace.py`, `workspaces.py`, `worktrees.py`, `repository.py`, `app_booking.py` |
-| Terminals | Shell handoff, tmux and Herdr windows and panes; no Git | `sidequest/terminal.py`, `tmux.py`, `herdr.py` |
+| Terminals | Shell handoff, tmux and Herdr windows and panes; no Git | `sidequest/terminal.py`, `tmux.py`, `herdr.py`, `herdr_session.py`, `terminal_mode.py` |
 | Data | Collecting each source once, keeping the last good copy, atomic snapshots | `sidequest/collector.py`, `snapshots.py`, `evidence.py` |
 | Services | Talking to Jira, GitHub and Heroku; read-only except the opt-in Jira start move | `bin/sidequest-jira.py` (+ `sidequest/jira.py`), `sidequest/github.py`, `services.py`, `environments.py`, `review_apps.py`, `reviews.py`, `access.py` |
 | Settings | Shared and per-project settings, the project choice, secrets by reference, identity, ticket keys | `sidequest/config.py`, `project_flag.py`, `credentials.py`, `projects.py`, `identity.py`, `ticket_keys.py` |
@@ -52,6 +52,8 @@ flowchart TD
 | `sidequest/terminal.py` | Common launch interface, shell handoffs and child execution |
 | `sidequest/tmux.py` | Session-scoped pane matching, windows, selection and quoting |
 | `sidequest/herdr.py` | Caller-workspace-scoped tab/pane discovery, layout and private agent launchers |
+| `sidequest/herdr_session.py` | `sidequest up` sessions in Herdr: workspace per session, tab per window, server start, attach |
+| `sidequest/terminal_mode.py` | Picks tmux or Herdr for sessions (`workspace.terminal`, context) and one interface over both |
 | `sidequest/environments.py` | Read-only Heroku authentication, pagination and status mapping |
 | `sidequest/ticket_keys.py` | Every ticket key question: valid key, PR ticket, branch keys and branch ticket, mentions in text, leading-key removal |
 | `sidequest/repository.py` | One rule for the workspace repository: an existing SIDEQUEST_REPO folder, else workspace.repository; no config import |

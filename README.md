@@ -431,7 +431,17 @@ still supported for users who prefer monochrome output.
 `w` focuses a matching worktree tab, creating a tab when needed. Space `s` starts the configured assistant in a new
 pane/tab. Space `n` and CLI `workspace --open` keep their foreground shell behavior;
 exit returns to the dashboard. Herdr never creates Git worktrees on Sidequest's
-behalf. `sidequest up` lays out tmux only; it does not lay out Herdr yet.
+behalf.
+
+With `workspace.terminal` set to `herdr`, `sidequest up` lays out Herdr the way it lays out tmux: each
+project (and each personal session) becomes a workspace in your default Herdr session, labelled with
+`workspace.tmux_session`, and each window becomes a tab, in the same order. Tabs are reused by label and
+never closed; the person's own tabs stay between the worktrees and the end windows. When no Herdr server
+runs, Sidequest starts one in the background (like `tmux new-session -d`), then attaches `herdr` in your
+terminal, or focuses the workspace when you are already in Herdr. `--when-due`, `--all`, `-r` (closes the
+workspace), `sidequest start`, the merged-worktree cleanup, the project overview and `workspace.launch`
+`session` all work the same way. One difference: a window's `command` (then `keys`) is typed into the
+tab's shell, so the shell always stays when the command ends, as with `stay`.
 
 `workspace.terminal` accepts `auto` (default), `shell`, `tmux` or `herdr`.
 `SIDEQUEST_TERMINAL` overrides it for one invocation. Auto prefers active tmux,
@@ -638,7 +648,7 @@ Detaching (prefix `d`) returns to the shell.
 ### Personal sessions (dotfiles, notes)
 
 Windows that belong to no project, such as your editor or shell configuration, get their own tmux
-session. Put them in the shared `~/.config/sidequest/config.json` under `sessions`: each name is a
+session (a Herdr workspace with `workspace.terminal` `herdr`). Put them in the shared `~/.config/sidequest/config.json` under `sessions`: each name is a
 session, and its windows use the `workspace.windows` fields (`name`, `command`, `cwd`, `at`, `stay`,
 `keys`; a missing `cwd` is your home folder):
 

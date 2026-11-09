@@ -5,7 +5,8 @@ Collects the sync data (tickets by sync.tickets_jql, your open PRs, merged PRs) 
 then creates a worktree for each sync ticket and each of your open PRs that has none: an existing
 branch is reused (local, then origin), a new one is fix/ for a Bug and feature/ otherwise, and
 workspace.copy_files are copied in. Tickets with a merged PR are skipped. Then the tmux session
-(workspace.tmux_session) gets one window per worktree, in the order the tickets were assigned to you,
+(workspace.tmux_session; with workspace.terminal herdr, a Herdr workspace of that name with one tab per
+window) gets one window per worktree, in the order the tickets were assigned to you,
 plus workspace.windows; windows are reused and moved, never closed. workspace.on_up commands run
 last, and the session is attached (or switched to inside tmux). Nothing is removed or pushed. --dry-run prints the plan and changes no Git state or windows; --offline uses the last
 collected data and does not fetch (-n). -r closes the tmux session first, which stops what runs in
@@ -20,7 +21,7 @@ in it, nothing is booked or running there, it has no uncommitted or untracked ch
 is in the merged head, and GitHub, asked at that moment, still reports the PR merged with that head.
 --when-due syncs only when the last sync is older than sync.every_minutes; before that it attaches to
 the open session, or builds it without network. --all does this for every project in turn, each in its own tmux session, then attaches to the first.
-The `sessions` setting names personal tmux sessions (for example dotfiles) with workspace.windows-style
+The `sessions` setting names personal sessions (tmux sessions, or Herdr workspaces; for example dotfiles) with workspace.windows-style
 windows; each run builds them too, without network, and never mixes them with the project's session.
 Exit 0: done; 1: something was blocked or failed (listed);
 2: usage or settings.
@@ -29,7 +30,6 @@ import argparse
 import os
 from pathlib import Path
 import shlex
-import shutil
 import subprocess
 import sys
 
@@ -58,25 +58,35 @@ def up_all(argv):
                                '--no-attach'], env=env).returncode
         worst = max(worst, code)
         print(flush=True)
-    if '--no-attach' not in args and '--dry-run' not in args and shutil.which('tmux'):
-        from sidequest import tmux
-        tmux.attach(rows[0]['session'])
+    if '--no-attach' not in args and '--dry-run' not in args:
+        from sidequest import terminal_mode
+        chosen = rows[0].get('terminal') or 'tmux'
+        if not terminal_mode.unavailable(chosen):
+            terminal_mode.sessions(chosen).attach(rows[0]['session'])
     return worst
 
 
 if '--all' in sys.argv[1:]:
     raise SystemExit(up_all(sys.argv[1:]))
 try:
-    from sidequest import app_booking, cleanup, collector, config, github, sync, tmux, updates
+    from sidequest import app_booking, cleanup, collector, config, github, sync, terminal_mode, tmux, updates
 except ValueError as exc:
     print('sidequest up: ' + str(exc), file=sys.stderr)
     raise SystemExit(2)
 from sidequest.snapshots import SnapshotStore
-from sidequest.terminal import run_command
 from sidequest.workspace import GitWorkspace
 from sidequest.worktrees import parse_worktrees
 
 SIDEQUEST = str(Path(__file__).resolve().with_name('sidequest'))
+MODE = terminal_mode.mode(os.environ, config.SETTINGS)
+NOTE = terminal_mode.unavailable(MODE)
+BOX = None if NOTE else terminal_mode.sessions(MODE)
+
+
+def shown(window):
+    """What a window runs, as the dry run shows it."""
+    command = tmux.process(window) if MODE == 'tmux' else window.command
+    return '  $ ' + command if command else ''
 
 
 def session_windows(snapshot, repository):
@@ -101,26 +111,20 @@ def personal_sessions(dry_run):
             lines.append('session  ' + name + ' ' + (note or 'skipped: no windows'))
         elif dry_run:
             lines.append('session  ' + name)
-            lines += ['window   ' + window.name.ljust(12) + ' ' + window.path +
-                      ('  $ ' + window.command if window.command else '') for window in windows]
+            lines += ['window   ' + window.name.ljust(12) + ' ' + window.path + shown(window) for window in windows]
         else:
             try:
-                tmux.open_layout(run_command, name, windows)
+                BOX.open_layout(name, windows)
                 lines.append('session  ' + name + ': ' + str(len(windows)) + ' windows')
             except RuntimeError as exc:
                 problems += 1
-                lines.append('failed   tmux session ' + name + ': ' + str(exc))
+                lines.append('failed   ' + BOX.noun + ' ' + name + ': ' + str(exc))
     return lines, problems
 
 
 def terminal_note():
-    """Why windows are not opened, or '' when tmux is used."""
-    mode = os.environ.get('SIDEQUEST_TERMINAL') or config.get('workspace', 'terminal') or 'auto'
-    if mode == 'shell':
-        return 'workspace.terminal is shell'
-    if mode == 'herdr':
-        return 'Herdr layouts are not supported yet; use workspace.terminal tmux'
-    return '' if shutil.which('tmux') else 'tmux is not installed'
+    """Why windows are not opened, or '' when tmux or Herdr is used."""
+    return NOTE
 
 
 def main():
@@ -128,7 +132,7 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     parser.add_argument('--dry-run', action='store_true', help='print the plan; change no Git state')
     parser.add_argument('-n', '--offline', action='store_true', help='use the last collected data; no collection or fetch')
-    parser.add_argument('--no-attach', action='store_true', help='leave the tmux session detached')
+    parser.add_argument('--no-attach', action='store_true', help='leave the tmux session (Herdr workspace) detached')
     parser.add_argument('--cleanup', action='store_true',
                         help='consider removing merged worktrees even when sync.cleanup is off (asks per worktree)')
     parser.add_argument('--yes', action='store_true', help='remove merged worktrees that pass every check without asking')
@@ -156,13 +160,17 @@ def main():
         recent = sync.fresh(SnapshotStore(collector.DEFAULT_OUT).read(), config.get('sync', 'every_minutes'),
                             tz=config.get('identity', 'timezone', 'UTC'))
         session = values.get('tmux_session') or config.PROJECT or 'sidequest'
-        if recent and not terminal_note() and subprocess.run(['tmux', 'has-session', '-t', '=' + session],
-                                                             capture_output=True).returncode == 0:
+        try:
+            is_open = bool(recent) and not NOTE and BOX.exists(session)
+        except RuntimeError as exc:
+            print('note     ' + str(exc))
+            is_open = False
+        if is_open:
             print(recent + '; session ' + session + ' is open')
             for line in personal_sessions(False)[0]:
                 print(line)
             if not args.no_attach:
-                tmux.attach(session)
+                BOX.attach(session)
             return 0
         if recent:
             print(recent + '; building without network')
@@ -191,7 +199,10 @@ def main():
 
     def close_window(name):
         if not note:
-            subprocess.run(['tmux', 'kill-window', '-t', session_name + ':=' + name], capture_output=True)
+            try:
+                BOX.close_window(session_name, name)
+            except RuntimeError:
+                pass
 
     def remove_merged(dry_run):
         if mode == 'off':
@@ -222,9 +233,9 @@ def main():
         else:
             session, windows = session_windows(snapshot, repository)
             if args.rebuild:
-                print('would close tmux session ' + session + ' first; this stops what runs in its windows')
+                print('would close ' + BOX.noun + ' ' + session + ' first; this stops what runs in its windows')
             for window in windows:
-                print('window   ' + window.name.ljust(12) + ' ' + window.path + ('  $ ' + window.command if window.command else ''))
+                print('window   ' + window.name.ljust(12) + ' ' + window.path + shown(window))
             for line in personal_sessions(True)[0]:
                 print(line)
         for command in hooks:
@@ -256,16 +267,16 @@ def main():
         print('windows  not opened: ' + note)
     else:
         session, windows = session_windows(snapshot, repository)
-        if args.rebuild:
-            subprocess.run(['tmux', 'kill-session', '-t', '=' + session], capture_output=True)
-            print('closed   tmux session ' + session + ' (rebuild)')
         try:
-            count = tmux.open_layout(run_command, session, windows)
-            print('windows  ' + str(count) + ' in tmux session ' + session)
+            if args.rebuild:
+                BOX.close_session(session)
+                print('closed   ' + BOX.noun + ' ' + session + ' (rebuild)')
+            count = BOX.open_layout(session, windows)
+            print('windows  ' + str(count) + ' in ' + BOX.noun + ' ' + session)
         except RuntimeError as exc:
             problems += 1
             session = None
-            print('failed   tmux layout: ' + str(exc))
+            print('failed   ' + MODE + ' layout: ' + str(exc))
         lines, session_problems = personal_sessions(False)
         for line in lines:
             print(line)
@@ -286,7 +297,7 @@ def main():
     created = sum(1 for result in results if result.line.startswith('created'))
     print('Done: ' + str(created) + ' created' + (', ' + str(problems) + ' need attention' if problems else '') + '.')
     if session and not args.no_attach:
-        tmux.attach(session)
+        BOX.attach(session)
     return 1 if problems else 0
 
 
