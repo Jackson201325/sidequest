@@ -520,3 +520,8 @@ config.get, settings[section] and a held section, unknown and undeclared setting
 subprocess but not Herdr subcommands, tests left out unless --tests, and data embedded without `</`. Limits:
 static analysis only; dynamic calls, settings read in loops or helpers (jira.start_from, app ttl/wait/running,
 credentials) and calls through variables are not resolved.
+
+2026-11-09: `sidequest map` runs `bin/sidequest-map.py`, and `--open` opens the written page with
+`workspace.browser` or the OS default, as ticket links do. The test first failed at `bin/sidequest map --open`
+with a fake browser from SIDEQUEST_CONFIG. The page stays outside the checkout; nothing is fetched or written
+elsewhere.

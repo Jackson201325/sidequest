@@ -1,5 +1,6 @@
 """bin/sidequest-map.py: a read-only map of calls, file writes, config reads and programs."""
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -138,6 +139,22 @@ class CodeMapTests(unittest.TestCase):
             ran = subprocess.run([sys.executable, str(ROOT / 'bin/sidequest-map.py'), '--root', str(self.root), '--json'],
                                  capture_output=True, text=True)
             self.assertEqual(json.loads(ran.stdout)['config']['unknown'], [['jira', 'typo']])
+
+    def test_sidequest_map_opens_the_page_in_the_configured_browser(self):
+        with tempfile.TemporaryDirectory() as out:
+            page, opened = Path(out) / 'map.html', Path(out) / 'opened'
+            browser = Path(out) / 'browser'
+            browser.write_text('#!/bin/sh\nprintf %s "$1" > "$OPENED"\n')
+            browser.chmod(0o755)
+            settings = Path(out) / 'config.json'
+            settings.write_text(json.dumps({'workspace': {'browser': str(browser)}}))
+            env = {**os.environ, 'SIDEQUEST_CONFIG': str(settings), 'OPENED': str(opened)}
+            ran = subprocess.run([sys.executable, '-B', str(ROOT / 'bin/sidequest'), 'map', '--root', str(self.root),
+                                  '--out', str(page), '--open'], capture_output=True, text=True, env=env)
+            self.assertEqual(ran.returncode, 0, ran.stderr)
+            self.assertIn(str(page), ran.stdout)
+            self.assertIn('sidequest/store.py', page.read_text())
+            self.assertEqual(opened.read_text(), page.resolve().as_uri())
 
 
 if __name__ == '__main__':

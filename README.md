@@ -506,7 +506,8 @@ No screenshots are uploaded automatically. Re-capture when UI changes make them 
 ### Code map (for development)
 
 ```sh
-./bin/sidequest-map.py            # prints the path of the HTML page; open it in a browser
+./bin/sidequest map --open         # writes the HTML page and opens it in your browser
+./bin/sidequest map                # only prints the path of the page
 ```
 
 The page shows each module by layer, who calls whom, file writes, config and

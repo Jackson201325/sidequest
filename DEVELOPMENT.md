@@ -96,7 +96,8 @@ required. `workspace.agent_command` selects the agent CLI (default claude).
 No scheduler, check-in tool or application/database management is included.
 
 `bin/sidequest-map.py` writes a code map for developers: one self-contained HTML page (default in
-the system temporary folder, `--out` to move it; `--json` prints the scan; `--tests` adds test modules).
+the system temporary folder, `--out` to move it; `--json` prints the scan; `--tests` adds test modules; `--open` opens the page in `workspace.browser`
+or the OS default). `sidequest map` runs the same command.
 sidequest/codemap.py reads the source with `ast` only, never imports or runs it, and lists calls,
 imports, file writes, config.KEYS reads, environment variables and external programs per function.
 sidequest/codemap_view.py renders it. Its config check flags settings with no direct read; settings

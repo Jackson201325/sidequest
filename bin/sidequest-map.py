@@ -2,6 +2,7 @@
 """Write an interactive HTML map of this checkout: calls, file writes, config reads and programs."""
 import argparse
 import json
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -13,6 +14,7 @@ parser.add_argument('--root', type=Path, default=Path(__file__).resolve().parent
 parser.add_argument('--out', type=Path, default=Path(tempfile.gettempdir()) / 'sidequest-map.html', help='HTML file to write')
 parser.add_argument('--tests', action='store_true', help='include test modules')
 parser.add_argument('--json', action='store_true', help='print the scan as JSON instead of writing HTML')
+parser.add_argument('--open', action='store_true', help='open the page in workspace.browser or the default browser')
 args = parser.parse_args()
 try:
     data = codemap.scan(args.root, tests=args.tests)
@@ -22,6 +24,10 @@ try:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(codemap.render(data), encoding='utf-8')
         print(args.out)
-except (OSError, SyntaxError, ValueError) as exc:
+        if args.open:
+            from sidequest import config, terminal
+            terminal.open_browser(lambda command: subprocess.run(command, check=True),
+                                  args.out.resolve().as_uri(), config.get('workspace', 'browser'))
+except (OSError, SyntaxError, ValueError, subprocess.CalledProcessError) as exc:
     print('sidequest-map: ' + str(exc), file=sys.stderr)
     raise SystemExit(2)
