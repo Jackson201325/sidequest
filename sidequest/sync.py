@@ -152,6 +152,29 @@ def fresh(snapshot, every_minutes, now=None, tz='UTC'):
             (at + timedelta(minutes=int(every_minutes))).strftime('%H:%M') + ' (sync.every_minutes ' + str(every_minutes) + ')')
 
 
+def extra_window(entry, root):
+    """A Window from one {name, command?, cwd?, at?, stay?, keys?} entry; cwd defaults to `root`."""
+    command = entry.get('command')
+    if command and entry.get('stay'):
+        command = 'trap : INT; ' + command + '; exec "${SHELL:-/bin/sh}"'
+    return Window(entry['name'], str(Path(entry.get('cwd') or root).expanduser()), command, entry.get('at') == 'end',
+                  entry.get('keys') or '')
+
+
+def personal_sessions(sessions, project_session, home):
+    """[(name, windows or None, note)] for the `sessions` setting, in order; a name the project's own
+    session uses is skipped (windows None) so the two never mix."""
+    rows = []
+    for name, entries in (sessions or {}).items():
+        if name == project_session:
+            rows.append((name, None, 'skipped: this project already uses that tmux session'))
+            continue
+        windows = [extra_window(entry, home) for entry in entries if entry.get('at') != 'end'] + \
+                  [extra_window(entry, home) for entry in entries if entry.get('at') == 'end']
+        rows.append((name, windows, ''))
+    return rows
+
+
 def layout(snapshot, worktrees, extras, root, remembered=None):
     """The session's windows in order: extras at the start, the main checkout, then one window per
     worktree by the date the ticket was first assigned to you (a PR without a ticket: when it was
@@ -163,15 +186,8 @@ def layout(snapshot, worktrees, extras, root, remembered=None):
     assigned = {row.get('key'): row.get('first_assigned_at') for row in (sources.get('jira') or {}).get('tickets') or []}
     opened = {row.get('branch'): row.get('created_at') for row in (sources.get('prs') or {}).get('open_prs') or []}
 
-    def extra(entry):
-        command = entry.get('command')
-        if command and entry.get('stay'):
-            command = 'trap : INT; ' + command + '; exec "${SHELL:-/bin/sh}"'
-        return Window(entry['name'], str(Path(entry.get('cwd') or root).expanduser()), command, entry.get('at') == 'end',
-                      entry.get('keys') or '')
-
-    start = [extra(entry) for entry in extras if entry.get('at') != 'end']
-    end = [extra(entry) for entry in extras if entry.get('at') == 'end']
+    start = [extra_window(entry, root) for entry in extras if entry.get('at') != 'end']
+    end = [extra_window(entry, root) for entry in extras if entry.get('at') == 'end']
     windows = []
     if worktrees:
         path, branch = worktrees[0]

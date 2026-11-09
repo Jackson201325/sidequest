@@ -20,6 +20,8 @@ in it, nothing is booked or running there, it has no uncommitted or untracked ch
 is in the merged head, and GitHub, asked at that moment, still reports the PR merged with that head.
 --when-due syncs only when the last sync is older than sync.every_minutes; before that it attaches to
 the open session, or builds it without network. --all does this for every project in turn, each in its own tmux session, then attaches to the first.
+The `sessions` setting names personal tmux sessions (for example dotfiles) with workspace.windows-style
+windows; each run builds them too, without network, and never mixes them with the project's session.
 Exit 0: done; 1: something was blocked or failed (listed);
 2: usage or settings.
 """
@@ -67,7 +69,8 @@ if '--all' in sys.argv[1:]:
 try:
     from sidequest import app_booking, cleanup, collector, config, github, sync, tmux, updates
 except ValueError as exc:
-    raise SystemExit('sidequest up: ' + str(exc))
+    print('sidequest up: ' + str(exc), file=sys.stderr)
+    raise SystemExit(2)
 from sidequest.snapshots import SnapshotStore
 from sidequest.terminal import run_command
 from sidequest.workspace import GitWorkspace
@@ -86,6 +89,28 @@ def session_windows(snapshot, repository):
     session = values.get('tmux_session') or config.PROJECT or 'sidequest'
     remembered = sync.remember_order(config.STATE_DIR / 'window-order.json', snapshot)
     return session, sync.layout(snapshot, parse_worktrees(listed), extras, root, remembered)
+
+
+def personal_sessions(dry_run):
+    """(lines, problems): build each tmux session in the `sessions` setting (no network), or list it."""
+    project_session = config.get('workspace', 'tmux_session') or config.PROJECT or 'sidequest'
+    lines, problems = [], 0
+    for name, windows, note in sync.personal_sessions(config.SETTINGS.get('sessions'), project_session,
+                                                      str(Path.home())):
+        if windows is None or not windows:
+            lines.append('session  ' + name + ' ' + (note or 'skipped: no windows'))
+        elif dry_run:
+            lines.append('session  ' + name)
+            lines += ['window   ' + window.name.ljust(12) + ' ' + window.path +
+                      ('  $ ' + window.command if window.command else '') for window in windows]
+        else:
+            try:
+                tmux.open_layout(run_command, name, windows)
+                lines.append('session  ' + name + ': ' + str(len(windows)) + ' windows')
+            except RuntimeError as exc:
+                problems += 1
+                lines.append('failed   tmux session ' + name + ': ' + str(exc))
+    return lines, problems
 
 
 def terminal_note():
@@ -134,6 +159,8 @@ def main():
         if recent and not terminal_note() and subprocess.run(['tmux', 'has-session', '-t', '=' + session],
                                                              capture_output=True).returncode == 0:
             print(recent + '; session ' + session + ' is open')
+            for line in personal_sessions(False)[0]:
+                print(line)
             if not args.no_attach:
                 tmux.attach(session)
             return 0
@@ -198,6 +225,8 @@ def main():
                 print('would close tmux session ' + session + ' first; this stops what runs in its windows')
             for window in windows:
                 print('window   ' + window.name.ljust(12) + ' ' + window.path + ('  $ ' + window.command if window.command else ''))
+            for line in personal_sessions(True)[0]:
+                print(line)
         for command in hooks:
             print('would run ' + command)
         print('Dry run: nothing changed.')
@@ -237,6 +266,10 @@ def main():
             problems += 1
             session = None
             print('failed   tmux layout: ' + str(exc))
+        lines, session_problems = personal_sessions(False)
+        for line in lines:
+            print(line)
+        problems += session_problems
     for command in hooks:
         try:
             argv = shlex.split(command)
