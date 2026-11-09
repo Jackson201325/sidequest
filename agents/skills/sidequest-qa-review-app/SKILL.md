@@ -17,7 +17,9 @@ PR, a configured Heroku pipeline and an approved test account for that review ap
    this login to the HTTPS Heroku host identified for this PR.
 4. Run `{{SIDEQUEST_DATA}} qa-shot APP-123 --review-app` (optionally --pr N).
    Save a criterion-by-criterion report in qa-review/report.md. Record any local
-   commits that are not deployed to the PR's review app.
+   commits that are not deployed to the PR's review app. Do the screen sweep from
+   sidequest-qa-local step 2 here too, with the review app's own data, and add the
+   same "Screen sweep" line to the report.
 5. Present the evidence. Offer to update the PR screenshots only after approval.
 
 Never change Jira, use production credentials, access production data or deploy.

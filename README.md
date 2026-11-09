@@ -143,6 +143,18 @@ Set `github.repository` to `owner/repository`. Set `github.username` to your log
 if omitted, PR discovery uses the currently authenticated gh user. A configured
 username is also useful for identifying your authored PR commits.
 
+When a PR or branch name has no ticket key (a hotfix, for example), link it yourself.
+`github.pr_tickets` maps PR numbers and `github.branch_tickets` maps branch names to
+a ticket. A link wins over a key in the name, joins the PR to that ticket's row, and
+selects that worktree for the ticket. Links do not change status or ownership.
+
+```json
+"github": {
+  "pr_tickets": {"2115": "APP-807"},
+  "branch_tickets": {"hotfix/gift-card-prices": "APP-807"}
+}
+```
+
 ### Jira
 
 Set `jira.site`, `jira.email` and, optionally, `jira.projects`. Create a token in
@@ -164,6 +176,33 @@ your own secret manager. Sidequest reads exported variables; it does not load
 `jira.account_id` can be omitted: Sidequest reads it from Jira's `/myself` endpoint.
 For scoped API tokens, add your site's `jira.cloud_id` so the adapter can use the
 Atlassian API gateway. A missing or rejected token leaves cached data intact.
+
+
+#### Starting tickets (optional)
+
+Sidequest reads Jira only, with one opt-in exception: moving a ticket you start to your
+board's start status. Set `jira.start_status` (for example `In Dev`) to turn it on,
+`jira.start_from` to the comma-separated statuses that move without asking (for example
+`Ready for Dev, Fixing Revisions`) and `jira.start_ask` to those that need a yes (for
+example `Backlog, Blocked`). Any other status, such as review or QA, never moves.
+`sidequest-data jira-start APP-123 [--yes] [--dry-run]` prints `MOVED`, `ALREADY`, `ASK`,
+`SKIPPED` or `WOULD MOVE`; Space n and the sidequest-start skill use it. On a ticket in a
+`jira.start_ask` status, Space n first asks: move it and open the worktree, only open the
+worktree, or Esc to cancel. Your token needs permission to transition issues.
+
+`sidequest-data ticket APP-123 --attachments [DIR]` downloads every attachment into the
+ticket folder's attachments/ (or DIR). `workspace.copy_files` (space-separated, for
+example `.env config/master.key`) lists local files that a newly created worktree gets
+from the main checkout; existing files are never overwritten and symlinks are skipped.
+Space n names the branch `fix/` for a Jira Bug and `feature/` otherwise. Inside tmux it
+then selects the ticket's window, or creates one named after the key, and switches to it;
+in a plain shell it opens the worktree in this terminal. The CLI `--open` always opens a shell.
+
+The standup reads and updates daily reports (`YYYY-MM-DD.md`) in `workspace.reports_dir`,
+or `reports/` beside the snapshots folder when it is not set. `sidequest --report` shows the
+newest one through `$PAGER` (`less -R` by default) and says when it is not today's. A project
+can replace that view with its own program: `workspace.report_command` runs instead, with the
+other arguments passed on (`sidequest --report --refresh` runs `COMMAND --refresh`).
 
 ### Heroku, optional
 
@@ -214,11 +253,26 @@ Jira details for tickets named in those PRs. It separates work into:
 | Waiting | Jira assignment or a handoff points to another owner |
 | Clarify | The available evidence does not establish who acts next |
 
-Activity shows Jira/GitHub events. Work log shows dated commit evidence. Plan (`p`)
+Activity shows Jira/GitHub events, including Jira status moves and assignee changes.
+Work log shows dated commit evidence. Plan (`p`)
 shows planning sections from the external plan file; Updates (`d`) shows explicit
 Updates, implementation progress and recorded QA/test results from that same file.
 Nested sections stay with their parent, fenced examples stay literal, and unknown
-headings remain in Plan. Editing the file refreshes both views without rewriting it.
+headings remain in Plan, except open-question sections, which show in Questions.
+Editing the file refreshes both views without rewriting it.
+
+Questions (`c`) shows the ticket's decision record, `questions.md` in the same
+ticket folder: what is not asked yet, what waits for an answer, and each answer with
+the decision it led to. Only `sidequest-data questions APP-123 add|asked|answer|decision|list`
+writes it; the dashboard never edits it. Meetings (`m`) shows `meetings.md` from the
+ticket folder, newest meeting first. Sidequest does not record meetings; any notes
+tool that appends `## <date> · <scope>` sections to that file works. Overview shows
+the unanswered-question count and the latest meeting.
+
+For a ticket with a local worktree, the card adds a Local line from local Git only:
+commits not pushed, uncommitted files, commits behind the base ref (last fetch) and
+the QA screenshot state when the branch changes UI files. Your own tickets with
+missing or stale screenshots get a "Space s → QA locally" hint.
 Flow summarizes the current workflow stage.
 Standup drafts from evidence rather than estimating hours or inventing progress.
 
@@ -249,6 +303,19 @@ the agent and returns when it exits. The command defaults to `claude`; set
 as its final argument. Those instructions are bundled; global skill installation
 is not required. tmux uses windows/panes; Herdr uses tabs/panes in the caller's workspace.
 
+To use your own workflows instead, set `workspace.agent_tasks` to a list of
+`{"label", "prompt", "skill"}` objects. `{key}` in the prompt becomes the ticket key, and
+`skill` (optional) is a Markdown file the agent is pointed at: the prompt ends with
+`(use the NAME skill: PATH)`. The list replaces the bundled presets; "Custom prompt..."
+stays last. For example:
+
+```json
+"agent_tasks": [
+  {"label": "Ship the ticket", "prompt": "ship {key}", "skill": "~/my-skills/ship.md"},
+  {"label": "Review the branch", "prompt": "review the branch for {key}"}
+]
+```
+
 For direct use in Codex or Claude Code, preview an installation, then install:
 
 ```sh
@@ -258,9 +325,31 @@ For direct use in Codex or Claude Code, preview an installation, then install:
 ./bin/sidequest-data skills --dest ~/.codex/skills --check
 ```
 
-The installer binds helpers to this clone's absolute paths. Keep the clone in
+Each installed skill is a short stub with the skill's name and description. It tells
+the agent to run `sidequest-data skill NAME` (for example `skill ship`) and follow
+what it prints, so the steps always come from this clone and from the current project.
+The installer binds the stubs to this clone's absolute paths. Keep the clone in
 place. It detects drift and refuses to overwrite user-edited skills. In a new
 agent session, invoke a skill by name, for example `$sidequest-start APP-123`.
+
+### Project additions to a skill
+
+A project adds its own steps without copying a skill: put only the differences in
+`~/.config/sidequest/projects/NAME/skills/WORKFLOW.md`, where WORKFLOW is `start`, `ship`,
+`feedback`, `qa-local`, `qa-review-app` or `triage`. `sidequest-data skill ship` prints the
+generic steps, then a "Project additions" section that wins where the two differ.
+
+Commands also belong in settings rather than in skill text: `checks.test` (it may use
+`{files}` for the test files to run) and `checks.lint`. When either is set, or `app` is
+configured, `sidequest-data skill NAME` starts with a "Project commands" block naming them
+and the `sqapp` booking, and the generic steps refer to it. A replace version is printed as
+written, without the block.
+
+When a project's flow differs in structure, write the whole skill instead as
+`skills/WORKFLOW.replace.md`. A replace version wins over the generic skill and over any
+additions file. Front matter is dropped, and `{{SIDEQUEST_DATA}}` / `{{SIDEQUEST_HOME}}` are
+filled in. The file may be a link, for example to a skill kept in another repository.
+Space s uses the same text. A project with neither file gets the generic skill.
 
 The helper scripts are available without an agent:
 
@@ -342,7 +431,7 @@ still supported for users who prefer monochrome output.
 `w` focuses a matching worktree tab, creating a tab when needed. Space `s` starts the configured assistant in a new
 pane/tab. Space `n` and CLI `workspace --open` keep their foreground shell behavior;
 exit returns to the dashboard. Herdr never creates Git worktrees on Sidequest's
-behalf. Full automatic `tw` startup/sync/cleanup is not included.
+behalf. `sidequest up` lays out tmux only; it does not lay out Herdr yet.
 
 `workspace.terminal` accepts `auto` (default), `shell`, `tmux` or `herdr`.
 `SIDEQUEST_TERMINAL` overrides it for one invocation. Auto prefers active tmux,
@@ -383,9 +472,10 @@ Edge. Put a specification at the ticket's external `APP-123/qa/shots.json`:
 ```
 
 Adapt the paths, text and clicks to your app. If login is needed, supply your own
-local test account through `SIDEQUEST_QA_EMAIL` and `SIDEQUEST_QA_PASSWORD` in the
-environment. No default login is supplied. `SIDEQUEST_QA_BROWSER` selects a browser
-executable when discovery is insufficient.
+local test account: `qa.email` in the settings and `SIDEQUEST_QA_PASSWORD` in the
+environment (the password is never a setting). No default login is supplied. `qa.browser`
+selects a browser executable when discovery is insufficient. A shots.json without
+`base_url` uses `app.url`, else `http://localhost:3000`.
 
 ```sh
 ./bin/sidequest-data qa-shot APP-123
@@ -411,7 +501,7 @@ No screenshots are uploaded automatically. Re-capture when UI changes make them 
 | `h/l`, Enter | Switch between the list and details |
 | `1`–`4` | All, Needs me, Waiting, Clarify |
 | `/` | Search |
-| `a/p/d/v/s/f/u` | Activity, Plan, Updates, Overview, Work log, Flow, Standup |
+| `a/p/d/c/m/v/s/f/u` | Activity, Plan, Updates, Questions, Meetings, Overview, Work log, Flow, Standup |
 | `o/O` | Choose or reverse a sort |
 | `+/-`, `=` | Resize sections or reset the split |
 | `r`, `e` | Refresh Jira/GitHub, or optional Heroku status |
@@ -422,9 +512,174 @@ No screenshots are uploaded automatically. Re-capture when UI changes make them 
 | `y` | Copy standup with macOS pbcopy; --standup prints it on any platform |
 | `?`, `q` | Help, quit |
 
+## Shared local app (sqapp)
+
+Some projects run one local app (for example a Docker Compose stack) that every
+worktree shares. `bin/sqapp` lets one worktree at a time use it, so two people or
+agents never switch the app under each other. It is optional; configure `app`:
+
+```json
+"app": {
+  "url": "http://localhost:3000",
+  "switch_command": "make up",
+  "current_command": "docker inspect my-web --format '{{range .Mounts}}{{if eq .Destination \"/app\"}}{{.Source}}{{end}}{{end}}'",
+  "running_command": "docker inspect -f '{{.State.Running}}' my-web",
+  "required_files": ".env"
+}
+```
+
+| Command | Action |
+| --- | --- |
+| `sqapp` | Book the app for this worktree and run `switch_command` there (skipped when it already runs this worktree) |
+| `sqapp --wait` | Same, but wait up to `wait_minutes` (default 9) for the current user |
+| `sqapp --release` | Free the app when you finish testing |
+| `sqapp --status` | Who has it booked and which worktree it runs |
+| `sqapp --force` | Take a live booking (for people, not agents) |
+
+Exit code 75 means another worktree has it; retry later. A booking expires
+`ttl_minutes` (default 30) after its last `sqapp` call. Commands run without a
+shell, in the worktree. `current_command` prints the folder the app runs;
+`running_command` must exit 0 and not print `false` when the app is up. The lock
+lives in the Sidequest state folder, so each configuration has its own booking.
+The dashboard header shows `App APP-12 · idle 2m` or `App free` when `app` is set.
+`sidequest-data app` is the same command.
+
 ## Configuration and local storage
 
-`SIDEQUEST_CONFIG=/absolute/path/config.json` selects another config file. The
+### Adopt a project
+
+Everything Sidequest knows about you and your projects lives outside this repository:
+
+```
+~/Documents/sidequest/                    the app: generic, no project values
+~/.config/sidequest/config.json           you: identity, shared by every project
+~/.config/sidequest/projects/NAME/
+    config.json                           the project: Jira, GitHub, repo, worktrees, app, qa, checks, credentials
+    skills/                               optional: WORKFLOW.md additions or WORKFLOW.replace.md
+macOS Keychain (or your environment)      secret values only
+~/.local/{share,state}/sidequest/projects/NAME/   data, snapshots and the app booking (written by Sidequest)
+```
+
+1. `sidequest-data project init NAME --repo PATH` writes the profile from `config.example.json`,
+   with the repository, worktrees folder, tmux session and credential references filled in.
+2. Fill in the sections you use; an empty value keeps that part off.
+3. Store each secret you need with the `security add-generic-password …` command that init printed.
+   `credentials` names where a secret lives (`keychain:SERVICE`, `keychain:SERVICE/ACCOUNT` or
+   `env:NAME`) and refuses anything else, so a secret can never be written to the file. An
+   environment variable (`SIDEQUEST_JIRA_TOKEN`, `SIDEQUEST_REVIEW_EMAIL`/`_PASSWORD`,
+   `SIDEQUEST_QA_PASSWORD`) still wins over the reference.
+4. `sidequest-data project check`, inside the project, lists each part as OK, MISSING, FAIL or OFF
+   (repository, identity, Jira and its token, GitHub sign-in, Heroku, shared app, checks, logins,
+   project skills) and exits 1 on a FAIL. It never prints a secret.
+5. Optional: add `skills/WORKFLOW.md` or `skills/WORKFLOW.replace.md` (see "Project additions to a skill").
+
+### Prepare the workspace (`sidequest up`)
+
+`sidequest up` collects the project's sync data, fetches origin and creates a worktree for each
+sync ticket (`sync.tickets_jql`) and each of your open PRs that has none, reusing existing
+branches (`fix/` for a new Bug branch, `feature/` otherwise) and copying `workspace.copy_files`.
+Tickets with a merged PR are skipped. Then the tmux session (`workspace.tmux_session`) gets one
+window per worktree, in the order the tickets were first assigned to you (remembered after a ticket
+leaves your list), the main checkout first, plus `workspace.windows`:
+
+```json
+"windows": [
+  {"name": "queue", "command": "sidequest", "at": "start", "stay": true},
+  {"name": "report", "command": "sidequest --report", "at": "end"},
+  {"name": "editor", "keys": "nvim", "at": "end"}
+],
+"on_up": ["~/project/tools/sync-agent-rules -q"]
+```
+
+`stay` leaves a shell when the command ends; `keys` is typed into a new window's shell once, so
+aliases work. Windows are reused and moved, never closed; your own windows stay, after the
+worktrees. `on_up` commands run last, then the session is attached (`--no-attach` leaves it).
+After a successful fetch it also keeps branches current, the way most people would by hand:
+each branch takes new commits from its own origin branch (fast-forward only), local `main` follows
+`origin/main`, a branch never pushed is rebased onto the base, and a pushed branch that is behind
+the base is listed (`--update`, or `sync.update: on`, merges the base in). A worktree is left alone
+while a merge or rebase is in progress, while the app is booked for it, while an agent works in
+it, or when its branch diverged from its origin branch. Uncommitted work is autostashed, a failed
+rebase or merge is aborted, and nothing is ever pushed. `--dry-run` prints the plan, the updates
+("would …"), windows and hooks without changing anything; `--offline` (`-n`) uses the last
+collected data and neither fetches nor updates. `-u` is `--update`. `-r` (`--rebuild`) closes the
+tmux session first and builds it again. This stops what runs in its windows, so save first.
+Short options combine: `sidequest up -rn`.
+
+Before creating anything, it can remove worktrees whose PR merged (`sync.cleanup`: `ask`, the
+default, asks per worktree in a terminal; `on` removes; `off` skips; `--cleanup` considers them
+when off and `--yes` answers yes). A worktree is removed only when you are not in it, the app is
+not booked for it, no agent works in it, it has no uncommitted or untracked files, every commit of
+its branch is in the merged PR's head, and GitHub, asked at that moment, still reports the PR as
+merged with that head. Then its window closes, `git worktree remove` runs without `--force`, and
+the local branch is deleted. The main checkout is never removed; `--offline` and a run without a
+terminal (unless `--yes`) remove nothing.
+
+### Start one ticket (`sidequest start`)
+
+`sidequest start APP-123` does what Space `n` does in the dashboard, from a shell or an agent. It
+moves the ticket to `jira.start_status` (`jira.start_from` statuses move; `jira.start_ask` statuses
+need `-y`; `--no-move` leaves Jira alone), creates or reuses its worktree (`--prefix
+fix|feature|hotfix|chore` for a new branch), runs `sidequest up -n --no-attach` so its window
+exists, selects that window and prints `DIR <worktree>`. A bare number takes the first of
+`jira.projects` (`sidequest start 123` → `APP-123`). A refused move is noted; the worktree is still
+made.
+
+### Several projects
+
+Each project gets a profile: `~/.config/sidequest/projects/NAME/config.json` (NAME uses
+lowercase letters, digits, `-` and `_`). `~/.config/sidequest/config.json` keeps the settings
+every project shares, such as `identity`; a profile's sections are applied over it, key by key.
+Sidequest chooses the project in this order:
+
+1. `--project NAME` on any command (`sidequest`, `sidequest-data`, `sqapp`) or `SIDEQUEST_PROJECT`.
+2. The profile whose `workspace.repository` or `workspace.worktrees_dir` holds the current
+   folder (the deepest match), so agents and `sqapp` inside a worktree need no flag.
+3. The only profile, when there is one.
+
+With several profiles and none chosen (for example in `~`), `sidequest up` and `sidequest start`
+do not guess: they name the projects and exit 2. In a terminal, `sidequest` and `sidequest up`
+open the project overview instead. `sidequest projects` opens it from anywhere:
+
+```
+ > acme          tmux: running   18 windows  synced 08:31
+                 repo ~/code/acme
+                 13 worktrees · app booked: APP-766
+   globex        tmux: none                  synced never
+```
+
+`j`/`k` choose a project. Enter or `a` attaches its tmux session, or builds it with
+`sidequest up -n` when there is none. `u` runs `sidequest up`. `r` runs `sidequest up -r` after
+it asks. `d` runs a dry run. `s` asks for a ticket and runs `sidequest start`. `q` opens the
+project's dashboard. `c` runs `sidequest-data project check`. Esc quits. Without a terminal,
+`sidequest projects` prints the list. The overview only reads: each project's settings, its
+snapshot time, its app booking, `git worktree list` and `tmux list-windows`.
+
+Each profile keeps its own data, snapshots and app booking in
+`~/.local/{share,state}/sidequest/projects/NAME/`. Commands that Sidequest starts keep its
+project. `sidequest-data project` shows the selected project and its folders. A profile
+folder can also hold `skills/WORKFLOW.md` add-ons (see "Project additions to a skill").
+Without a `projects/` folder, everything works as before with one `config.json`.
+
+`SIDEQUEST_CONFIG=/absolute/path/config.json` selects one config file and ignores profiles. Every
+setting can also come from an environment variable named `SIDEQUEST_<SECTION>_<KEY>`,
+which wins over the file: `SIDEQUEST_JIRA_SITE`, `SIDEQUEST_GITHUB_REPOSITORY`,
+`SIDEQUEST_APP_SWITCH_COMMAND` and so on. `SIDEQUEST_JIRA_PROJECTS` takes a
+comma-separated list; `SIDEQUEST_GITHUB_PR_TICKETS` and `..._BRANCH_TICKETS` take JSON.
+An unknown `SIDEQUEST_<SECTION>_...` name is an error, so typos do not pass silently.
+`SIDEQUEST_JIRA_TOKEN` and `SIDEQUEST_QA_PASSWORD` stay credentials, never settings; the file
+refuses any key named like a token, password, secret or API key. `SIDEQUEST_DATA_DIR` and
+`SIDEQUEST_STATE_DIR` move the cache and state folders, so a small wrapper script per
+project can keep projects apart:
+
+```sh
+#!/bin/sh
+export SIDEQUEST_JIRA_SITE=https://other-company.atlassian.net SIDEQUEST_JIRA_PROJECTS=OPS
+export SIDEQUEST_GITHUB_REPOSITORY=other-org/app
+export SIDEQUEST_DATA_DIR=~/.local/share/sq-other SIDEQUEST_STATE_DIR=~/.local/state/sq-other
+exec ~/Documents/sidequest/bin/sidequest "$@"
+```
+ The
 `XDG_CONFIG_HOME`, `XDG_DATA_HOME` and `XDG_STATE_HOME` conventions are supported.
 `config.example.json` lists the available settings, including optional browser,
 tmux session, local repository and artifact folders. The default timezone is UTC.
@@ -466,7 +721,7 @@ and exits 3. There is no scheduler or check-in service.
 | Old rows after a failed refresh | Cached data is being retained; the error and source timestamp explain why |
 | No local work log | Configure workspace.repository (or SIDEQUEST_REPO) and identity.git_author; branch history compares with workspace.base_ref |
 | No Heroku status | Configure the correct pipeline and check the account's access; provisioned does not always mean Web up |
-| Missing browser or QA login | Select SIDEQUEST_QA_BROWSER and provide the appropriate local/review test credentials |
+| Missing browser or QA login | Set qa.browser and provide the appropriate local/review test credentials |
 | Skill drift | --check reports differences; preserve user edits rather than overwriting them |
 | Native Windows | Use a macOS or Linux environment; native Windows curses is unsupported |
 
@@ -476,7 +731,7 @@ Workspace actions share a coordinator with separate Git planning/execution and
 shell/tmux/Herdr adapters. See [ARCHITECTURE.md](ARCHITECTURE.md) for module ownership
 and [integration specs](specs/workspace-integrations.md) for behavior and planned
 Herdr/deployment integration requirements. Executable specs run in the normal
-test suite. The full portable `tw` startup workflow is not implemented.
+test suite.
 
 ```sh
 ./bin/check

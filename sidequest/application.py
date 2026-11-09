@@ -1,6 +1,7 @@
 """Workspace use cases shared by CLI and TUI; no curses or UI model dependency."""
 from dataclasses import replace
 from pathlib import Path
+import shlex
 import shutil
 
 from sidequest.repository import repository_from
@@ -18,9 +19,13 @@ class WorkspaceWorkflow:
         plan = self.workspace.preview(key, summary, issue_type, prefix, base)
         return self.workspace.apply(plan) if apply else plan.result()
 
-    def start(self, key, summary, issue_type='', prefix=None, base=None):
+    def start(self, key, summary, issue_type='', prefix=None, base=None, window=False):
+        """Create/reuse the worktree, then open it: its own window when asked and the terminal has
+        windows (tmux), else a foreground shell (the CLI --open contract)."""
         ready = self.prepare(key, summary, issue_type, prefix, base, apply=True)
-        return replace(self.terminal.launch(key, ready['path'], foreground=True), key=key, workspace=ready)
+        opener = getattr(self.terminal, 'start_window', None) if window else None
+        launched = opener(key, ready['path']) if opener else self.terminal.launch(key, ready['path'], foreground=True)
+        return replace(launched, key=key, workspace=ready)
 
     def open(self, key, path):
         return self.terminal.launch(key, path)
@@ -33,7 +38,8 @@ def build_workflow(settings, environ, run=run_command):
     """Capture explicit settings once; select only managed terminals with caller context."""
     values = dict(settings.get('workspace', {}))
     workspace = GitWorkspace(repository_from(environ, settings) or '.',
-                             values.get('worktrees_dir'), values.get('base_ref') or 'origin/main')
+                             values.get('worktrees_dir'), values.get('base_ref') or 'origin/main',
+                             shlex.split(values.get('copy_files') or ''))
     shell = environ.get('SHELL') or '/bin/sh'
     mode = environ.get('SIDEQUEST_TERMINAL') or values.get('terminal', 'auto')
     if mode not in ('auto', 'shell', 'tmux', 'herdr'):

@@ -16,6 +16,14 @@ class WorkflowToolTests(unittest.TestCase):
         return subprocess.run([sys.executable, '-B', str(ROOT / 'bin/sidequest-data'), *args],
                               cwd=folder, env=env, capture_output=True, text=True)
 
+    def test_jira_start_is_off_until_configured_and_keys_are_checked(self):
+        with tempfile.TemporaryDirectory() as folder:
+            off = self.invoke(folder, 'jira-start', 'APP-12')
+            self.assertEqual(off.returncode, 1)
+            self.assertIn('SIDEQUEST_JIRA_START_STATUS', off.stderr)
+            bad = self.invoke(folder, 'jira-start', 'not-a-key')
+            self.assertEqual(bad.returncode, 2)
+
     def test_portable_branch_and_plan_commands(self):
         with tempfile.TemporaryDirectory() as folder:
             named = self.invoke(folder, 'branch-name', 'APP-12', '--summary', 'Reject empty input', '--type', 'Bug')
@@ -40,6 +48,10 @@ class WorkflowToolTests(unittest.TestCase):
             copies = sorted(dest.glob('sidequest-*/SKILL.md'))
             self.assertEqual(len(copies), 6)
             self.assertTrue(all('{{SIDEQUEST_' not in path.read_text() for path in copies))
+            ship = (dest / 'sidequest-ship/SKILL.md').read_text()
+            self.assertTrue(ship.startswith('---\nname: sidequest-ship\ndescription: '))
+            self.assertIn(str(ROOT / 'bin/sidequest-data') + ' skill ship', ship)
+            self.assertNotIn('Identify what', ship, 'the steps come from the command, not a copy')
             self.assertEqual(self.invoke(folder, 'skills', '--dest', str(dest), '--check').returncode, 0)
             copies[0].write_text('User edit')
             self.assertEqual(self.invoke(folder, 'skills', '--dest', str(dest), '--check').returncode, 1)

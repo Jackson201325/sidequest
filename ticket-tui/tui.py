@@ -8,6 +8,7 @@ import json
 import os
 import queue
 import re
+import shlex
 import subprocess
 import sys
 import threading
@@ -19,19 +20,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sidequest.access import AccessFailure, dashboard_text, failure_for
 from sidequest import config
-from sidequest import qa
+from sidequest import app_booking, qa
 from sidequest import terminal
 from sidequest.application import build_workflow
 
 from core import Store, now, parse_time, rank, tickets_from
 from sidequest.environments import fetch_environments
-from sidequest.ticket_keys import branch_keys, is_key
+from sidequest.ticket_keys import branch_keys, is_key, linked_ticket
 from sidequest.worktrees import parse_worktrees
 from worklog import collect_worklog
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
 from layout import (EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, pr_glyph_offset,
                     relative, scroll_label, table_header, table_row, panel_rects)
 import standup
+import branch_state
 from queue_evidence import EVERY, QueueEvidence
 from detail_views import DetailViews, readable_date, source_age, wrap  # noqa: F401 - readable_date is public
 
@@ -39,7 +41,8 @@ WORKFLOW = Path(__file__).resolve().parents[1]
 ROOT = Path(config.workspace_repository() or WORKFLOW).expanduser().resolve()
 VIEWS = ["All", "Needs me", "Waiting", "Clarify"]
 # Right-pane views: key, tab label, internal name.
-TABS = [("a", "Activity", "Activity"), ("p", "Plan", "Plan"), ("d", "Updates", "Updates"), ("v", "Overview", "Overview"),
+TABS = [("a", "Activity", "Activity"), ("p", "Plan", "Plan"), ("d", "Updates", "Updates"),
+        ("c", "Questions", "Questions"), ("m", "Meetings", "Meetings"), ("v", "Overview", "Overview"),
         ("s", "Work log", "Work log"), ("f", "Flow", "Workflow"), ("u", "Standup", "Standup")]
 TAB_KEYS = {key: name for key, _, name in TABS}
 # Optional per-ticket plans stay outside this source tree.
@@ -69,11 +72,49 @@ AGENT_TASKS = [
 ]
 
 
+def reports_dir(snapshots):
+    """Daily reports (YYYY-MM-DD.md): workspace.reports_dir, else beside the snapshots folder."""
+    configured = config.get('workspace', 'reports_dir')
+    return Path(configured).expanduser() if configured else Path(snapshots).parent / "reports"
+
+
+def show_report(snapshots, forwarded):
+    """--report: workspace.report_command when set (it gets the other arguments and replaces this
+    process), else the newest daily report through $PAGER."""
+    command = config.get('workspace', 'report_command')
+    if command:
+        argv = shlex.split(command) + forwarded
+        os.execvp(argv[0], argv)
+    folder = reports_dir(snapshots)
+    files = sorted(folder.glob('[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9].md')) if folder.is_dir() else []
+    if not files:
+        print(f"No report yet in {folder}.")
+        return 1
+    newest = files[-1]
+    if newest.stem != now().date().isoformat():
+        print(f"Today's report isn't written yet. Showing {newest.stem}.\n", flush=True)
+    if sys.stdout.isatty():
+        return subprocess.run(shlex.split(os.environ.get('PAGER') or 'less -R') + [str(newest)]).returncode
+    print(newest.read_text(), end='')
+    return 0
+
+
+def agent_tasks():
+    """workspace.agent_tasks when configured (each skill is a file the agent is pointed at), else the bundled presets."""
+    configured = config.get('workspace', 'agent_tasks')
+    if not configured:
+        return AGENT_TASKS
+    return [(task['label'], task['prompt'], Path(task['skill']).expanduser() if task.get('skill') else None)
+            for task in configured] + [("Custom prompt...", None, None)]
+
+
 def agent_prompt(key, phrase, skill):
+    if isinstance(skill, Path):
+        return f"{phrase.replace('{key}', key)} (use the {skill.stem} skill: {skill})"
     prompt = phrase.format(key=key)
     if skill:
-        from sidequest.skills import render
-        prompt += '\n\n' + render(WORKFLOW / 'agents/skills' / skill / 'SKILL.md')
+        from sidequest.skills import instructions
+        prompt += '\n\n' + instructions(skill)
     return prompt
 
 
@@ -115,9 +156,14 @@ def worktrees():
         return result
     try:
         # Same parsing and key rule as sidequest.worktrees.lookup, so w and Space n agree.
+        linked = {}
         for path, branch in parse_worktrees(run(["git", "worktree", "list", "--porcelain"])):
             for key in branch_keys(branch or ""):
                 result[key] = path
+            if linked_ticket(branch=branch or ""):
+                linked[linked_ticket(branch=branch)] = path
+        # A confirmed branch link wins over a separate ticket-named worktree, whatever the listing order.
+        result.update(linked)
     except (RuntimeError, OSError, subprocess.TimeoutExpired):
         pass
     return result
@@ -293,13 +339,14 @@ class App:
         if self.demo:
             self.message = "Demo: agent launch disabled"
             return
+        tasks = agent_tasks()
         choice = self.choose(f"AGENT WORKFLOW FOR {ticket.key}",
-                             [f"{i + 1}  {label}" for i, (label, *_) in enumerate(AGENT_TASKS)],
+                             [f"{i + 1}  {label}" for i, (label, *_) in enumerate(tasks)],
                              "Runs in the ticket's worktree; exit returns here · j/k · Enter · Esc cancel")
         if choice is None:
             self.message = "Agent launch cancelled"
             return
-        _, template, skill = AGENT_TASKS[choice]
+        _, template, skill = tasks[choice]
         if template is None:
             text = self.prompt(f"Agent prompt ({ticket.key})")
             if not text or not text.strip():
@@ -322,14 +369,35 @@ class App:
             self.message = 'Demo: creating worktrees is disabled'
             return
         if not config.workspace_repository():
-            self.message = 'Configure workspace.repository (or SIDEQUEST_REPO) first; Jira stays read-only'
+            self.message = 'Configure workspace.repository (or SIDEQUEST_REPO) first'
             return
         if ticket.key.startswith('PR-') and not any(row.get('key') == ticket.key for row in self.evidence.jira.get('tickets', [])):
             self.message = 'Use the PR branch checkout; creating a ticket worktree needs a Jira key'
             return
         workflow = self.workflow_factory()
-        self.background('workspace', 'Opening local worktree for ' + ticket.key,
-                        lambda: workflow.start(ticket.key, ticket.title), 'launch')
+        target = config.get('jira', 'start_status')
+        move, yes = bool(target), []
+        ask = {name.strip().casefold() for name in (config.get('jira', 'start_ask') or '').split(',') if name.strip()}
+        if move and ticket.status.casefold() in ask:
+            choice = self.choose(f"{ticket.key} IS IN {ticket.status.upper()}",
+                                 [f"1  Move it to {target} and create/open the worktree",
+                                  f"2  Only create/open the worktree (leave it in {ticket.status})"])
+            if choice is None:
+                self.message = 'Start cancelled'
+                return
+            move, yes = choice == 0, ['--yes'] if choice == 0 else []
+
+        def task():
+            # Like a ticket start: move it to the configured start status (ready statuses only;
+            # others are reported, never moved without --yes), then create/open the worktree.
+            if move:
+                try:
+                    self.events.put(("message", run(["sidequest-data", "jira-start", ticket.key, *yes]).strip()))
+                except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
+                    self.events.put(("message", f"Jira move failed for {ticket.key}: {exc}"))
+            return workflow.start(ticket.key, ticket.title, ticket.issue_type, window=True)
+        self.background('workspace', 'Starting ' + ticket.key if move else 'Opening local worktree for ' + ticket.key,
+                        task, 'launch')
 
     def run_foreground(self, action):
         """Temporarily hand this terminal to a shell/agent and restore curses."""
@@ -431,7 +499,7 @@ class App:
         threading.Thread(target=worker, daemon=True).start()
 
     def drain(self):
-        changed = False
+        changed = check_branches = False
         while True:
             try:
                 name, data = self.events.get_nowait()
@@ -442,10 +510,13 @@ class App:
                 changed = self.evidence.apply(name, data) or changed
                 if name == "worktrees":
                     self.refresh_worklog()
+                    check_branches = True
                 elif name == "heroku_error":
                     self.notify(data)
             elif name == "message":
                 self.notify(data)
+            elif name == "branch_state":
+                self.views.branch_states = data
             elif name == "job_done":
                 self.jobs.pop(data, None)
             elif name == 'launch':
@@ -466,6 +537,20 @@ class App:
                 self.refresh_environments(quiet=True)
         if changed:
             self.rebuild()
+        if check_branches:
+            self.refresh_branch_state()
+
+    def refresh_branch_state(self):
+        if not self.demo:
+            folders = {t.key: t.worktree for t in self.tickets if t.worktree and t.lane != "Done"}
+            self.background("branch_state", "Checking local branches", lambda: branch_state.collect(folders),
+                            "branch_state")
+
+    def summary_card(self, ticket):
+        state = self.views.branch_states.get(ticket.key) if ticket.worktree else None
+        return card(ticket, now(), last_commit(ticket, self.evidence.worklog), self.environment(ticket),
+                    self.stale_days, local=[branch_state.summary(state)] if state else [],
+                    hint=branch_state.qa_hint(ticket, state))
 
     def notify(self, text):
         """Show a background result without overwriting what you just did."""
@@ -524,7 +609,7 @@ class App:
         data = standup.preview(self.tickets, self.evidence.worklog, now(), self.standup_time, self.escalate_days, self.stale_days)
         if not self.demo:
             # Optional saved standup: the saved report's section, when it covers this meeting.
-            data["written"] = standup.written(self.snapshots.parent / "reports", data["meeting"])
+            data["written"] = standup.written(reports_dir(self.snapshots), data["meeting"])
         return data
 
     def copy_standup(self):
@@ -545,6 +630,9 @@ class App:
     def details(self, ticket):
         return [row.text for row in self.detail_rows(ticket)]
 
+    def open_question_count(self, ticket):
+        return self.views.open_question_count(ticket, PLANS)
+
     def viewport(self):
         """Panel sizes, page sizes and the wrapped detail rows for the current terminal size."""
         height, width = self.screen.getmaxyx() if getattr(self, "screen", None) else (24, 80)
@@ -555,8 +643,7 @@ class App:
             top, _, panel_h, pw = preview_rect
             detail_width, detail_top = pw - 4, top + 3
             if ticket and self.detail_tab != "Standup":
-                summary = card(ticket, now(), last_commit(ticket, self.evidence.worklog), self.environment(ticket),
-                               self.stale_days)
+                summary = self.summary_card(ticket)
                 summary = summary[:2] if panel_h < 16 else summary
                 detail_top += len(summary) + 1
             lines = wrap(self.detail_rows(ticket), detail_width)
@@ -627,6 +714,14 @@ class App:
     def source_failed(self, name):
         return self.evidence.failed({"Jira": "jira", "GitHub": "prs"}[name])
 
+    def app_booking_label(self):
+        """sqapp's booking when the app is configured, re-read at most every 10 seconds (a tiny local file)."""
+        if not app_booking.configured() or self.demo:
+            return ""
+        if getattr(self, "booking_read_at", None) is None or time.monotonic() - self.booking_read_at > 10:
+            self.booking, self.booking_read_at = app_booking.read(), time.monotonic()
+        return app_booking.label(self.booking)
+
     def header_status(self):
         """Right side of the header: what's loading, else the sort and how fresh the data is."""
         loading = self.loading_line()
@@ -645,8 +740,9 @@ class App:
             age = relative(data.get("generated_at"), now()) or "not loaded"
             return f"{name} {'failed, data ' + age if self.source_failed(name) else age}"
         arrow = "↓" if self.sort_descending else "↑"
+        booking = self.app_booking_label()
         text = (f"Sort: {self.sort_mode} {arrow}  ·  Refreshed " + " · ".join(label(n, d) for n, d in sources)
-                + ("  STALE" if stale else ""))
+                + ("  STALE" if stale else "") + (f"  ·  {booking}" if booking else ""))
         if self.evidence.refresh_errors:
             text = "ERROR · " + text
         return text, curses.A_BOLD if self.evidence.refresh_errors else curses.A_DIM, stale or bool(self.evidence.refresh_errors)
@@ -854,14 +950,15 @@ class App:
                  "VIEWS (details pane)",
                  "  a Activity (Jira + GitHub events only; opens first)   p Plan (tickets/DEMO-###/plan.md)",
                  "  d Updates (progress and recorded results)   v Overview",
+                 "  c Questions (decision record: sidequest-data questions)   m Meetings (meetings.md)",
                  "  s Work log   f Flow   u Standup (y copies it)",
-                 "  The card on top: lane · stage · whose turn · waiting; PR + CI; dates; → your next step.",
-                 "  Activity marks: ✓ approved ✗ changes requested ✎ comment • commit ↻ updated (a bare",
+                 "  The card on top: lane · stage · whose turn · waiting; PR + CI; dates; local branch; → next step.",
+                 "  Activity marks: ✓ approved ✗ changes requested ✎ comment • commit → moved ⇄ assigned ↻ updated (a bare",
                  "  'updated' stamp doesn't say what changed).",
                  "",
                  "OPEN  (press Space, then)",
                  "  j Jira   o PR   w worktree shell   s agent workflows / custom prompt",
-                 "  n create/reuse a local ticket worktree and open a shell; exit returns here",
+                 "  n create/reuse the ticket worktree (fix/ for Bugs) and open it: its tmux window, else a shell",
                  "",
                  "DATA",
                  "  r refresh Jira + GitHub via sidequest-data   e recheck Heroku   o / O choose / reverse sort",
@@ -870,7 +967,7 @@ class App:
                  "",
                  "Text fields: Enter saves, Esc cancels, Ctrl-a/e move, Ctrl-u clears to start.",
                  f"Waiting stays one lane; reminders after {self.stale_days} business days, escalation after {self.escalate_days}.",
-                 "Limits: assigned Jira inventory is paginated; 100 open PRs is an explicit limit. No Jira/GitHub writes from this tool;",
+                 "Limits: assigned Jira inventory is paginated; 100 open PRs is an explicit limit. Only Jira write: Space n moves the ticket when jira.start_status is set;",
                  "Agent command: workspace.agent_command (default claude; configure your preferred CLI).",
                  "Terminal: workspace.terminal or SIDEQUEST_TERMINAL (auto, shell, tmux, herdr).",
                  "", "Press any key to return."]
@@ -1035,6 +1132,8 @@ def main():
     parser.add_argument("--refresh", action="store_true", help="Refresh in background on startup")
     parser.add_argument("--list", action="store_true", help="Print the queue without a TUI")
     parser.add_argument("--standup", action="store_true", help="Print a preview of your next standup and exit")
+    parser.add_argument("--report", action="store_true",
+                        help="Show the newest daily report (or run workspace.report_command) and exit")
     parser.add_argument("--update-report", action="store_true",
                         help="Rewrite the Standup section of today's report with the draft from your commits "
                              "(used by sidequest --update-report; the old file is kept in the snapshot directory/report-backups)")
@@ -1045,6 +1144,8 @@ def main():
     parser.add_argument("--stale-days", type=int, default=2)
     parser.add_argument("--escalate-days", type=int, default=5)
     args = parser.parse_args()
+    if args.report:
+        raise SystemExit(show_report(args.snapshots, [arg for arg in sys.argv[1:] if arg != '--report']))
     if args.stale_days < 1 or args.escalate_days < args.stale_days:
         parser.error("Require 1 <= stale-days <= escalate-days")
     try:
@@ -1082,7 +1183,7 @@ def main():
             sources = (f"Jira {source_age(jira_time)} · GitHub {source_age(app.evidence.prs.get('generated_at'))} · "
                        f"git {source_age(app.evidence.worklog.get('generated_at'))}")
             clock = now()
-            result = standup.update_report(args.snapshots.parent / "reports", data, clock, sources,
+            result = standup.update_report(reports_dir(args.snapshots), data, clock, sources,
                                            args.snapshots / "report-backups")
             if result:
                 print(f"Standup updated in {result['path']} (for {data['meeting']:%a %d %b %H:%M}).")
@@ -1091,7 +1192,8 @@ def main():
                     print('Written from cached results; refresh incomplete: ' + refresh_error, file=sys.stderr)
                     return 1
             else:
-                print(f"No report for {clock:%Y-%m-%d} yet (reports are supplied by you), so nothing was changed. "
+                print(f"No report for {clock:%Y-%m-%d} in {reports_dir(args.snapshots)} yet (reports are supplied by you), "
+                      "so nothing was changed. "
                       f"Draft for {data['meeting']:%a %d %b %H:%M}:\n")
                 print(standup.as_text(data))
                 if refresh_error:

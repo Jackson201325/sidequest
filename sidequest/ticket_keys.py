@@ -28,9 +28,19 @@ def ticket_key(text, known=()):
     return _first_trusted((match.group() for match in KEY.finditer(text or "")), known)
 
 
+def linked_ticket(number=None, branch=""):
+    """A user-confirmed link (github.pr_tickets, github.branch_tickets) for work whose names omit the key."""
+    from sidequest import config
+    by_pr = config.get("github", "pr_tickets", {})
+    if number is not None and str(number) in by_pr:
+        return by_pr[str(number)].upper()
+    return config.get("github", "branch_tickets", {}).get(branch or "", "").upper() or None
+
+
 def pr_ticket(pr, known=()):
-    """Ticket for a PR from its collected `ticket` field, then its title, then its branch."""
-    return next(filter(None, (ticket_key(str(pr.get(field) or ""), known) for field in ("ticket", "title", "branch"))), None)
+    """Ticket for a PR: a confirmed link, then its collected `ticket` field, its title, its branch."""
+    return linked_ticket(pr.get("number"), str(pr.get("branch") or "")) or next(
+        filter(None, (ticket_key(str(pr.get(field) or ""), known) for field in ("ticket", "title", "branch"))), None)
 
 
 def branch_keys(branch):
@@ -42,8 +52,8 @@ def branch_keys(branch):
 
 
 def branch_ticket(branch, known=()):
-    """The ticket a branch is for, when nothing else names it: the first trusted segment key."""
-    return _first_trusted(SEGMENT_KEY.findall(branch) if not branch.startswith("backup/") else [], known)
+    """The ticket a branch is for, when nothing else names it: a confirmed link, then the first trusted segment key."""
+    return linked_ticket(branch=branch) or _first_trusted(SEGMENT_KEY.findall(branch) if not branch.startswith("backup/") else [], known)
 
 
 def mentions(text):

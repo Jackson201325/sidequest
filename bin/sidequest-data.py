@@ -7,17 +7,27 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sidequest.project_flag import take
+
+take(sys.argv)
+try:
+    from sidequest import config
+except ValueError as exc:
+    raise SystemExit('sidequest-data: ' + str(exc))
 from sidequest.access import describe_failure
 from sidequest.collector import DEFAULT_OUT, collect
 from sidequest.jira import client
+from sidequest.qa import attachments_dir
 from sidequest.snapshots import SnapshotStore
+from sidequest.ticket_keys import is_key
 
 FAILURE_LINE = 'sidequest-data-failure: '  # {"text": dashboard message}, read by the dashboard
 LOCAL = {'branch-name': 'sidequest-workspace.py', 'worktree': 'sidequest-worktree.py',
          'workspace': 'sidequest-workspace-create.py', 'plan-init': 'sidequest-plan-init.py',
          'pr-body-check': 'sidequest-pr-body-check.py', 'ship-check': 'sidequest-ship-check.py',
          'qa-shot': 'sidequest-qa-shot.py', 'review-app': 'sidequest-review-app.py',
-         'pr-feedback': 'sidequest-feedback.py', 'skills': 'sidequest-skills.py'}
+         'pr-feedback': 'sidequest-feedback.py', 'skills': 'sidequest-skills.py',
+         'questions': 'sidequest-questions.py', 'app': 'sidequest-app.py'}
 
 
 def main():
@@ -41,8 +51,63 @@ def main():
     ticket.add_argument('key')
     ticket.add_argument('--json', action='store_true')
     ticket.add_argument('--activity', action='store_true')
+    ticket.add_argument('--attachments', metavar='DIR', nargs='?', const='',
+                        help="download every attachment (default: the ticket folder's attachments/)")
+    project = commands.add_parser('project', help='show the selected project; init NAME --repo PATH; check')
+    project.add_argument('action', nargs='?', choices=('show', 'init', 'check'), default='show')
+    project.add_argument('name', nargs='?', help='for init: the new project name')
+    project.add_argument('--repo', help="for init: the project's main checkout")
+    skill = commands.add_parser('skill', help="print a workflow skill with the current project's additions")
+    skill.add_argument('name')
+    start = commands.add_parser('jira-start', help='move a ticket to jira.start_status (opt-in; the only Jira write)')
+    start.add_argument('key')
+    start.add_argument('--yes', action='store_true', help='also move from a jira.start_ask status')
+    start.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
+    if (args.command == 'jira-start' or getattr(args, 'attachments', None) is not None) and not is_key(args.key):
+        parser.error('expected a Jira key such as APP-123')
+    if args.command == 'skill':
+        from sidequest import skills
+        try:
+            print(skills.instructions(args.name), end='')
+        except ValueError as exc:
+            print('sidequest-data: ' + str(exc), file=sys.stderr)
+            return 2
+        return 0
+    if args.command == 'project' and args.action in ('init', 'check'):
+        from sidequest import projects
+        try:
+            if args.action == 'init':
+                if not args.name or not args.repo:
+                    raise ValueError('Usage: sidequest-data project init NAME --repo PATH')
+                lines, failed = projects.init(args.name, args.repo), False
+            else:
+                lines, failed = projects.check()
+        except (OSError, ValueError) as exc:
+            print('sidequest-data: ' + str(exc), file=sys.stderr)
+            return 2
+        print('\n'.join(lines))
+        return 1 if failed else 0
+    if args.command == 'project':
+        print('project: ' + (config.PROJECT or 'none (shared settings only)'))
+        print('settings: ' + str(config.CONFIG_PATH) + (' + ' + str(config.PROJECT_PATH) if config.PROJECT_PATH else ''))
+        print('data: ' + str(config.DATA_DIR))
+        print('state: ' + str(config.STATE_DIR))
+        print('known: ' + (', '.join(config.profiles()) or 'none'))
+        return 0
     try:
+        if args.command == 'jira-start':
+            code, message = client.start_ticket(args.key.upper(), yes=args.yes, dry_run=args.dry_run)
+            print(message, file=sys.stdout if code == 0 else sys.stderr)
+            return code
+        if args.command == 'ticket' and args.attachments is not None:
+            folder = Path(args.attachments) if args.attachments else attachments_dir(args.key.upper())
+            rows = client.download_attachments(args.key.upper(), folder)
+            for row in rows:
+                print(('ERROR ' + row['error'] + ': ' + row['filename']) if row.get('error') else 'SAVED ' + row['path'])
+            if not rows:
+                print('No attachments on ' + args.key.upper())
+            return 1 if any(row.get('error') for row in rows) else 0
         if args.command == 'ticket':
             data = client.fetch_one(args.key.upper(), include_activity=args.activity)
         else:

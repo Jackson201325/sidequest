@@ -57,6 +57,18 @@ class TerminalSpecs(unittest.TestCase):
         self.assertEqual(result.foreground['cwd'], self.path)
         self.assertEqual(self.calls, [])
 
+    def test_start_window_selects_the_ticket_window_or_creates_it_and_switches(self):
+        terminal = TmuxTerminal(self.command, 'project', '/bin/sh')
+        self.assertEqual(terminal.start_window('APP-21', self.path).message, 'Switched to Editor')
+        self.assertEqual(self.calls[1:], [['tmux', 'select-window', '-t', '@3'],
+                                         ['tmux', 'switch-client', '-t', 'project']])
+        self.calls.clear()
+        result = terminal.start_window('APP-22', self.path + '/new')
+        self.assertEqual(self.calls[1:], [['tmux', 'new-window', '-t', 'project:', '-n', 'APP-22', '-c', self.path + '/new'],
+                                         ['tmux', 'select-window', '-t', 'project:APP-22'],
+                                         ['tmux', 'switch-client', '-t', 'project']])
+        self.assertEqual(result.message, 'Switched to APP-22 (new window)')
+
     def test_existing_window_lookup_failure_is_not_silently_replaced_by_a_shell(self):
         def failed(*args, **kwargs):
             raise RuntimeError('tmux unavailable')

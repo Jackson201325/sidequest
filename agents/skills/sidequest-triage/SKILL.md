@@ -18,6 +18,7 @@ are outside this workflow.
    risks and any suggested data cleanup. Never perform data cleanup automatically.
 4. After the user authorizes a fix, use sidequest-start and a scoped branch. Choose
    --prefix hotfix only when requested. Reproduce using fixtures, observe the failing
-   test, implement the smallest fix and run the project's focused and full checks.
+   test, implement the smallest fix and run the project's focused and full checks
+   (tests and lint under Project commands, when listed).
 5. Hand off to sidequest-ship when ready. State what is local, committed, pushed,
    merged or deployed only when there is evidence for each state.

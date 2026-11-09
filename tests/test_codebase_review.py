@@ -54,6 +54,22 @@ class JiraStatusTests(unittest.TestCase):
             self.dates('QA', 'In Dev')
 
 
+class JiraChangeEventTests(unittest.TestCase):
+    def test_workflow_dates_returns_status_and_assignee_changes_with_names(self):
+        page = {'isLast': True, 'values': [
+            {'created': '2026-10-28T10:00:00.000-0300', 'author': {'displayName': 'Example Developer'},
+             'items': [{'field': 'status', 'fromString': 'In Dev', 'toString': 'In Code Review'},
+                       {'field': 'assignee', 'from': 'me', 'fromString': 'Example Developer', 'to': 'rev', 'toString': 'Rae'},
+                       {'field': 'summary', 'fromString': 'Old', 'toString': 'New'}]}]}
+        with patch.object(client, 'jira', return_value=page):
+            dates = client.workflow_dates('APP-42', 'In Code Review', account_id='me')
+        self.assertEqual(dates['jira_changes'], [
+            {'at': '2026-10-28T10:00:00-03:00', 'field': 'status', 'from': 'In Dev', 'to': 'In Code Review',
+             'author': 'Example Developer'},
+            {'at': '2026-10-28T10:00:00-03:00', 'field': 'assignee', 'from': 'Example Developer', 'to': 'Rae',
+             'author': 'Example Developer'}])
+
+
 class SnapshotTests(unittest.TestCase):
     def test_a_snapshot_that_is_not_an_object_is_refused_like_other_bad_files(self):
         for content in ('[]', 'null', '"text"'):
@@ -312,6 +328,25 @@ class ReviewFollowUpTests(unittest.TestCase):
     def test_no_worktree_advice_mentions_both_repository_settings(self):
         source = (ROOT / 'ticket-tui' / 'tui.py').read_text()
         self.assertNotIn('configure workspace.repository and create', source)
+
+
+class WorkspaceChangeBoundaryTests(unittest.TestCase):
+    def test_refresh_and_the_dashboard_never_reach_removal_updates_or_sync(self):
+        import ast
+        files = [path for path in (ROOT / 'ticket-tui').glob('*.py') if not path.name.startswith('test_')]
+        files += [ROOT / 'sidequest/collector.py', ROOT / 'sidequest/snapshots.py', ROOT / 'bin/sidequest-data.py']
+        for path in files:
+            tree = ast.parse(path.read_text())
+            names = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    names.update(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom):
+                    names.update((node.module or '') + '.' + alias.name for alias in node.names)
+                    names.add(node.module or '')
+            with self.subTest(file=path.name):
+                self.assertFalse({name for name in names if any(part in ('cleanup', 'updates', 'sync')
+                                                                 for part in name.split('.'))}, sorted(names))
 
 
 if __name__ == '__main__':

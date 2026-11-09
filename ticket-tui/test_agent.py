@@ -53,6 +53,32 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(split_command("@7", "/wt/a b", agent_argv("handle feedback on DEMO-1")),
                          ["tmux", "split-window", "-h", "-t", "@7", "-c", "/wt/a b", "claude 'handle feedback on DEMO-1'"])
 
+    def test_configured_agent_tasks_replace_the_presets_and_point_at_their_skill(self):
+        from sidequest import config
+        tasks = [{"label": "Handle feedback", "prompt": "handle feedback on {key}", "skill": "/skills/team-feedback.md"},
+                 {"label": "Look around", "prompt": "look at {key}"}]
+        settings = dict(config.SETTINGS, workspace=dict(config.SETTINGS.get("workspace", {}), agent_tasks=tasks))
+        with patch.object(config, "SETTINGS", settings):
+            with patch.object(App, "choose", return_value=None) as choose:
+                self.app.launch_agent(self.ticket)
+            labels = choose.call_args[0][1]
+            self.assertEqual([label.split("  ", 1)[1] for label in labels], ["Handle feedback", "Look around", "Custom prompt..."])
+            split = next(c for c in self.launch(0) if c[1] == "split-window")
+            self.assertEqual(split[-1], "claude 'handle feedback on DEMO-901 (use the team-feedback skill: /skills/team-feedback.md)'")
+            split = next(c for c in self.launch(1) if c[1] == "split-window")
+            self.assertEqual(split[-1], "claude 'look at DEMO-901'")
+
+    def test_bundled_presets_include_the_project_additions(self):
+        from sidequest import config
+        with tempfile.TemporaryDirectory() as folder:
+            addon = Path(folder) / "alpha/skills/feedback.md"
+            addon.parent.mkdir(parents=True)
+            addon.write_text("Reply in the team's review style.")
+            with patch.object(config, "PROJECTS_DIR", Path(folder)), patch.object(config, "PROJECT", "alpha"):
+                split = next(c for c in self.launch(0) if c[1] == "split-window")
+        self.assertIn("Project additions: alpha", split[-1])
+        self.assertIn("Reply in the team", split[-1])
+
     def test_presets_are_self_contained_review_prompts(self):
         for index, phrase in ((0, 'Review the PR feedback for DEMO-901'), (1, 'Review the branch for DEMO-901')):
             calls = self.launch(index)
@@ -74,13 +100,13 @@ class AgentTests(unittest.TestCase):
         self.assertEqual(self.launch(0), [])                  # feedback needs a branch
         self.assertIn("workspace.repository", self.app.message)
 
-    def test_ticket_start_never_calls_personal_tools_or_changes_jira(self):
+    def test_ticket_start_never_calls_personal_tools_or_changes_jira_unless_configured(self):
         for status in ('Ready for Dev', 'Backlog', 'Blocked'):
             self.ticket.status = status
             with patch('tui.run') as command:
                 self.app.start_work(self.ticket)
             command.assert_not_called()
-            self.assertIn('read-only', self.app.message)
+            self.assertIn('workspace.repository', self.app.message)
 
     def test_shared_collection_details_all_arrive_without_blocking_the_queue(self):
         store = Store(":memory:")
