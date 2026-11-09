@@ -512,3 +512,16 @@ fake-server layout, reuse, Main rename, start-and-adopt, controls and attach; th
 overview's tab count; and a real server in a temporary XDG_CONFIG_HOME built both workspaces once over two
 runs (stopped afterwards only when its socket is inside that folder). Auto now prefers Herdr inside Herdr
 for `up`, as the dashboard already did. A Herdr window's command is typed into its shell, which stays.
+
+2026-11-09: `bin/sidequest-map.py`, a read-only code map (calls, imports, file writes, config and environment
+reads, external programs) as one offline HTML page outside the checkout. Tests first failed at the scanner and
+the command: cross-module and method calls, writes such as write_text and os.replace, config reads through
+config.get, settings[section] and a held section, unknown and undeclared settings, programs run through
+subprocess but not Herdr subcommands, tests left out unless --tests, and data embedded without `</`. Limits:
+static analysis only; dynamic calls, settings read in loops or helpers (jira.start_from, app ttl/wait/running,
+credentials) and calls through variables are not resolved.
+
+2026-11-09: `sidequest map` runs `bin/sidequest-map.py`, and `--open` opens the written page with
+`workspace.browser` or the OS default, as ticket links do. The test first failed at `bin/sidequest map --open`
+with a fake browser from SIDEQUEST_CONFIG. The page stays outside the checkout; nothing is fetched or written
+elsewhere.
