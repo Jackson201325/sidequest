@@ -53,8 +53,8 @@ def main():
     ticket.add_argument('--activity', action='store_true')
     ticket.add_argument('--attachments', metavar='DIR', nargs='?', const='',
                         help="download every attachment (default: the ticket folder's attachments/)")
-    project = commands.add_parser('project', help='show the selected project; init NAME --repo PATH; check')
-    project.add_argument('action', nargs='?', choices=('show', 'init', 'check'), default='show')
+    project = commands.add_parser('project', help='show the selected project; init NAME --repo PATH; check; wiring')
+    project.add_argument('action', nargs='?', choices=('show', 'init', 'check', 'wiring'), default='show')
     project.add_argument('name', nargs='?', help='for init: the new project name')
     project.add_argument('--repo', help="for init: the project's main checkout")
     skill = commands.add_parser('skill', help="print a workflow skill with the current project's additions")
@@ -74,13 +74,15 @@ def main():
             print('sidequest-data: ' + str(exc), file=sys.stderr)
             return 2
         return 0
-    if args.command == 'project' and args.action in ('init', 'check'):
+    if args.command == 'project' and args.action in ('init', 'check', 'wiring'):
         from sidequest import projects
         try:
             if args.action == 'init':
                 if not args.name or not args.repo:
                     raise ValueError('Usage: sidequest-data project init NAME --repo PATH')
                 lines, failed = projects.init(args.name, args.repo), False
+            elif args.action == 'wiring':
+                lines, failed = projects.wiring()
             else:
                 lines, failed = projects.check()
         except (OSError, ValueError) as exc:

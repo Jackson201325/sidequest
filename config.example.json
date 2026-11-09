@@ -45,7 +45,8 @@
     "tickets_jql": "",
     "open_prs": "on",
     "update": "off",
-    "cleanup": "ask"
+    "cleanup": "ask",
+    "every_minutes": ""
   },
   "workspace": {
     "repository": "",

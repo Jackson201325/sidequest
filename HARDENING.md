@@ -465,3 +465,26 @@ bin/sidequest-projects.py owns curses and runs the chosen command with SIDEQUEST
 `up -r`. Checked in a throwaway tmux session with two temporary profiles: the list, `d`, the `r` question and
 Esc. Verification: bin/check passed 329 helper/service/spec tests and 203 UI tests (two optional browser checks
 skipped).
+
+2026-11-09: `sidequest up --all`. It runs `sidequest up … --no-attach` once per profile, in name order, with
+SIDEQUEST_PROJECT set, so each project gets its own tmux session; then it attaches to the first. It refuses
+--project (exit 2) and returns the worst exit code. tmux.attach now waits for `tmux attach-session` instead of
+replacing the process, so detaching returns to the caller. Checked with a private tmux server and two temporary
+profiles, through a terminal start command: the first open made both sessions and attached; detaching gave a
+shell; a second open attached without syncing. Verification: bin/check passed 330 helper/service/spec tests and
+203 UI tests (two optional browser checks skipped).
+
+2026-11-09: `sidequest up --when-due` and sync.every_minutes (a whole number of minutes as text; empty means
+always due). sync.fresh compares the sync_tickets snapshot time with now. While it is fresh, an open tmux session
+is only attached (no collection, fetch, cleanup, updates or hooks) and a missing one is built as with --offline.
+`sidequest up` without the option always syncs. Checked with a private tmux server, two temporary profiles and
+`sidequest up --all --when-due` as the terminal start command: the fresh project was built offline, then only
+attached; the project without the setting synced both times.
+
+2026-11-09: `sidequest-data project wiring`. projects.wiring lists every outside connection of the selected
+project: each command setting (checks, app, report_command, agent_command, workspace.browser), each on_up hook and
+window command with a check that its program is on PATH or executable; window keys as TYPED; qa.browser as a file;
+each skill with the file that wins (replace, generic + addition, generic), links resolved, and the installed stubs
+for Claude Code and Codex; secrets as references only. It only reads and exits 1 on a missing command or file. On
+the real profile the first run reported workspace.browser as a missing file; it is a command line (terminal.
+open_browser splits it), so it is now checked as a command, with a test that failed first.

@@ -259,3 +259,34 @@ class LayoutTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class WhenDueTests(unittest.TestCase):
+    SNAPSHOT = {'sources': {'sync_tickets': {'tickets': [], 'generated_at': '2026-11-09T10:00:00+00:00'}}}
+
+    def test_a_recent_sync_is_fresh_and_an_old_or_missing_one_is_due(self):
+        fresh = sync.fresh(self.SNAPSHOT, '120', now='2026-11-09T11:59:00+00:00', tz='UTC')
+        self.assertEqual(fresh, 'fresh    last sync 10:00; next sync after 12:00 (sync.every_minutes 120)')
+        self.assertEqual(sync.fresh(self.SNAPSHOT, '120', now='2026-11-09T12:00:00+00:00', tz='UTC'), '')
+        self.assertEqual(sync.fresh({'sources': {}}, '120', now='2026-11-09T10:01:00+00:00', tz='UTC'), '')
+        self.assertEqual(sync.fresh(self.SNAPSHOT, '', now='2026-11-09T10:01:00+00:00', tz='UTC'), '', 'no setting: always due')
+
+    def test_up_when_due_skips_the_network_while_the_last_sync_is_fresh(self):
+        from datetime import datetime, timezone
+        state, settings = Path(tempfile.mkdtemp()), Path(tempfile.mkdtemp()) / 'settings.json'
+        self.addCleanup(lambda: __import__('shutil').rmtree(state, ignore_errors=True))
+        repo = state / 'repo'
+        subprocess.run(['git', 'init', '-q', '-b', 'main', str(repo)], check=True)
+        SnapshotStore(state / 'snapshots').publish({name: dict(data, generated_at=datetime.now(timezone.utc).isoformat())
+                                                    for name, data in (('sync_tickets', {'tickets': []}),
+                                                                       ('merged_prs', {'prs': []}),
+                                                                       ('prs', {'open_prs': []}))})
+        settings.write_text(json.dumps({'workspace': {'repository': str(repo), 'terminal': 'shell'},
+                                        'sync': {'every_minutes': '120'}}))
+        env = {k: v for k, v in os.environ.items() if not k.startswith('SIDEQUEST_')}
+        env.update(SIDEQUEST_CONFIG=str(settings), SIDEQUEST_STATE_DIR=str(state), SIDEQUEST_DATA_DIR=str(state / 'data'))
+        ran = subprocess.run([sys.executable, '-B', str(ROOT / 'bin/sidequest'), 'up', '--when-due', '--no-attach'],
+                             cwd=repo, env=env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+        self.assertIn('fresh    last sync', ran.stdout)
+        self.assertNotIn('Collecting', ran.stdout)

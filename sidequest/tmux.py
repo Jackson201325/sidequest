@@ -143,6 +143,6 @@ def attach(session):
         subprocess.run(['tmux', 'switch-client', '-t', session])
     elif sys.stdin.isatty() and sys.stdout.isatty():
         sys.stdout.flush()
-        os.execvp('tmux', ['tmux', 'attach-session', '-t', session])
+        subprocess.run(['tmux', 'attach-session', '-t', session])
     else:
         print('attach   tmux attach -t ' + session)
