@@ -163,3 +163,19 @@ explicit update/progress/result sections and their children; u remains Standup.
 Fenced code is not parsed as headings, and unrecognized sections stay in Plan.
 Tests exercise rendered views, no document writes, reload behavior and real PTY
 keyboard navigation at the approved TUI interface.
+
+## Future: Notion boards as a ticket source (not built)
+
+Some projects track tickets on a Notion board instead of Jira. Explored 2026-11-09; nothing is built.
+
+- Reading: a read-only Notion source beside bin/sidequest-jira.py, with the same rules as every
+  collector (failed sources keep their previous data and timestamps). It needs a Notion API token or
+  OAuth connection, which reaches only workspaces where the person is a member, not pages shared
+  with them as a guest. Workspace owners can also block member tokens and integrations.
+- Changes: Sidequest itself stays read-only. An agent changes the board through a Notion MCP server
+  in its own session (for example the official https://mcp.notion.com/mcp, added at user scope),
+  guided by the project's skills/WORKFLOW.md: which status means started, shipped or in test, and
+  where the PR link goes.
+- Keys: board cards may have no key like APP-123. Branch names and `sidequest start` need one, such
+  as a Notion unique ID property; the mapping from card to key is still open.
+- Not an option: reusing a browser session cookie. It is a secret and an unofficial API.
