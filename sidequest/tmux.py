@@ -1,5 +1,8 @@
 """tmux operations on already-selected checkouts; no Git or UI imports."""
+import os
 import shlex
+import subprocess
+import sys
 
 from sidequest.ticket_keys import mentions
 
@@ -54,6 +57,22 @@ def jump(run, key, path, inside, session):
     return switch_client(run, inside, session) or 'Switched to ' + title
 
 
+def start_window(run, key, path, inside, session):
+    """Select the ticket's window, or create one named KEY at path; then switch to the session."""
+    panes = list_panes(run)
+    target = find_window(panes, key, path, session)
+    if target:
+        wid, title = target
+        run(['tmux', 'select-window', '-t', wid], timeout=5)
+    else:
+        session_exists = any(line.startswith(session + '\t') for line in panes.splitlines())
+        run(['tmux', 'new-window' if session_exists else 'new-session', *(['-t', session + ':'] if session_exists
+             else ['-d', '-s', session]), '-n', key, '-c', path], timeout=5)
+        run(['tmux', 'select-window', '-t', session + ':' + key], timeout=5)
+        title = key + ' (new window)'
+    return switch_client(run, inside, session) or 'Switched to ' + title
+
+
 def start_agent(run, key, path, argv, inside, session, display_name):
     try:
         panes = list_panes(run)
@@ -70,3 +89,60 @@ def start_agent(run, key, path, argv, inside, session, display_name):
         run(['tmux', 'select-window', '-t', session + ':' + key], timeout=5)
         title = key + ' (new window)'
     return switch_client(run, inside, session) or f'{display_name} started in {title}: {argv[-1]}'
+
+
+def open_layout(run, session, windows):
+    """Make the session hold `windows` in order: reuse windows by name (the main checkout's is
+    renamed when its ticket changes), create the missing ones, and move the person's own windows
+    after the worktrees and before the end windows. Nothing is closed."""
+    try:
+        run(['tmux', 'has-session', '-t', session], timeout=5)
+    except RuntimeError:
+        first = windows[0]
+        run(['tmux', 'new-session', '-d', '-s', session, '-n', first.name, '-c', first.path]
+            + ([first.command] if first.command else []), timeout=5)
+    rows = [line.split(' ', 2) for line in run(['tmux', 'list-windows', '-t', session, '-F',
+                                                 '#{window_index} #{window_id} #{window_name}'], timeout=5).splitlines()
+            if line.count(' ') >= 2]
+    ids = {name: wid for _, wid, name in rows}
+    main = next((window for window in windows if window.name == 'Main' or window.name.startswith('Main ')), None)
+    if main and main.name not in ids:
+        old = next((name for name in ids if name in ('Main', 'main') or name.startswith('Main ')), None)
+        if old:
+            run(['tmux', 'rename-window', '-t', ids[old], main.name], timeout=5)
+            ids[main.name] = ids.pop(old)
+    for window in windows:
+        if window.name not in ids:
+            made = run(['tmux', 'new-window', '-d', '-P', '-F', '#{window_id}', '-t', session + ':', '-n', window.name,
+                        '-c', window.path] + ([window.command] if window.command else []), timeout=5)
+            ids[window.name] = made.strip()
+            if getattr(window, 'keys', ''):
+                # Typed into the new window's shell, so its aliases and functions work.
+                run(['tmux', 'send-keys', '-t', ids[window.name], window.keys, 'Enter'], timeout=5)
+    wanted = [ids[window.name] for window in windows if not window.end]
+    tail = [ids[window.name] for window in windows if window.end]
+    own = [wid for _, wid, _ in rows if wid not in wanted and wid not in tail]
+    order = wanted + own + tail
+    try:
+        base = int(run(['tmux', 'show-options', '-gv', 'base-index'], timeout=5).strip() or 0)
+    except (RuntimeError, ValueError):
+        base = 0
+    # Park every window out of the way, then put them back in order (renumbering paused meanwhile).
+    run(['tmux', 'set-option', '-t', session, 'renumber-windows', 'off'], timeout=5)
+    for offset, wid in enumerate(order):
+        run(['tmux', 'move-window', '-s', wid, '-t', session + ':' + str(1000 + offset)], timeout=5)
+    for offset, wid in enumerate(order):
+        run(['tmux', 'move-window', '-s', wid, '-t', session + ':' + str(base + offset)], timeout=5)
+    run(['tmux', 'set-option', '-u', '-t', session, 'renumber-windows'], timeout=5)
+    return len(order)
+
+
+def attach(session):
+    """Switch to the session inside tmux, attach in a terminal, else print how to attach."""
+    if os.environ.get('TMUX'):
+        subprocess.run(['tmux', 'switch-client', '-t', session])
+    elif sys.stdin.isatty() and sys.stdout.isatty():
+        sys.stdout.flush()
+        os.execvp('tmux', ['tmux', 'attach-session', '-t', session])
+    else:
+        print('attach   tmux attach -t ' + session)

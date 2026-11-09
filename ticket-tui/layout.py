@@ -124,7 +124,7 @@ def border(width, title, focused, top=True, label=""):
     return tl + h + label + h * max(0, width - 3 - len(label)) + tr
 
 
-def card(ticket, clock, last_commit_at=None, environment="", stale_days=2):
+def card(ticket, clock, last_commit_at=None, environment="", stale_days=2, local=(), hint=""):
     """The summary at the top of the right panel: where it stands, the PR, the dates, what's next.
 
     The first line starts with the lane glyph so tui.py can colour it.
@@ -158,13 +158,16 @@ def card(ticket, clock, last_commit_at=None, environment="", stale_days=2):
     if environment and ticket.prs:
         dates.append(f"Heroku {environment}")
     lines.append(" · ".join(dates))
+    lines += list(local)
     if ticket.action:
         lines.append("→ " + ticket.action)
+    if hint:
+        lines.append("→ " + hint)
     return lines
 
 
 EVENT_MARK = (("approved", "✓"), ("changes requested", "✗"), ("commit", "•"), ("comment", "✎"),
-              ("updated", "↻"), ("dismissed", "−"))
+              ("updated", "↻"), ("dismissed", "−"), ("moved", "→"), ("assigned", "⇄"))
 DAY_RULE = "── "
 EVENT_INDENT = 13                       # "HH:MM Jira ✎ " — snippets and wrapped titles line up under the title
 

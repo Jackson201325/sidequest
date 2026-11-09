@@ -3,6 +3,30 @@
 Queue evidence and explicit workspace actions have separate owners. The project
 uses Python 3.9+ and the standard library; no plugin framework is required.
 
+## The parts
+
+Sidequest is one app with three entry points and six parts underneath. A part may
+use the parts below it in this list, never the ones above it; the dashboard and the
+command line share everything from "Use cases" down.
+
+| Part | What it owns | Files |
+| --- | --- | --- |
+| Entry points | What you run: the dashboard, `sidequest up`, `sidequest start`, `sidequest projects`, headless commands, the app booking | `bin/sidequest` (+ `bin/sidequest-up.py`, `bin/sidequest-start.py`, `bin/sidequest-projects.py`), `bin/sidequest-data` (+ `bin/sidequest-*.py` helpers), `bin/sqapp` |
+| Dashboard | Drawing the queue and detail tabs, keys, background jobs, curses handoff | `ticket-tui/tui.py`, `layout.py`, `detail_views.py`, `plan_document.py`, `sorting.py` |
+| Queue rules | Whose turn it is, lanes, stages, standup, local branch state; no curses, no writes | `ticket-tui/core.py`, `workflow.py`, `activity.py`, `worklog.py`, `standup.py`, `branch_state.py`, `queue_evidence.py` |
+| Agent workflows | The skills, per-ticket files (plan, questions, QA evidence) and their helpers | `agents/skills/`, `sidequest/skills.py`, `questions.py`, `qa.py`, `bin/sidequest-{plan-init,ship-check,pr-body-check,qa-shot,feedback,questions,review-app,worktree}.py` |
+| Use cases | One call per action, shared by the dashboard and the commands: prepare, start, open, agent; `sidequest start` from a shell | `sidequest/application.py`, `start.py`, `overview.py` (the project overview's rows, lines and keys) |
+| Local workspace (Git) | Finding, naming, planning and creating worktrees; the app booking lock | `sidequest/workspace.py`, `workspaces.py`, `worktrees.py`, `repository.py`, `app_booking.py` |
+| Terminals | Shell handoff, tmux and Herdr windows and panes; no Git | `sidequest/terminal.py`, `tmux.py`, `herdr.py` |
+| Data | Collecting each source once, keeping the last good copy, atomic snapshots | `sidequest/collector.py`, `snapshots.py`, `evidence.py` |
+| Services | Talking to Jira, GitHub and Heroku; read-only except the opt-in Jira start move | `bin/sidequest-jira.py` (+ `sidequest/jira.py`), `sidequest/github.py`, `services.py`, `environments.py`, `review_apps.py`, `reviews.py`, `access.py` |
+| Settings | Shared and per-project settings, the project choice, secrets by reference, identity, ticket keys | `sidequest/config.py`, `project_flag.py`, `credentials.py`, `projects.py`, `identity.py`, `ticket_keys.py` |
+
+Outside the app: your settings and skill files in `~/.config/sidequest/`, secrets in the
+Keychain or environment, and data in `~/.local/{share,state}/sidequest/`. A project's own
+tools (for example a company's command-line helpers) stay in that project's repositories and
+reach Sidequest only through settings (commands, report view, skill replace versions).
+
 ```mermaid
 flowchart TD
     UI[Dashboard] --> Actions[WorkspaceWorkflow]
@@ -31,6 +55,11 @@ flowchart TD
 | `sidequest/environments.py` | Read-only Heroku authentication, pagination and status mapping |
 | `sidequest/ticket_keys.py` | Every ticket key question: valid key, PR ticket, branch keys and branch ticket, mentions in text, leading-key removal |
 | `sidequest/repository.py` | One rule for the workspace repository: an existing SIDEQUEST_REPO folder, else workspace.repository; no config import |
+| `sidequest/app_booking.py` | The shared local app's lock line, expiry and header label; `bin/sqapp` writes it, the dashboard reads it |
+| `sidequest/config.py` | Settings: shared config.json, the selected project profile over it, then SIDEQUEST_* variables; per-project storage |
+| `sidequest/credentials.py` | Secrets by reference (environment, Keychain item or variable name); settings never hold a value |
+| `sidequest/projects.py` | `project init` (a profile from config.example.json) and `project check` (what is set and what works) |
+| `sidequest/skills.py` | `skill NAME`: generic skill, project commands, additions or the project's replace version; installed stubs |
 | `sidequest/access.py` | AccessFailure: a failed service request with its cause; recovery text; word-based guessing only for text-only tools |
 | `collector.py` and `snapshots.py` | Shared collection, validation, atomic publication and last-good retention |
 | `ticket-tui/plan_document.py` | Read-only Plan/Updates section partition and readable Markdown rendering |
@@ -61,8 +90,9 @@ without switching the caller's branch. Normal Git upstream setup is preserved.
 
 Revalidation is not an atomic lock over other Git processes. Git rejects branch,
 path and checked-out-branch conflicts at execution, but a source ref can advance
-between validation and Git's operation. No fetch, reset, removal, cleanup, secret
-copying or automatic sync is implemented by this interface.
+between validation and Git's operation. No fetch, reset, removal, cleanup or automatic
+sync is implemented by this interface. A new worktree receives only the files listed in
+workspace.copy_files: relative paths, regular files (not symlinks), never over an existing file.
 
 `LaunchResult` contains a foreground request or display message, plus workspace
 evidence for a ticket start. Git/tmux actions run in background jobs. Results
@@ -73,7 +103,8 @@ status reaches the caller.
 ## Compatibility and migration limits
 
 Workspace CLI flags/output, default preview, configured base and explicit `--open`
-remain. Space n and CLI `--open` keep opening foreground shells even inside tmux.
+remain. CLI `--open` keeps opening a foreground shell even inside tmux; since 2026-11-09 Space n
+in tmux mode selects or creates the ticket's window instead (`start(..., window=True)`).
 Other in-tmux navigation and agent launches keep their existing behavior.
 Compatibility helpers in `workspace.py` delegate to package implementations.
 The dashboard reaches tmux only through WorkspaceWorkflow, and imports Heroku reading

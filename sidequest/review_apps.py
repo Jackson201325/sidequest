@@ -3,7 +3,7 @@ import json
 import os
 import re
 import urllib.parse
-from sidequest import config
+from sidequest import config, credentials
 from sidequest.access import AccessFailure
 from sidequest.services import run_tool
 from sidequest.environments import fetch_environments
@@ -81,7 +81,7 @@ def review_host(url):
 
 def login(run=None):
     """Review-app credentials must be supplied explicitly; no shared account defaults."""
-    email, password = os.environ.get('SIDEQUEST_REVIEW_EMAIL'), os.environ.get('SIDEQUEST_REVIEW_PASSWORD')
+    email, password = credentials.login('review')
     if email and password:
         return email, password
-    raise ReviewAppError('Set SIDEQUEST_REVIEW_EMAIL and SIDEQUEST_REVIEW_PASSWORD for the review-app QA login')
+    raise ReviewAppError('Set credentials.review (or SIDEQUEST_REVIEW_EMAIL and SIDEQUEST_REVIEW_PASSWORD) for the review-app QA login')

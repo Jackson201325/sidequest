@@ -1,8 +1,8 @@
 # Workspace and integration specifications
 
 Status: workspace coordination, shell/tmux/Herdr adapters and headless Heroku
-lookup are implemented. Full startup orchestration and a second deployment
-provider below remain planned contracts.
+lookup are implemented, and so is full startup orchestration (`sidequest up`, below) for tmux.
+A Herdr layout and a second deployment provider remain planned contracts.
 
 ## Scope and shared workflow
 
@@ -106,15 +106,92 @@ fixture agent. Other versions and agent-specific interactive UIs need separate
 verification. Nothing installs agent integrations, changes keybindings or rewrites
 the user's Herdr/tmux defaults.
 
-## Full workspace startup: planned
+## Full workspace startup (`sidequest up`): implemented for tmux (Herdr layout planned), 2026-11-09
 
-A future portable `tw` equivalent calls the shared coordinator/Git interfaces.
-Its specs must distinguish discovery, creation, fetching, branch updates and
-cleanup. Each mutating operation needs a reviewable plan and live local guards.
-Cached Jira/GitHub evidence never authorizes deletion. Dirty/untracked files,
-unpushed/diverged commits and held branches need coverage before updates/removal
-exist. Layout uses target-project commands; personal shell aliases, credentials,
-Docker booking and company setup files must not become defaults.
+`sidequest up` prepares a project's workspace from its Jira tickets and GitHub PRs and opens
+one terminal session for it, so the dashboard, Space n and the agent skills find each
+ticket's worktree ready. It is the generic part of one project's `tw` script.
+
+### Where it sits
+
+| Part | New or changed |
+| --- | --- |
+| Entry points | `bin/sidequest up` (dispatches to `bin/sidequest-up.py`); `--project` as everywhere |
+| Use cases | `sidequest/sync.py`: `discover()` → `SyncPlan` (immutable) → `apply(plan, ...)` |
+| Local workspace (Git) | Reuses `GitWorkspace` for creation; new guarded update and removal helpers |
+| Terminals | `open_layout(session, windows)` on the tmux and Herdr adapters |
+| Data | Two read-only sources: `sync_tickets` (Jira, by `sync.tickets_jql`) and `merged_prs` (gh) |
+| Settings | `sync` section (below); `workspace.windows`, `workspace.on_up` |
+| Dashboard | Unchanged in phase 1-5; a later key may show the plan, never apply removal |
+
+The dashboard refresh, the collector and tests never call `apply`. Removal and merging
+happen only in `sidequest up`, a command the person runs.
+
+### What one run does, in order
+
+| Step | Changes | Default | Guards (checked live at apply time) |
+| --- | --- | --- | --- |
+| 1. Collect | Snapshots only | on | Failed sources keep their last data; a step that needs a failed source is skipped and reported |
+| 2. Fetch | `git fetch origin` (read-only for local branches) | on; `--no-fetch` | A failed fetch skips steps 5 and 6 |
+| 3. Create | A worktree for each sync ticket and each of your open PRs that has none; branch reuse (local, then origin), `fix/` for Bugs, `copy_files` | on | Same as Space n: existing destinations and checkouts are never overwritten; a ticket with a merged PR is skipped |
+| 4. Order and open | One window per worktree, ordered by first assignment (PRs without a ticket: opened date), plus `workspace.windows`; then `workspace.on_up` | on | Existing windows are reused and moved, never closed by this step |
+| 5. Update | Fast-forward a branch to its own origin branch; `main` follows `origin/main`; rebase a never-pushed branch onto the base | on | Skip and report when: a merge/rebase/cherry-pick is in progress, the app is booked for it, an agent process's cwd is inside it, the branch diverged from its origin. `--autostash`; on conflict abort and leave the worktree as it was |
+| 6. Merge the base into pushed branches | `git merge origin/<base>` (the team's merge commit) | off; `--update` | Step 5's guards; abort on conflict; never push |
+| 7. Remove merged | Remove the worktree, then delete its local branch; close its window | off; `--cleanup`, which asks per worktree (`--yes` for no questions) | Never the main checkout or the caller's cwd; skip when there are uncommitted or untracked changes, an agent or app booking holds it, or the branch has a commit that is not in the merged PR's head (`merge-base --is-ancestor branch head`). The PR's merged state and head are read from GitHub at apply time: a snapshot alone never authorizes removal. `git worktree remove` without `--force` |
+
+`--dry-run` prints the plan (every action with its reason, every skip with its guard) and
+changes nothing. Each applied action prints one line; the run ends with a summary and exit
+status 0 (all done), 1 (something skipped or failed and reported) or 2 (usage or settings).
+
+### Settings
+
+```json
+"sync": {
+  "tickets_jql": "assignee = currentUser() AND statusCategory != Done",
+  "open_prs": "on",
+  "update": "off",
+  "cleanup": "ask"
+},
+"workspace": {
+  "windows": [{"name": "report", "command": "sidequest --report"}],
+  "on_up": ["~/project/tools/sync-agent-rules -q"]
+}
+```
+
+`update` (`off` | `on`) and `cleanup` (`off` | `ask` | `on`) set the defaults that `--update`,
+`--cleanup` and `--yes` override for one run. `cleanup: on` matches a tool that removes merged
+worktrees on every run; it keeps every guard.
+
+### Tests (each written before its code, real temporary Git repositories, fake gh/Jira)
+
+1. `--dry-run` lists create/update/remove/skip lines and leaves the repository byte-for-byte unchanged.
+2. Create: sync tickets and open PRs get worktrees; branch reuse local then origin; `fix/` for a Bug;
+   a ticket with a merged PR is skipped; an existing checkout is reused.
+3. Order: windows follow first-assignment time; extra windows from settings; existing windows are moved, not closed.
+4. Update: fast-forward; `main` follows `origin/main`; unpushed branch rebased; a diverged branch, an
+   in-progress merge, a booked app and an agent cwd each skip with their reason; a conflict is aborted
+   and the worktree matches its earlier state.
+5. `--update`: a pushed branch gets the merge commit; a conflict aborts it; nothing is pushed.
+6. Cleanup: dirty, untracked, extra commit, caller cwd, main checkout and booked app each keep the
+   worktree; a PR that GitHub no longer reports as merged keeps it; `ask` removes only after yes.
+7. A failed Jira or GitHub source skips the steps that need it and never removes anything.
+8. The dashboard refresh and the collector never import `sync.apply` (codebase review test).
+
+### Phases
+
+1. Data: `sync_tickets` and `merged_prs` sources, read-only (tests 7). Done 2026-11-09: `collect(sync=True)`
+   only; a normal refresh keeps them as they are; `sync` settings validated.
+2. Plan and create with `--dry-run` (tests 1, 2). Done 2026-11-09: `sidequest up [--dry-run] [--offline]`;
+   `GitWorkspace.preview_branch` reuses a PR's existing branch (never the base branch) and `apply` re-checks it.
+3. Session: windows, order, `workspace.windows`, `on_up`; tmux first, Herdr after (test 3). Done 2026-11-09 for
+   tmux: `tmux.open_layout`, `sync.layout`, assignment dates kept in the state folder (`window-order.json`),
+   `workspace.windows` entries {name, command?, cwd?, at?, stay?, keys?}; Herdr still reports "not supported yet".
+4. Update and `--update` (tests 4, 5). Done 2026-11-09: `sidequest/updates.py` (Git only; the app booking and
+   agent checks come in as `busy(path)` from `sync.busy_check`); updates run only after a successful fetch.
+5. Cleanup (tests 6, 8). Done 2026-11-09: `sidequest/cleanup.py`, `github.pr_state` (asked at removal time),
+   `sync.confirm_removal`; the boundary test reads the dashboard's and collector's imports.
+6. One project's `tw` becomes `sidequest up --project NAME`; its own extra windows and hooks move to its profile.
+   Done 2026-11-09: that script is now a 79-line front (flags mapped, `start` built from Sidequest commands).
 
 ## Deployment integration: current limit and second-provider criteria
 

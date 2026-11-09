@@ -31,6 +31,12 @@ def ticket_activity(ticket):
 
     # Bare "updated" stamps don't say what changed; the help screen explains that.
     add(ticket.updated, "Jira", "Ticket updated")
+    for change in ticket.jira_changes:
+        if change.get("field") == "status":
+            add(change.get("at"), "Jira", f"Moved {change.get('from') or '?'} → {change.get('to') or '?'}", author=change.get("author", ""))
+        elif change.get("field") == "assignee":
+            title = f"Assigned to {change['to']}" if change.get("to") else "Unassigned"
+            add(change.get("at"), "Jira", title + (f" (was {change['from']})" if change.get("from") else ""), author=change.get("author", ""))
     for comment in ticket.jira_comments:
         add(comment.get("created_at"), "Jira", "Comment added", comment.get("body", ""), comment.get("author", ""))
         if comment.get("updated_at") and comment.get("updated_at") != comment.get("created_at"):

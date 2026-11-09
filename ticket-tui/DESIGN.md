@@ -34,6 +34,10 @@ and screenshot artifacts share the same external directory as the CLI helpers.
 2026-11-05: tmux is no longer a prerequisite for workspace/agent actions. Outside
 tmux, w opens a worktree shell and Space s runs the configured agent in place.
 Space n explicitly creates/reuses a local ticket worktree and opens a shell.
+With jira.start_status set, a ticket in a jira.start_ask status shows a picker
+first: move and open, open only, or Esc to cancel (2026-11-09). In tmux, Space n selects or
+creates the ticket's window and switches to it, and Bugs get fix/ branches (issue type is collected).
+workspace.agent_tasks replaces the Space s presets; workspace.reports_dir moves the daily reports.
 The dashboard restores its terminal state after the child exits; passive reads
 stay read-only. Users already inside tmux retain existing window/pane navigation.
 
@@ -59,6 +63,22 @@ same plan.md. Heading hierarchy keeps nested update entries together and returns
 peer planning sections to Plan. Fenced examples stay literal. Unknown headings
 stay in Plan so content is never silently discarded. The file is never rewritten;
 both views share its mtime cache. Existing Standup (u) is unchanged.
+
+2026-11-07: Questions (c) is a read-only view of the ticket folder's questions.md,
+the decision record written only by `sidequest-data questions` (sidequest/questions.py).
+Not asked yet comes first, then waiting, then answered with its evidence and decision.
+Plan open-question sections move from Plan to Questions under FROM PLAN.MD. Meetings (m)
+reads meetings.md, newest section first; recording meetings is outside Sidequest.
+Overview shows the unanswered count and latest meeting. Both caches follow file changes.
+
+2026-11-07: the card adds a Local line (branch_state.py, local Git only, collected in a
+background job after worktrees load; not persisted) and a QA hint for my tickets with
+missing or stale screenshots. Overview's WORKSPACE repeats it with the QA reason.
+Activity shows Jira status moves (→) and assignee changes (⇄) from the changelog.
+
+2026-11-07: when `app` is configured, the header ends with sqapp's booking (`App APP-12
+· idle 2m` or `App free`), re-read at most every 10 seconds; demo and unconfigured
+runs never read it. The dashboard never writes the booking.
 
 2026-11-06: QueueEvidence owns the queue's data: the newest copy of each source,
 refresh validation with the snapshot publisher's own check, merging, saving and

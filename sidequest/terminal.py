@@ -73,6 +73,9 @@ class TmuxTerminal:
             message = tmux.start_agent(self.run, key, path, argv, True, self.session, agent_display_name(argv))
         return LaunchResult(message=message)
 
+    def start_window(self, key, path):
+        return LaunchResult(message=tmux.start_window(self.run, key, path, True, self.session))
+
 
 def run_command(args, timeout=45):
     result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)

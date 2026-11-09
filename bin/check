@@ -24,7 +24,7 @@ for path in ROOT.rglob('*.py'):
         except (ValueError, SyntaxError, UnicodeError) as exc:
             print(str(exc), file=sys.stderr)
             failed = True
-for name in ('sidequest-data', 'sidequest', 'check'):
+for name in ('sidequest-data', 'sidequest', 'sqapp', 'check'):
     if not os.access(ROOT / 'bin' / name, os.X_OK):
         print('Entry point is not executable: ' + name, file=sys.stderr)
         failed = True

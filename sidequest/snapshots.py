@@ -26,7 +26,7 @@ def atomic_write(path, text):
             os.unlink(temporary)
 
 
-REQUIRED_LISTS = {"prs": "open_prs", "jira": "tickets"}
+REQUIRED_LISTS = {"prs": "open_prs", "jira": "tickets", "sync_tickets": "tickets", "merged_prs": "prs"}
 
 
 def source_problem(name, data):

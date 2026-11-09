@@ -75,6 +75,60 @@ class PlainTerminalTests(unittest.TestCase):
         self.assertEqual(Path(self.app.foreground_target['cwd']).parent, self.path / 'worktrees')
         self.assertEqual(subprocess.check_output(['git', '-C', str(self.path), 'branch', '--show-current'], text=True).strip(), 'main')
 
+    def test_space_n_also_moves_the_ticket_when_a_start_status_is_set(self):
+        from sidequest import config
+        for args in (['init', '-q', '-b', 'main'], ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                                                  'commit', '--allow-empty', '-qm', 'Base']):
+            subprocess.run(['git', '-C', str(self.path), *args], check=True)
+        settings = {'workspace': {'repository': str(self.path), 'base_ref': 'main',
+                                  'worktrees_dir': str(self.path / 'worktrees')},
+                    'jira': {'start_status': 'In Dev'}}
+        with patch.object(config, 'SETTINGS', settings), \
+                patch('tui.run', return_value='MOVED %s Ready for Dev → In Dev\n' % self.ticket.key) as run:
+            self.app.start_work(self.ticket)
+            drain(self.app)
+        run.assert_called_once_with(['sidequest-data', 'jira-start', self.ticket.key])
+        shown = (self.app.message or '') + ' ' + (self.app.deferred_message or '')
+        self.assertIn('MOVED %s Ready for Dev → In Dev' % self.ticket.key, shown)
+
+    def test_space_n_passes_the_issue_type_and_asks_for_the_ticket_window(self):
+        from unittest.mock import MagicMock
+        from sidequest import config
+        from sidequest.terminal import LaunchResult
+        workflow = MagicMock()
+        workflow.start.return_value = LaunchResult(message='Switched to DEMO-901')
+        self.app.workflow_factory = lambda: workflow
+        self.ticket.issue_type = 'Bug'
+        with patch.object(config, 'SETTINGS', {'workspace': {'repository': str(self.path)}}), patch('tui.run') as run:
+            self.app.start_work(self.ticket)
+            drain(self.app)
+        workflow.start.assert_called_once_with(self.ticket.key, self.ticket.title, 'Bug', window=True)
+        run.assert_not_called()
+
+    def test_space_n_asks_before_moving_from_a_start_ask_status(self):
+        from sidequest import config
+        for args in (['init', '-q', '-b', 'main'], ['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                                                  'commit', '--allow-empty', '-qm', 'Base']):
+            subprocess.run(['git', '-C', str(self.path), *args], check=True)
+        settings = {'workspace': {'repository': str(self.path), 'base_ref': 'main',
+                                  'worktrees_dir': str(self.path / 'worktrees')},
+                    'jira': {'start_status': 'In Dev', 'start_ask': 'Backlog, Blocked'}}
+        self.ticket.status = 'Backlog'
+        for choice, calls in ((0, [['sidequest-data', 'jira-start', self.ticket.key, '--yes']]), (1, []), (None, [])):
+            with self.subTest(choice=choice), patch.object(config, 'SETTINGS', settings), \
+                    patch.object(self.app, 'choose', return_value=choice) as choose, \
+                    patch('tui.run', return_value='MOVED\n') as run:
+                self.app.foreground_target = None
+                self.app.start_work(self.ticket)
+                drain(self.app)
+                self.assertIn('Backlog', choose.call_args[0][0].title())
+                self.assertEqual([c.args[0] for c in run.call_args_list], calls)
+                if choice is None:
+                    self.assertEqual(self.app.message, 'Start cancelled')
+                    self.assertIsNone(self.app.foreground_target)
+                else:
+                    self.assertIsNotNone(self.app.foreground_target)
+
 
 if __name__ == '__main__':
     unittest.main()

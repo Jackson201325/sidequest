@@ -6,10 +6,34 @@ UPDATE_TITLE = re.compile(
     r'^(?:updates?|progress(?: log| notes| updates)?|implementation (?:progress|updates|notes|summary)'
     r'|qa results|test results|verification results|validation results|changes implemented|changelog)'
     r'(?=$|[\s:—–(\-])', re.I)
+QUESTION_TITLE = re.compile(
+    r'^(?:(?:open|outstanding|unresolved|pending) )?(?:questions?|unknowns|clarifications?|needs clarification)'
+    r'(?=$|[\s:—–(\-])', re.I)
+
+
+def meeting_sections(text):
+    """(heading, lines) per meeting in a ticket's meetings.md, newest first.
+
+    The file is append-only, oldest first: `# KEY · meeting notes`, then one `## <date> · <scope>`
+    section per meeting. Bullets render like the Plan tab's; the file itself is never rewritten.
+    """
+    sections = []
+    for line in text.splitlines():
+        if line.startswith('## '):
+            sections.append((line[3:].strip(), []))
+        elif sections:
+            line = re.sub(r'^(\s*)[-*] ', r'\1• ', line)
+            sections[-1][1].append(line.replace('**', '').replace('`', ''))
+    for _, lines in sections:
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        while lines and not lines[-1].strip():
+            lines.pop()
+    return sections[::-1]
 
 
 def document_views(text, heading_marker):
-    views = {'Plan': [], 'Updates': []}
+    views = {'Plan': [], 'Updates': [], 'Questions': []}
     parents = []
     target = 'Plan'
     fence = None
@@ -33,6 +57,8 @@ def document_views(text, heading_marker):
             title_text = title.replace('**', '').replace('`', '').strip()
             if UPDATE_TITLE.match(title_text):
                 target = 'Updates'
+            elif QUESTION_TITLE.match(title_text):
+                target = 'Questions'
             parents.append((level, target))
             line = heading_marker + title.upper()
         line = re.sub(r'^(\s*)[-*] \[ \] ', r'\1☐ ', line)

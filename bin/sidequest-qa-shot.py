@@ -8,7 +8,7 @@
   sidequest-data qa-shot --review-app [--pr N]  run the same shots on the PR's Heroku review app instead
 
 The ticket key defaults to the current branch. shots.json:
-  {"base_url": "http://localhost:3010", "viewport": [1440, 900],
+  {"base_url": "http://localhost:3000", "viewport": [1440, 900],
    "shots": [{"name": "01-bulk-request-form", "path": "/bulk_requests/new",
               "caption": "Admin > Bulk requests > New", "criterion": "AC1: ...",
               "steps": [{"fill": "#q", "value": "gift"}, {"click": "#search"}, {"click_text": "Add"},
@@ -16,7 +16,7 @@ The ticket key defaults to the current branch. shots.json:
                         {"expect_text": "1 result"}, {"wait": 500}],
               "full_page": false, "selector": null}]}
 Steps run in order; `wait_for` and `expect_text` retry until `timeout` seconds (default 10).
-A sign-in form is filled with the local test account (SIDEQUEST_QA_EMAIL / SIDEQUEST_QA_PASSWORD override it),
+base_url defaults to app.url. A sign-in form is filled with the local test account (qa.email and SIDEQUEST_QA_PASSWORD),
 only for local URLs (localhost, 127.0.0.1, *.localhost such as admin.localhost). Screenshots go next to shots.json; a failed shot saves its screen to
 failures/ instead, and manifest.json records the commit, captions and status of every shot.
 
@@ -24,7 +24,7 @@ failures/ instead, and manifest.json records the commit, captions and status of 
 base, and writes to tickets/APP-###/qa-review/ (shots from qa-review/shots.json if present, else
 qa/shots.json). Sign-in requires SIDEQUEST_REVIEW_EMAIL / SIDEQUEST_REVIEW_PASSWORD, and only on that review app's host.
 Uses Edge's DevTools protocol directly (standard library only) with its own profile, so it never
-touches your normal Edge windows. SIDEQUEST_QA_BROWSER points it at another Chromium-based binary.
+touches your normal Edge windows. qa.browser points it at another Chromium-based binary.
 
 Exit codes: 0 all shots ok, 1 a check failed, 2 spec/browser/usage error.
 """
@@ -33,7 +33,7 @@ import urllib.parse, urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest import config, gitutil, qa as qa_evidence, review_apps
+from sidequest import config, credentials, gitutil, qa as qa_evidence, review_apps
 from sidequest.ticket_keys import branch_ticket, is_key
 
 EDGE = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "chromium", "chromium-browser", "google-chrome", "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge", "microsoft-edge", "microsoft-edge-stable", "msedge")
@@ -188,6 +188,11 @@ def load_spec(path):
 
 
 # ---------------------------------------------------------------- browser
+def base_url(spec):
+    """The spec's base_url, else app.url, else http://localhost:3000; without a trailing slash."""
+    return (spec.get("base_url") or config.get("app", "url") or "http://localhost:3000").rstrip("/")
+
+
 def find_browser(explicit):
     for candidate in ([explicit] if explicit else EDGE):
         path = candidate if os.path.isabs(candidate) else shutil.which(candidate)
@@ -278,7 +283,7 @@ def sign_in_if_asked(dev, url, account, hosts=None):
         raise Fail("sign-in page on %s: automatic sign-in only runs on %s" % (url, where))
     email, password = account
     if not email or not password:
-        raise Fail("set SIDEQUEST_QA_EMAIL and SIDEQUEST_QA_PASSWORD for local sign-in")
+        raise Fail("set qa.email (or SIDEQUEST_QA_EMAIL) and credentials.qa (or SIDEQUEST_QA_PASSWORD) for local sign-in")
     dev.js(HELPERS + """(() => {
       const pw = __q('input[type=password]');
       const form = pw.form || document;
@@ -292,7 +297,7 @@ def sign_in_if_asked(dev, url, account, hosts=None):
         poll(dev, "document.readyState === 'complete' && !document.querySelector('input[type=password]')", 15, "sign-in")
     except Fail:
         raise Fail("sign-in failed for %s: check the %s" % (
-            email, "local test login (SIDEQUEST_QA_EMAIL / SIDEQUEST_QA_PASSWORD)" if hosts is None else "review-app QA login (environment variables)"))
+            email, "local test login (qa.email / SIDEQUEST_QA_PASSWORD)" if hosts is None else "review-app QA login (environment variables)"))
     return True
 
 
@@ -411,7 +416,7 @@ def main():
     ap.add_argument("--pr-markdown", action="store_true")
     ap.add_argument("--review-app", action="store_true", help="run on the PR's Heroku review app")
     ap.add_argument("--pr", type=int, help="PR number for --review-app (default: the ticket's open PR)")
-    ap.add_argument("--browser", default=os.environ.get("SIDEQUEST_QA_BROWSER"))
+    ap.add_argument("--browser", default=config.get("qa", "browser") or None)
     ap.add_argument("--profile", type=Path, default=Path.home() / ".cache/sidequest/qa-browser-profile")
     a = ap.parse_args()
 
@@ -469,8 +474,8 @@ def main():
         raise Usage("no shot named " + ", ".join(sorted(unknown)))
     viewport = spec.get("viewport") or [1440, 900]
     if not a.review_app:
-        base = spec.get("base_url", "http://localhost:3010").rstrip("/")
-        account = (os.environ.get("SIDEQUEST_QA_EMAIL") or DEFAULT_ACCOUNT[0], os.environ.get("SIDEQUEST_QA_PASSWORD") or DEFAULT_ACCOUNT[1])
+        base = base_url(spec)
+        account = (config.get("qa", "email") or DEFAULT_ACCOUNT[0], credentials.secret("qa") or DEFAULT_ACCOUNT[1])
     commit, dirty = git("rev-parse", "HEAD"), bool(git("status", "--porcelain", "--untracked-files=no"))
 
     proc, ws = launch(find_browser(a.browser), a.profile.expanduser(), viewport, a.headed)
