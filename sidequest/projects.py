@@ -1,7 +1,9 @@
 """Adopting a project: write a profile from the example settings, then check what is set and what works."""
 import json
+import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 
@@ -116,4 +118,89 @@ def check():
             row('OK' if found else 'MISSING', label + ': ' + ('found' if found else 'not found') + ' (' + ref + ')')
     skills = sorted(path.name for path in (config.PROJECTS_DIR / config.PROJECT / 'skills').glob('*.md'))
     row('OK' if skills else 'OFF', 'project skills' + (': ' + ', '.join(skills) if skills else ' (generic skills)'))
+    return rows, any(line.startswith('FAIL') for line in rows)
+
+
+COMMANDS = (('checks', 'test'), ('checks', 'lint'), ('app', 'switch_command'), ('app', 'current_command'),
+            ('app', 'running_command'), ('workspace', 'report_command'), ('workspace', 'agent_command'),
+            ('workspace', 'browser'))
+PATHS = (('qa', 'browser'),)
+AGENTS = (('claude', '.claude/skills'), ('codex', '.agents/skills'))
+
+
+def _program(command):
+    """'' when the command's program exists, else the reason."""
+    try:
+        program = shlex.split(command)[0]
+    except (IndexError, ValueError):
+        return 'it cannot be read as a command'
+    program = os.path.expanduser(program)
+    if '/' in program:
+        return '' if os.access(program, os.X_OK) else program + ' does not exist'
+    return '' if shutil.which(program) else program + ' is not on PATH'
+
+
+def wiring(home=None):
+    """(lines, failed): every command, window, hook, skill and secret reference this project plugs in."""
+    from sidequest import skills
+    home = Path(home or Path.home())
+    if not config.PROJECT:
+        return ['FAIL     no project selected: run this inside a project folder or pass --project NAME (known: ' +
+                (', '.join(config.profiles()) or 'none') + ')'], True
+    rows = ['Project ' + config.PROJECT + ': ' + str(config.PROJECTS_DIR / config.PROJECT / 'config.json'),
+            '', 'Commands (run by Sidequest)']
+
+    def row(state, text):
+        rows.append(state.ljust(9) + text)
+
+    def command(label, value):
+        reason = _program(value)
+        row('FAIL' if reason else 'OK', label + ': ' + value + (' (' + reason + ')' if reason else ''))
+
+    for section, key in COMMANDS:
+        value = config.get(section, key)
+        if value:
+            command(section + '.' + key, value)
+        else:
+            row('OFF', section + '.' + key + {'agent_command': ' (default: claude)',
+                                             'browser': ' (default: the system browser)'}.get(key, ''))
+    for section, key in PATHS:
+        value = config.get(section, key)
+        if value:
+            found = Path(os.path.expanduser(value)).exists()
+            row('OK' if found else 'FAIL', section + '.' + key + ': ' + value + ('' if found else ' (does not exist)'))
+    for index, hook in enumerate(config.get('workspace', 'on_up') or [], 1):
+        command('workspace.on_up[' + str(index) + ']', hook)
+    for window in config.get('workspace', 'windows') or []:
+        label = 'window ' + window.get('name', '?')
+        if window.get('command'):
+            command(label, window['command'])
+        elif window.get('keys'):
+            row('TYPED', label + ': ' + window['keys'] + ' (typed into its shell; aliases are not checked)')
+        else:
+            row('SHELL', label + ': a shell in ' + (window.get('cwd') or 'the project folder'))
+
+    rows += ['', 'Skills (the file that wins; -> follows a link)']
+    for short in skills.names():
+        replace, addition = skills.addon_path(short, '.replace.md'), skills.addon_path(short)
+        if replace.is_file():
+            row('REPLACE', short + ': ' + str(replace) + (' -> ' + str(replace.resolve()) if replace.is_symlink() else ''))
+        elif addition.is_file():
+            row('ADDS', short + ': generic + ' + str(addition) +
+                (' -> ' + str(addition.resolve()) if addition.is_symlink() else ''))
+        else:
+            row('GENERIC', short + ': ' + str(skills.source(short)[1]))
+        have = [name for name, folder in AGENTS if (home / folder / ('sidequest-' + short) / 'SKILL.md').is_file()]
+        missing = [name for name, _ in AGENTS if name not in have]
+        if not have:
+            rows.append(' ' * 9 + 'stubs: ' + short + ' missing in ' + ', '.join(missing) + ' (run sidequest-data skills --apply)')
+        else:
+            rows.append(' ' * 9 + 'stubs: ' + short + ' in ' + ', '.join(have) +
+                        ('; missing in ' + ', '.join(missing) if missing else ''))
+
+    references = config.SETTINGS.get('credentials') or {}
+    if references:
+        rows += ['', 'Secrets (references only; sidequest-data project check tests them)']
+        for key in sorted(references):
+            row('REF', 'credentials.' + key + ': ' + references[key])
     return rows, any(line.startswith('FAIL') for line in rows)

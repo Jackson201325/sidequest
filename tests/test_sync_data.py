@@ -24,7 +24,9 @@ class SyncSettingsTests(unittest.TestCase):
             path.write_text(json.dumps({'sync': {'tickets_jql': 'sprint in openSprints()', 'cleanup': 'ask'}}))
             self.assertEqual(config.load(path, {'SIDEQUEST_SYNC_UPDATE': 'on'})['sync'],
                              {'tickets_jql': 'sprint in openSprints()', 'cleanup': 'ask', 'update': 'on'})
-            for key, bad in (('cleanup', 'yes'), ('update', 'ask'), ('open_prs', 'maybe')):
+            path.write_text(json.dumps({'sync': {'every_minutes': '120'}}))
+            self.assertEqual(config.load(path)['sync'], {'every_minutes': '120'})
+            for key, bad in (('cleanup', 'yes'), ('update', 'ask'), ('open_prs', 'maybe'), ('every_minutes', '2h')):
                 path.write_text(json.dumps({'sync': {key: bad}}))
                 with self.subTest(key=key), self.assertRaisesRegex(ValueError, 'sync.' + key):
                     config.load(path)

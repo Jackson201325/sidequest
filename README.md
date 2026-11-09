@@ -573,6 +573,17 @@ macOS Keychain (or your environment)      secret values only
    project skills) and exits 1 on a FAIL. It never prints a secret.
 5. Optional: add `skills/WORKFLOW.md` or `skills/WORKFLOW.replace.md` (see "Project additions to a skill").
 
+`sidequest-data project wiring` shows everything the project plugs into Sidequest, in one list:
+
+- Each command Sidequest runs (`checks.*`, `app.*`, `workspace.report_command`, `agent_command`,
+  `browser`, `on_up` hooks, window commands), and whether its program exists (OK or FAIL).
+  Window `keys` show as TYPED, because aliases cannot be checked.
+- Each skill, and the file that wins: REPLACE, ADDS (generic + additions) or GENERIC. A link is
+  followed to the real file (`->`). It also says where the stubs are installed (Claude Code, Codex).
+- Each secret, as its reference only.
+
+It exits 1 when a command or file is missing. It only reads.
+
 ### Prepare the workspace (`sidequest up`)
 
 `sidequest up` collects the project's sync data, fetches origin and creates a worktree for each
@@ -605,6 +616,24 @@ rebase or merge is aborted, and nothing is ever pushed. `--dry-run` prints the p
 collected data and neither fetches nor updates. `-u` is `--update`. `-r` (`--rebuild`) closes the
 tmux session first and builds it again. This stops what runs in its windows, so save first.
 Short options combine: `sidequest up -rn`.
+
+`sidequest up --all` prepares every project in turn, each in its own tmux session (the project's
+tickets are that session's windows), then attaches to the first. Switch projects with tmux's
+session list (prefix `s`).
+
+`--when-due` syncs only when the last sync is older than `sync.every_minutes` (for example
+`"120"`). Before that, it attaches to the open session, or builds a missing one without network.
+A project without `sync.every_minutes` always syncs. `sidequest up` without `--when-due` always
+syncs. To get this whenever a terminal opens, use it as the terminal's start command, then fall
+back to a shell. In Alacritty:
+
+```toml
+[terminal.shell]
+program = "/bin/zsh"
+args = ["-lc", "sidequest up --all --when-due; exec zsh -l"]
+```
+
+Detaching (prefix `d`) returns to the shell.
 
 Before creating anything, it can remove worktrees whose PR merged (`sync.cleanup`: `ask`, the
 default, asks per worktree in a terminal; `on` removes; `off` skips; `--cleanup` considers them

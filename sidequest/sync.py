@@ -5,10 +5,11 @@ the planned worktrees through GitWorkspace.apply, which inspects again and refus
 repository has moved past. The dashboard refresh and the collector never call apply().
 """
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from sidequest.ticket_keys import branch_keys
 from sidequest.workspace import GitWorkspace, WorkspacePlan
@@ -135,6 +136,20 @@ def _moment(value):
     except ValueError:
         return None
     return moment.timestamp() if moment.tzinfo else None
+
+
+def fresh(snapshot, every_minutes, now=None, tz='UTC'):
+    """A line saying the last sync is newer than every_minutes, or '' when a sync is due."""
+    if not str(every_minutes or '').isdigit() or not int(every_minutes):
+        return ''
+    stamp = ((snapshot.get('sources') or {}).get('sync_tickets') or {}).get('generated_at')
+    last, current = _moment(stamp), _moment(now) if now else datetime.now(timezone.utc).timestamp()
+    if last is None or current - last >= int(every_minutes) * 60:
+        return ''
+    zone = ZoneInfo(tz)
+    at = datetime.fromtimestamp(last, zone)
+    return ('fresh    last sync ' + at.strftime('%H:%M') + '; next sync after ' +
+            (at + timedelta(minutes=int(every_minutes))).strftime('%H:%M') + ' (sync.every_minutes ' + str(every_minutes) + ')')
 
 
 def layout(snapshot, worktrees, extras, root, remembered=None):

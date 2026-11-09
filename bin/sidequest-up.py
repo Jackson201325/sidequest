@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""sidequest up [-n] [-u] [-r] [--dry-run]: prepare this project's worktrees from Jira and GitHub.
+"""sidequest up [-n] [-u] [-r] [--all] [--dry-run]: prepare this project's worktrees from Jira and GitHub.
 
 Collects the sync data (tickets by sync.tickets_jql, your open PRs, merged PRs) and fetches origin,
 then creates a worktree for each sync ticket and each of your open PRs that has none: an existing
@@ -18,6 +18,8 @@ First, worktrees whose PR merged are removed (sync.cleanup: ask asks per worktre
 on removes, off skips; --cleanup considers them when off, --yes answers yes) only when you are not
 in it, nothing is booked or running there, it has no uncommitted or untracked changes, every commit
 is in the merged head, and GitHub, asked at that moment, still reports the PR merged with that head.
+--when-due syncs only when the last sync is older than sync.every_minutes; before that it attaches to
+the open session, or builds it without network. --all does this for every project in turn, each in its own tmux session, then attaches to the first.
 Exit 0: done; 1: something was blocked or failed (listed);
 2: usage or settings.
 """
@@ -33,6 +35,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sidequest.project_flag import take
 
 take(sys.argv)
+
+
+def up_all(argv):
+    """--all: run `sidequest up` for every profile in turn (detached), then attach to the first session."""
+    from sidequest import config, overview
+    if os.environ.get('SIDEQUEST_PROJECT'):
+        print('sidequest up: --all prepares every project; leave out --project', file=sys.stderr)
+        return 2
+    rows = overview.project_rows(run=lambda argv: (1, ''))
+    if not rows:
+        print('sidequest up: no projects yet; adopt one with sidequest-data project init NAME --repo PATH', file=sys.stderr)
+        return 2
+    args = [arg for arg in argv if arg != '--all']
+    worst = 0
+    for row in rows:
+        print('== ' + row['name'] + ' ==', flush=True)
+        env = dict(os.environ, SIDEQUEST_PROJECT=row['name'])
+        code = subprocess.run([sys.executable, str(Path(__file__).resolve().with_name('sidequest')), 'up', *args,
+                               '--no-attach'], env=env).returncode
+        worst = max(worst, code)
+        print(flush=True)
+    if '--no-attach' not in args and '--dry-run' not in args and shutil.which('tmux'):
+        from sidequest import tmux
+        tmux.attach(rows[0]['session'])
+    return worst
+
+
+if '--all' in sys.argv[1:]:
+    raise SystemExit(up_all(sys.argv[1:]))
 try:
     from sidequest import app_booking, cleanup, collector, config, github, sync, tmux, updates
 except ValueError as exc:
@@ -78,6 +109,9 @@ def main():
     parser.add_argument('--yes', action='store_true', help='remove merged worktrees that pass every check without asking')
     parser.add_argument('-r', '--rebuild', action='store_true',
                         help='close the tmux session first (stops what runs in its windows), then build it again')
+    parser.add_argument('--when-due', action='store_true',
+                        help='sync only when the last sync is older than sync.every_minutes; else attach, or build offline')
+    parser.add_argument('--all', action='store_true', help='every project in turn, one tmux session each')
     parser.add_argument('-u', '--update', action='store_true',
                         help='also merge the base into pushed branches that are behind it (sync.update on)')
     args = parser.parse_args()
@@ -93,6 +127,19 @@ def main():
     workspace = GitWorkspace(repository, values.get('worktrees_dir'), config.base_ref(),
                              shlex.split(values.get('copy_files') or ''))
     print('sidequest up: ' + (config.PROJECT or 'this project') + ' (' + str(repository) + ')', flush=True)
+    if args.when_due and not args.offline:
+        recent = sync.fresh(SnapshotStore(collector.DEFAULT_OUT).read(), config.get('sync', 'every_minutes'),
+                            tz=config.get('identity', 'timezone', 'UTC'))
+        session = values.get('tmux_session') or config.PROJECT or 'sidequest'
+        if recent and not terminal_note() and subprocess.run(['tmux', 'has-session', '-t', '=' + session],
+                                                             capture_output=True).returncode == 0:
+            print(recent + '; session ' + session + ' is open')
+            if not args.no_attach:
+                tmux.attach(session)
+            return 0
+        if recent:
+            print(recent + '; building without network')
+            args.offline = True
     if not args.offline:
         print('Collecting from Jira and GitHub…', flush=True)
         for message in collector.collect(sync=True).get('failures', {}).values():

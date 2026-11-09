@@ -86,7 +86,7 @@ KEYS = {
     'qa': ('browser', 'email'),
     'checks': ('test', 'lint'),
     'credentials': ('jira', 'review', 'qa'),
-    'sync': ('tickets_jql', 'open_prs', 'update', 'cleanup'),
+    'sync': ('tickets_jql', 'open_prs', 'update', 'cleanup', 'every_minutes'),
 }
 # Credentials, read where they are used; they never enter settings.
 NOT_SETTINGS = {'SIDEQUEST_JIRA_TOKEN', 'SIDEQUEST_QA_PASSWORD'}
@@ -187,6 +187,9 @@ def load(path, environ=None, project=None):
         value = data.get('sync', {}).get(key)
         if value is not None and value not in allowed:
             raise ValueError('sync.' + key + ' must be ' + ' or '.join(allowed))
+    every = data.get('sync', {}).get('every_minutes')
+    if every is not None and not (isinstance(every, str) and (every == '' or every.isdigit())):
+        raise ValueError('sync.every_minutes must be a whole number of minutes, such as "120"')
     app = data.get('app', {})
     if set(app) - {'url', 'switch_command', 'current_command', 'running_command', 'required_files',
                    'ttl_minutes', 'wait_minutes'}:

@@ -101,6 +101,17 @@ class OutsideEveryProjectTests(unittest.TestCase):
                 self.assertIn('Several projects: acme, globex. Run this inside a project folder, add --project NAME, '
                               'or run sidequest projects', ran.stderr)
 
+    def test_up_all_prepares_every_project_in_turn_and_names_each(self):
+        ran = self.run_sidequest('up', '--all', '-n', '--dry-run')
+        self.assertIn('== acme ==', ran.stdout)
+        self.assertIn('== globex ==', ran.stdout)
+        self.assertLess(ran.stdout.index('sidequest up: acme ('), ran.stdout.index('sidequest up: globex ('))
+        self.assertEqual(ran.stdout.count('Dry run: nothing changed.'), 2, ran.stdout + ran.stderr)
+        self.assertEqual(ran.returncode, 1, 'no merged-PR data yet: each project reports it blocked')
+        named = self.run_sidequest('--project', 'acme', 'up', '--all')
+        self.assertEqual(named.returncode, 2)
+        self.assertIn('--all prepares every project; leave out --project', named.stderr)
+
     def test_projects_prints_the_overview_when_there_is_no_terminal(self):
         ran = self.run_sidequest('projects')
         self.assertEqual(ran.returncode, 0, ran.stderr)
