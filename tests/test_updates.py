@@ -27,6 +27,9 @@ class UpdateTests(unittest.TestCase):
         self.origin, self.repo, self.mate = self.home / 'origin.git', self.home / 'app', self.home / 'mate'
         git(self.home, 'init', '-q', '--bare', '-b', 'main', str(self.origin))
         git(self.home, 'clone', '-q', str(self.origin), str(self.repo))
+        # updates.py runs rebase/merge without GIT's -c identity; CI runners have no global one.
+        git(self.repo, 'config', 'user.name', 'Test')
+        git(self.repo, 'config', 'user.email', 'test@example.invalid')
         (self.repo / 'shared.txt').write_text('base\n')
         git(self.repo, 'add', '.')
         git(self.repo, 'commit', '-q', '-m', 'Base')
