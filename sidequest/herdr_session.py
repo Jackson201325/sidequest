@@ -163,6 +163,13 @@ class Herdr:
     def exists(self, session):
         return self._find(session) is not None
 
+    def inside(self, session):
+        """True when this command runs in a pane of workspace `session`, so closing it stops this command."""
+        if self.environ.get('HERDR_ENV') != '1':
+            return False
+        space = self._find(session)
+        return space is not None and space['workspace_id'] == self.environ.get('HERDR_WORKSPACE_ID')
+
     def window_count(self, session):
         space = self._find(session)
         if space is None:

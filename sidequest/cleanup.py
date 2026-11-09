@@ -2,11 +2,12 @@
 
 A worktree (never the main checkout) on a merged PR's branch is removed only when: you are not in it,
 busy(path) gives no reason (app booked, agent working), it has no uncommitted or untracked changes,
+its workspace.copy_files copies equal the main checkout's (other ignored files go with the worktree),
 the merged head commit is here and holds every commit of the branch, you agreed (confirm), and
 GitHub, asked now, still reports the PR merged with that head. Then its window closes, the worktree
 is removed without --force, and its local branch is deleted.
 """
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import subprocess
 
 from sidequest.ticket_keys import branch_keys
@@ -26,7 +27,23 @@ def window_name(branch):
     return keys[0] if keys else branch.replace('/', '-')
 
 
-def clean(repository, merged_prs, cwd, busy, live_pr, confirm, close_window, dry_run=False):
+def _changed_local_file(repository, path, local_files):
+    """The first of `local_files` (workspace.copy_files) whose copy in the worktree is not the main
+    checkout's. Git ignores these files, so `git worktree remove` deletes them without a refusal."""
+    for name in local_files:
+        relative = PurePosixPath(name)
+        if relative.is_absolute() or '..' in relative.parts or not relative.parts:
+            continue
+        mine, main = Path(path).joinpath(*relative.parts), Path(repository).joinpath(*relative.parts)
+        try:
+            if mine.is_file() and (not main.is_file() or mine.read_bytes() != main.read_bytes()):
+                return name
+        except OSError:
+            return name
+    return ''
+
+
+def clean(repository, merged_prs, cwd, busy, live_pr, confirm, close_window, dry_run=False, local_files=()):
     """(lines, problems). merged_prs: [{number, branch, head_oid}], newest first."""
     merged = {}
     for pr in merged_prs:
@@ -52,8 +69,16 @@ def clean(repository, merged_prs, cwd, busy, live_pr, confirm, close_window, dry
         if reason:
             keep(reason)
             continue
-        if _git(path, 'status', '--porcelain', '--untracked-files=all').stdout.strip():
+        status = _git(path, 'status', '--porcelain', '--untracked-files=all')
+        if status.returncode:
+            keep('its changes could not be read (git status failed)')
+            continue
+        if status.stdout.strip():
             keep('it has uncommitted or untracked changes')
+            continue
+        changed = _changed_local_file(repository, path, local_files)
+        if changed:
+            keep('its ' + changed + ' differs from the main checkout')
             continue
         if not head or _git(repository, 'cat-file', '-e', head + '^{commit}').returncode:
             keep('its head commit is not fetched here')

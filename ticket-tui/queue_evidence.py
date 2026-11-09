@@ -37,6 +37,11 @@ def failed_by_text(messages):
     return failed
 
 
+def own_failures(failures):
+    """The failures of the sources the dashboard shows; `sidequest up` reports its own (sync) sources."""
+    return {name: message for name, message in failures.items() if name in SOURCES}
+
+
 class QueueEvidence:
     def __init__(self, store, snapshots, demo=None):
         """`demo` is (jira, prs, environments) sample data that replaces every stored copy."""
@@ -58,7 +63,7 @@ class QueueEvidence:
             shared = generation.get("sources", {})
             checked, generated = parse_time(saved.get("checked_at")), parse_time(generation.get("generated_at"))
             if generated and (not checked or generated >= checked):
-                failures = generation.get("failures", {})
+                failures = own_failures(generation.get("failures", {}))
                 self.refresh_errors, self.failed_sources = list(failures.values()), set(failures)
         except (OSError, ValueError):
             shared = {}
@@ -73,7 +78,7 @@ class QueueEvidence:
             if (not isinstance(data, dict) or not isinstance(data.get("sources"), dict)
                     or not isinstance(data.get("failures", {}), dict)):
                 raise RuntimeError("Invalid shared snapshot; keeping previous data")
-            failures = data.get("failures", {})
+            failures = own_failures(data.get("failures", {}))
             messages.extend(str(message) for message in failures.values())
             failed.update(failures)
             for name, label in SOURCES.items():

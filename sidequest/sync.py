@@ -113,9 +113,10 @@ def _window_name(branch, path):
     return (branch or '').replace('/', '-') or Path(path).name
 
 
-def remember_order(path, snapshot):
+def remember_order(path, snapshot, save=True):
     """Assignment dates by ticket key, kept in `path` across runs so a ticket that leaves your list
-    (handed to review or QA) keeps its window's place; today's snapshot wins for keys it has."""
+    (handed to review or QA) keeps its window's place; today's snapshot wins for keys it has.
+    save=False (a dry run) returns the same dates and writes nothing."""
     try:
         dates = json.loads(Path(path).read_text())
     except (OSError, ValueError):
@@ -125,8 +126,9 @@ def remember_order(path, snapshot):
     for row in (((snapshot or {}).get('sources') or {}).get('jira') or {}).get('tickets') or []:
         if row.get('key') and row.get('first_assigned_at'):
             dates[row['key']] = row['first_assigned_at']
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text(json.dumps(dates, indent=2, sort_keys=True) + '\n')
+    if save:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(json.dumps(dates, indent=2, sort_keys=True) + '\n')
     return dates
 
 

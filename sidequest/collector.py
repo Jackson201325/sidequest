@@ -90,11 +90,16 @@ def collect(directory=DEFAULT_OUT, max_age=0, sync=False):
                                                ('prs', bool(identity.GITHUB_REPO))) if not enabled}
         retained_disabled = {name for name in disabled if name in previous['sources']
                              and previous['sources'][name].get('enabled') is not False}
-        if max_age and not sync and not retained_disabled and not previous.get('failures') and {'jira', 'prs'} <= set(previous['sources']):
+        # A run without sync does not collect the sync sources, so it must not forget that they failed:
+        # `sidequest up --offline` would then plan from their old data without saying so.
+        kept = {} if sync else {name: message for name, message in (previous.get('failures') or {}).items()
+                                if name in ('sync_tickets', 'merged_prs')}
+        if (max_age and not sync and not retained_disabled and not set(previous.get('failures') or {}) - set(kept)
+                and {'jira', 'prs'} <= set(previous['sources'])):
             dates = [datetime.fromisoformat(previous['sources'][name]['generated_at']) for name in ('jira', 'prs')]
             if all(0 <= (datetime.now(identity.TZ) - date).total_seconds() < max_age for date in dates):
                 return previous
-        updates, failures = {}, {}
+        updates, failures = {}, dict(kept)
         def retain_or_update(name, source):
             if source.get('enabled') is False and name in retained_disabled:
                 label, setting = ('Jira', 'jira.site') if name == 'jira' else ('GitHub', 'github.repository')

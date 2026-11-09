@@ -55,6 +55,13 @@ class Tmux:
                              capture_output=True, text=True)
         return len(ran.stdout.splitlines()) if ran.returncode == 0 else None
 
+    def inside(self, session):
+        """True when this command runs in a pane of `session`, so closing the session stops it."""
+        if not os.environ.get('TMUX'):
+            return False
+        ran = subprocess.run(['tmux', 'display-message', '-p', '#{session_name}'], capture_output=True, text=True)
+        return ran.returncode == 0 and ran.stdout.strip() == session
+
     def open_layout(self, session, windows):
         return tmux.open_layout(self.run, session, windows)
 
