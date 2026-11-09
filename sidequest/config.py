@@ -88,6 +88,7 @@ KEYS = {
     'checks': ('test', 'lint'),
     'credentials': ('jira', 'review', 'qa'),
     'sync': ('tickets_jql', 'open_prs', 'update', 'cleanup', 'every_minutes'),
+    'sessions': (),  # personal tmux sessions: {name: workspace.windows-style list}; not set from the environment
 }
 # Credentials, read where they are used; they never enter settings.
 NOT_SETTINGS = {'SIDEQUEST_JIRA_TOKEN', 'SIDEQUEST_QA_PASSWORD'}
@@ -115,6 +116,16 @@ def from_environment(data, environ):
             raise ValueError('Each configuration section must be an object')
         target[key] = value
     return data
+
+
+def _check_windows(value, label):
+    if not isinstance(value, list) or not all(
+            isinstance(window, dict) and isinstance(window.get('name'), str) and window['name']
+            and set(window) <= {'name', 'command', 'cwd', 'at', 'stay', 'keys'}
+            and window.get('at', 'start') in ('start', 'end') and isinstance(window.get('stay', False), bool)
+            and all(isinstance(window.get(k, ''), str) for k in ('command', 'cwd', 'keys')) for window in value):
+        raise ValueError(label + ' must be a list of {name, command?, cwd?, at? (start or end), '
+                         'stay? (true or false), keys?} objects')
 
 
 def load(path, environ=None, project=None):
@@ -152,13 +163,11 @@ def load(path, environ=None, project=None):
                                      'keychain:SERVICE/ACCOUNT or env:NAME), never the secret itself; known names: '
                                      + ', '.join(KEYS['credentials']))
             elif section == 'workspace' and key == 'windows':
-                if not isinstance(value, list) or not all(
-                        isinstance(window, dict) and isinstance(window.get('name'), str) and window['name']
-                        and set(window) <= {'name', 'command', 'cwd', 'at', 'stay', 'keys'}
-                        and window.get('at', 'start') in ('start', 'end') and isinstance(window.get('stay', False), bool)
-                        and all(isinstance(window.get(k, ''), str) for k in ('command', 'cwd', 'keys')) for window in value):
-                    raise ValueError('workspace.windows must be a list of {name, command?, cwd?, at? (start or end), '
-                                     'stay? (true or false), keys?} objects')
+                _check_windows(value, 'workspace.windows')
+            elif section == 'sessions':
+                if not re.fullmatch(r'[a-z0-9][a-z0-9_-]*', key):
+                    raise ValueError('sessions names use lowercase letters, digits, - and _ (for example "dotfiles")')
+                _check_windows(value, 'sessions.' + key)
             elif section == 'workspace' and key == 'on_up':
                 if not isinstance(value, list) or not all(isinstance(command, str) and command for command in value):
                     raise ValueError('workspace.on_up must be a list of commands')
@@ -173,7 +182,7 @@ def load(path, environ=None, project=None):
                     raise ValueError('jira.projects must be a list of Jira project keys')
             elif not isinstance(value, str):
                 raise ValueError('Configuration values must be strings, except jira.projects, the github ticket links '
-                                 'and workspace.agent_tasks, windows and on_up')
+                                 'and workspace.agent_tasks, windows and on_up, and sessions')
     site = data.get('jira', {}).get('site', '')
     if site:
         parts = urlsplit(site)
