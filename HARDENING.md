@@ -501,3 +501,14 @@ network, with workspace.windows-style windows validated by the same check. Tests
 --dry-run lists each session and its windows; a real run on a private tmux server (TMUX_TMPDIR) builds the
 session and a second run adds no duplicate windows; a name the project's tmux_session uses is skipped; a bad
 name or window is a settings error. `sidequest up` now exits 2 on a settings error, as its help says (it was 1).
+
+2026-11-09: Herdr layouts. `sidequest up` (with --when-due, --all, -r and cleanup), personal sessions,
+`sidequest start`, the overview and `workspace.launch` session now work with workspace.terminal herdr: one
+workspace per session in the default Herdr session, one tab per window. Herdr 0.9.5 facts checked on
+throwaway named sessions: the CLI has no `tab move`, but the socket API's tab.move works (one JSON request
+per line); a server outlives the hidden client that started it; panes get HERDR_SOCKET_PATH; `herdr status`
+lists the socket even when stopped; socket paths over about 104 bytes fail on macOS. Tests first failed:
+fake-server layout, reuse, Main rename, start-and-adopt, controls and attach; the launcher with herdr; the
+overview's tab count; and a real server in a temporary XDG_CONFIG_HOME built both workspaces once over two
+runs (stopped afterwards only when its socket is inside that folder). Auto now prefers Herdr inside Herdr
+for `up`, as the dashboard already did. A Herdr window's command is typed into its shell, which stays.

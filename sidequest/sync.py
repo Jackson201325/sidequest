@@ -103,6 +103,7 @@ class Window:
     command: Optional[str] = None
     end: bool = False
     keys: str = ''
+    stay: bool = False
 
 
 def _window_name(branch, path):
@@ -154,11 +155,8 @@ def fresh(snapshot, every_minutes, now=None, tz='UTC'):
 
 def extra_window(entry, root):
     """A Window from one {name, command?, cwd?, at?, stay?, keys?} entry; cwd defaults to `root`."""
-    command = entry.get('command')
-    if command and entry.get('stay'):
-        command = 'trap : INT; ' + command + '; exec "${SHELL:-/bin/sh}"'
-    return Window(entry['name'], str(Path(entry.get('cwd') or root).expanduser()), command, entry.get('at') == 'end',
-                  entry.get('keys') or '')
+    return Window(entry['name'], str(Path(entry.get('cwd') or root).expanduser()), entry.get('command'),
+                  entry.get('at') == 'end', entry.get('keys') or '', bool(entry.get('stay')))
 
 
 def personal_sessions(sessions, project_session, home):

@@ -19,7 +19,7 @@ class OverviewTests(unittest.TestCase):
         self.addCleanup(folder.cleanup)
         self.home = Path(folder.name).resolve()
         self.config, self.state = self.home / 'config' / 'sidequest' / 'projects', self.home / 'state'
-        for name, extra in (('acme', {}), ('globex', {'tmux_session': 'gx'})):
+        for name, extra in (('acme', {}), ('globex', {'tmux_session': 'gx'}), ('initech', {'terminal': 'herdr'})):
             (self.config / name).mkdir(parents=True)
             (self.config / name / 'config.json').write_text(json.dumps(
                 {'workspace': dict({'repository': '/code/' + name}, **extra)}))
@@ -37,13 +37,23 @@ class OverviewTests(unittest.TestCase):
             return 128, ''
         if argv[:2] == ['tmux', 'list-windows'] and argv[-1] == '=gx':
             return 0, '\n'.join(['w'] * 18) + '\n'
+        if argv[:3] == ['herdr', 'workspace', 'list']:
+            return 0, json.dumps({'result': {'type': 'workspace_list', 'workspaces': [
+                {'workspace_id': 'w1', 'label': 'initech', 'tab_count': 4}]}})
         return 1, ''
 
     def rows(self):
         return overview.project_rows(self.config, self.state, run=self.run_fake)
 
+    def test_a_herdr_project_shows_its_workspace_tabs(self):
+        initech = self.rows()[2]
+        self.assertEqual((initech['terminal'], initech['session'], initech['windows']), ('herdr', 'initech', 4))
+        text = '\n'.join(overview.render([initech], 0, 80, now='2026-11-09T12:00:00+00:00', tz='UTC'))
+        self.assertIn('herdr: running   4 windows', text)
+        self.assertEqual(overview.action('\n', initech), ('attach', 'initech'))
+
     def test_each_profile_shows_its_session_sync_worktrees_and_booking(self):
-        acme, tr = self.rows()
+        acme, tr = self.rows()[:2]
         self.assertEqual((acme['name'], acme['session'], acme['windows'], acme['synced'], acme['worktrees'], acme['booked']),
                          ('acme', 'acme', None, '', None, ''))
         self.assertEqual((tr['name'], tr['session'], tr['windows'], tr['worktrees'], tr['booked']),
@@ -51,7 +61,7 @@ class OverviewTests(unittest.TestCase):
         self.assertEqual(tr['synced'], '2026-11-09T08:31:00+00:00')
 
     def test_the_picker_lines_mark_the_selection_and_fit_the_width(self):
-        acme, tr = self.rows()
+        acme, tr = self.rows()[:2]
         lines = overview.render([acme, tr], selected=1, width=80, now='2026-11-09T12:00:00+00:00', tz='UTC')
         text = '\n'.join(lines)
         self.assertIn('  acme', text)
@@ -66,7 +76,7 @@ class OverviewTests(unittest.TestCase):
         self.assertIn('synced Nov 09 08:31', '\n'.join(older))
 
     def test_keys_map_to_commands_for_the_chosen_project(self):
-        acme, tr = self.rows()
+        acme, tr = self.rows()[:2]
         self.assertEqual(overview.action('\n', tr), ('attach', 'gx'))
         self.assertEqual(overview.action('a', acme), ('sidequest', ['up', '-n']), 'no session yet: build it offline')
         self.assertEqual(overview.action('u', tr), ('sidequest', ['up']))

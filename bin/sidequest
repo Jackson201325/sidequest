@@ -3,7 +3,6 @@
 
 import os
 import runpy
-import shutil
 import sys
 from pathlib import Path
 
@@ -16,14 +15,15 @@ take(sys.argv)
 
 
 def opens_session():
-    """workspace.launch session: plain `sidequest` in a terminal outside tmux and Herdr opens the tmux session."""
+    """workspace.launch session: plain `sidequest` in a terminal outside tmux and Herdr opens the session
+    (tmux, or Herdr with workspace.terminal herdr)."""
     if sys.argv[1:] or not (sys.stdin.isatty() and sys.stdout.isatty()):
         return False
-    if os.environ.get('TMUX') or os.environ.get('HERDR_ENV') == '1':
+    from sidequest import config, terminal_mode
+    if terminal_mode.inside(os.environ) or config.get('workspace', 'launch') != 'session':
         return False
-    from sidequest import config
-    mode = os.environ.get('SIDEQUEST_TERMINAL') or config.get('workspace', 'terminal') or 'auto'
-    return config.get('workspace', 'launch') == 'session' and mode in ('auto', 'tmux') and bool(shutil.which('tmux'))
+    chosen = terminal_mode.mode(os.environ, config.SETTINGS)
+    return chosen in ('tmux', 'herdr') and not terminal_mode.unavailable(chosen)
 
 
 try:
