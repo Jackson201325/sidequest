@@ -55,6 +55,7 @@
     "base_ref": "origin/main",
     "agent_command": "claude",
     "terminal": "auto",
+    "launch": "dashboard",
     "tmux_session": "sidequest",
     "browser": "",
     "copy_files": "",

@@ -488,3 +488,10 @@ each skill with the file that wins (replace, generic + addition, generic), links
 for Claude Code and Codex; secrets as references only. It only reads and exits 1 on a missing command or file. On
 the real profile the first run reported workspace.browser as a missing file; it is a command line (terminal.
 open_browser splits it), so it is now checked as a command, with a test that failed first.
+
+2026-11-09: `workspace.launch` (`dashboard` default, or `session`). With `session`, `sidequest` without arguments,
+in a terminal, outside tmux ($TMUX) and Herdr (HERDR_ENV=1), with workspace.terminal auto or tmux and tmux on
+PATH, runs `sidequest up --when-due` (`--all` when no project is selected). Every other case opens the dashboard,
+so the session's own Sidequest window cannot loop. Herdr sessions are not opened. A pseudo-terminal test first
+failed at bin/sidequest: the session setting still opened the dashboard; inside tmux, with herdr, and without the
+setting the dashboard stays. An unknown value is a settings error (exit 2).
