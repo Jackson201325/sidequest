@@ -97,7 +97,7 @@ Reply briefly with: worktree reused or created (and copied files), the Jira stat
 result, the attachments read (count and folder) and any you could not open, the
 branch and path with a `cd` command, the markers added, the plan path (it shows in
 the dashboard's Plan tab), and the question ids (Questions tab). Then ask whether to
-start implementing.
+start implementing with sidequest-implement.
 
 Do not commit (markers included), push, open a PR, or change Jira in any other way
 (assignee, comments, other statuses) unless the user asks.

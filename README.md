@@ -1,9 +1,20 @@
 # Sidequest
 
-Your terminal quest log for Jira tickets, GitHub pull requests and the work between
-them. Sidequest shows whose turn it is, what changed, and what needs attention.
-It also bundles optional agent skills and scripts for planning, local worktrees,
-QA screenshots, review feedback and preparing PRs.
+A terminal app for your whole working day. Sidequest runs on your computer and
+brings four things together:
+
+- **Local worktrees.** One Git worktree per ticket or pull request, created or
+  reused for you and laid out as tmux windows or Herdr tabs.
+- **Jira and GitHub.** A keyboard-driven queue of your tickets and pull requests
+  that shows whose turn it is, what changed and what needs attention.
+- **Environments.** One shared local app that worktrees take turns using, and
+  Heroku review apps for QA.
+- **Your day.** `sidequest up` prepares the workspace each morning, personal
+  sessions keep your notes and dotfiles close, and the standup and daily report
+  sum up what you did.
+
+It also bundles optional agent skills and scripts for planning, QA screenshots,
+review feedback and preparing PRs.
 
 ## Minimum requirements
 
@@ -290,6 +301,7 @@ test commands, branch conventions and environment booking rules.
 | Skill | Use it for |
 | --- | --- |
 | `sidequest-start` | Read a ticket, reuse/create its worktree and write a plan |
+| `sidequest-implement` | Build a started ticket test-first from its plan, meetings, questions and new comments |
 | `sidequest-qa-local` | Check acceptance criteria and capture local QA evidence |
 | `sidequest-qa-review-app` | Check an open PR on its Heroku review app |
 | `sidequest-ship` | Review, test, prepare scoped commits and a PR |
@@ -718,6 +730,10 @@ Sidequest chooses the project in this order:
 2. The profile whose `workspace.repository` or `workspace.worktrees_dir` holds the current
    folder (the deepest match), so agents and `sqapp` inside a worktree need no flag.
 3. The only profile, when there is one.
+
+Sidequest starts tmux without `SIDEQUEST_PROJECT`, so a pane in any session picks its project
+by folder. A tmux server started by an older Sidequest may still pass one project to every pane;
+run `tmux set-environment -g -u SIDEQUEST_PROJECT`, then open new panes.
 
 With several profiles and none chosen (for example in `~`), `sidequest up` and `sidequest start`
 do not guess: they name the projects and exit 2. In a terminal, `sidequest` and `sidequest up`

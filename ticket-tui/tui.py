@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Sidequest: a keyboard-driven attention queue for Jira and GitHub."""
+"""Sidequest: local worktrees, a Jira and GitHub queue, environments and your day."""
 
 import argparse
 from collections import namedtuple
@@ -64,6 +64,7 @@ AGENT_TASKS = [
     ("Review PR feedback", "Review the PR feedback for {key} and explain the changes needed", 'sidequest-feedback'),
     ("Review this branch", "Review the branch for {key} and report correctness issues", None),
     ("Plan or start ticket", "Start {key}", 'sidequest-start'),
+    ("Implement ticket", "Implement {key} from its plan", 'sidequest-implement'),
     ("QA locally", "QA {key} locally", 'sidequest-qa-local'),
     ("QA review app", "QA {key} on its review app", 'sidequest-qa-review-app'),
     ("Ship ticket", "Prepare {key} for shipping", 'sidequest-ship'),

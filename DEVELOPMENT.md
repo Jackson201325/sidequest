@@ -56,7 +56,8 @@ the bundled dispatcher by its absolute location, never a global personal command
 the `credentials` setting); `sidequest/projects.py` writes (`project init`) and checks (`project check`) profiles.
 `sidequest/config.py` picks a project profile (SIDEQUEST_PROJECT or --project via
 sidequest/project_flag.py, else the profile whose repository/worktrees folder holds the cwd,
-else the only one), applies projects/NAME/config.json over the shared config.json, then
+else the only one; terminal_mode.run_tmux drops SIDEQUEST_* so a tmux server never pins one project
+for every pane), applies projects/NAME/config.json over the shared config.json, then
 SIDEQUEST_<SECTION>_<KEY> environment variables on top (config.KEYS lists every
 setting, including qa.browser and qa.email; unknown names fail; config.NOT_SETTINGS lists the
 credential variables); SIDEQUEST_DATA_DIR/STATE_DIR move storage; all services are
@@ -85,7 +86,7 @@ own commands (app.switch_command, current_command, running_command) do the switc
 
 The queue's original sorting, business-hour clocks, ownership rules, stacked panes,
 keyboard navigation and saved divider remain. Company ticket-start actions and
-company-specific agent assumptions are excluded. Six reusable `sidequest-*` skills
+company-specific agent assumptions are excluded. Seven reusable `sidequest-*` skills
 are bundled under agents/skills/<name>/SKILL.md. The dashboard's agent menu renders
 the selected canonical skill; the optional installer binds absolute helper paths
 for Codex/Claude, checks drift and preserves user edits. `agents/RULES.md` supplies

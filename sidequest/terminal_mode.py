@@ -33,11 +33,18 @@ def inside(environ):
     return bool(environ.get('TMUX')) or environ.get('HERDR_ENV') == '1'
 
 
+def run_tmux(args, timeout=45):
+    """A tmux server passes the environment it starts with to every pane of every session, so it
+    must not keep this project's selection; Sidequest in a pane then picks the project by folder."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith('SIDEQUEST_')}
+    return run_command(args, timeout, env=env)
+
+
 class Tmux:
     name = 'tmux'
     noun = 'tmux session'
 
-    def __init__(self, run=run_command):
+    def __init__(self, run=run_tmux):
         self.run = run
 
     def exists(self, session):
