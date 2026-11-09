@@ -86,7 +86,7 @@ own commands (app.switch_command, current_command, running_command) do the switc
 
 The queue's original sorting, business-hour clocks, ownership rules, stacked panes,
 keyboard navigation and saved divider remain. Company ticket-start actions and
-company-specific agent assumptions are excluded. Six reusable `sidequest-*` skills
+company-specific agent assumptions are excluded. Seven reusable `sidequest-*` skills
 are bundled under agents/skills/<name>/SKILL.md. The dashboard's agent menu renders
 the selected canonical skill; the optional installer binds absolute helper paths
 for Codex/Claude, checks drift and preserves user edits. `agents/RULES.md` supplies

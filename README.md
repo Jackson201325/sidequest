@@ -301,6 +301,7 @@ test commands, branch conventions and environment booking rules.
 | Skill | Use it for |
 | --- | --- |
 | `sidequest-start` | Read a ticket, reuse/create its worktree and write a plan |
+| `sidequest-implement` | Build a started ticket test-first from its plan, meetings, questions and new comments |
 | `sidequest-qa-local` | Check acceptance criteria and capture local QA evidence |
 | `sidequest-qa-review-app` | Check an open PR on its Heroku review app |
 | `sidequest-ship` | Review, test, prepare scoped commits and a PR |

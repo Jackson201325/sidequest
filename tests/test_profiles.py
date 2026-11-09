@@ -121,12 +121,15 @@ class ProfileTests(unittest.TestCase):
         self.assertIn('## Project additions: alpha', alpha.stdout)
         self.assertLess(alpha.stdout.index('# Ship a ticket'), alpha.stdout.index('Run the team linter'))
         self.assertEqual(skill('alpha-repo', 'sidequest-ship').stdout, alpha.stdout)
+        implement = skill('beta', 'implement')
+        self.assertEqual(implement.returncode, 0, implement.stderr)
+        self.assertIn('# Implement a ticket', implement.stdout)
         beta = skill('beta', 'ship')
         self.assertIn('# Ship a ticket', beta.stdout)
         self.assertNotIn('Project additions', beta.stdout)
         unknown = skill('beta', 'deploy')
         self.assertEqual(unknown.returncode, 2)
-        self.assertIn('feedback, qa-local, qa-review-app, ship, start, triage', unknown.stderr)
+        self.assertIn('feedback, implement, qa-local, qa-review-app, ship, start, triage', unknown.stderr)
 
         # A replace version wins over the generic skill and over additions, even through a link.
         team = self.home / 'team-ship.md'

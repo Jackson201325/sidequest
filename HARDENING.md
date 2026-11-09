@@ -54,7 +54,7 @@ capture, and explicit skill installation. Ported helper checks use temporary Git
 repositories and process/service fixtures. Skills are installed to temporary
 folders in tests; drift is detected and user edits are never overwritten.
 
-Six skills share project-neutral rules and use the bundled helper. Browser QA
+Seven skills share project-neutral rules and use the bundled helper. Browser QA
 has no shared login defaults or Keychain dependency, and checks the current host
 after redirects before supplying credentials. Both dashboard plans and CLI evidence
 use the same external folder. The README explains setup, data flow, daily use,
@@ -512,6 +512,13 @@ fake-server layout, reuse, Main rename, start-and-adopt, controls and attach; th
 overview's tab count; and a real server in a temporary XDG_CONFIG_HOME built both workspaces once over two
 runs (stopped afterwards only when its socket is inside that folder). Auto now prefers Herdr inside Herdr
 for `up`, as the dashboard already did. A Herdr window's command is typed into its shell, which stays.
+
+2026-11-09: sidequest-implement skill. Fills the gap between sidequest-start (plan written) and
+sidequest-ship (work finished). It reads the plan with the user's edits, meetings.md, logged questions,
+attachments, ticket activity made after the plan, the code markers and existing branch work; records
+differences under the plan's Updates; builds unblocked criteria test-first and asks about blocking open
+questions; then runs the project's checks. It never commits, pushes or changes Jira. Space s lists it as
+"Implement ticket". Test first failed: `sidequest-data skill implement` was unknown.
 
 2026-11-09: tmux sessions no longer keep one project's selection. A tmux server passes the environment
 it starts with to every pane of every session. `sidequest up --all` started it with SIDEQUEST_PROJECT set
