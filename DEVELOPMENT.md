@@ -41,7 +41,8 @@ dashboard shows that text only if it is one printable line of at most 300 charac
 comes only from Sidequest's templates and messages; a moved issue's new key is shown
 only when it is a valid ticket key.
 
-`bin/sidequest` launches curses or the list/standup modes. The bundled `bin/sidequest-data`
+`bin/sidequest` launches curses or the list/standup modes; with workspace.launch session, a
+plain run in a terminal outside tmux/Herdr hands off to `sidequest up --when-due`. The bundled `bin/sidequest-data`
 supports read-only `collect`, `snapshot` and `ticket` helpers, plus independent
 workflow commands for naming, lookup, plans, PR feedback/checks, QA and skills.
 TUI refresh calls

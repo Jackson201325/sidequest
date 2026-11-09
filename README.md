@@ -635,6 +635,18 @@ args = ["-lc", "sidequest up --all --when-due; exec zsh -l"]
 
 Detaching (prefix `d`) returns to the shell.
 
+To make plain `sidequest` do this, set `workspace.launch` to `session` (default `dashboard`), usually in
+the shared `~/.config/sidequest/config.json` so every project gets it:
+
+```json
+"workspace": {"launch": "session"}
+```
+
+Then `sidequest` with no arguments, in a terminal outside tmux and Herdr, runs `sidequest up --when-due`
+(`--all` when no project is selected). Inside tmux or Herdr, with arguments, without a terminal, or when
+`workspace.terminal` (or `SIDEQUEST_TERMINAL`) is `shell` or `herdr`, it opens the dashboard as before,
+so the session's own Sidequest window never loops. Herdr sessions are not opened this way yet.
+
 Before creating anything, it can remove worktrees whose PR merged (`sync.cleanup`: `ask`, the
 default, asks per worktree in a terminal; `on` removes; `off` skips; `--cleanup` considers them
 when off and `--yes` answers yes). A worktree is removed only when you are not in it, the app is
