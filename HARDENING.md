@@ -527,3 +527,16 @@ tmux commands from `sidequest up` now run without SIDEQUEST_* variables, as Herd
 did, so a pane picks its project by folder. A server that is already running keeps its old environment:
 `tmux set-environment -g -u SIDEQUEST_PROJECT` clears it for new panes. Test first failed: `tmux
 new-session` received the full environment.
+
+2026-11-09: `bin/sidequest-map.py`, a read-only code map (calls, imports, file writes, config and environment
+reads, external programs) as one offline HTML page outside the checkout. Tests first failed at the scanner and
+the command: cross-module and method calls, writes such as write_text and os.replace, config reads through
+config.get, settings[section] and a held section, unknown and undeclared settings, programs run through
+subprocess but not Herdr subcommands, tests left out unless --tests, and data embedded without `</`. Limits:
+static analysis only; dynamic calls, settings read in loops or helpers (jira.start_from, app ttl/wait/running,
+credentials) and calls through variables are not resolved.
+
+2026-11-09: `sidequest map` runs `bin/sidequest-map.py`, and `--open` opens the written page with
+`workspace.browser` or the OS default, as ticket links do. The test first failed at `bin/sidequest map --open`
+with a fake browser from SIDEQUEST_CONFIG. The page stays outside the checkout; nothing is fetched or written
+elsewhere.
