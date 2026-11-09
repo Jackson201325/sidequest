@@ -80,7 +80,8 @@ KEYS = {
     'github': ('repository', 'username', 'pr_tickets', 'branch_tickets'),
     'heroku': ('pipeline',),
     'workspace': ('repository', 'plans_dir', 'worktrees_dir', 'base_ref', 'agent_command', 'terminal',
-                  'tmux_session', 'browser', 'copy_files', 'agent_tasks', 'reports_dir', 'report_command', 'windows', 'on_up'),
+                  'tmux_session', 'browser', 'copy_files', 'agent_tasks', 'reports_dir', 'report_command', 'windows', 'on_up',
+                  'launch'),
     'app': ('url', 'switch_command', 'current_command', 'running_command', 'required_files', 'ttl_minutes',
             'wait_minutes'),
     'qa': ('browser', 'email'),
@@ -181,6 +182,8 @@ def load(path, environ=None, project=None):
     repository = data.get('github', {}).get('repository', '')
     if data.get('workspace', {}).get('terminal', 'auto') not in ('auto', 'shell', 'tmux', 'herdr'):
         raise ValueError('workspace.terminal must be auto, shell, tmux or herdr')
+    if data.get('workspace', {}).get('launch', 'dashboard') not in ('dashboard', 'session'):
+        raise ValueError('workspace.launch must be dashboard or session')
     if repository and not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repository):
         raise ValueError('github.repository must look like owner/repository')
     for key, allowed in (('open_prs', ('on', 'off')), ('update', ('on', 'off')), ('cleanup', ('off', 'ask', 'on'))):
