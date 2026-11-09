@@ -6,6 +6,13 @@ from layout import HEAVY, LIGHT, border, card, lane_tab, pr_glyph_offset, scroll
 
 
 class LayoutTests(unittest.TestCase):
+    def test_card_adds_branch_state_and_qa_hint_before_the_next_step(self):
+        ticket = Ticket("DEMO-1", court="me", lane="Needs me", action="Continue implementation")
+        lines = card(ticket, self.clock, local=["Local 2 uncommitted · QA shots missing"],
+                     hint="QA shots missing: Space s → QA locally")
+        self.assertEqual(lines[-3:], ["Local 2 uncommitted · QA shots missing", "→ Continue implementation",
+                                      "→ QA shots missing: Space s → QA locally"])
+
     clock = datetime(2026, 10, 27, 16, 0, tzinfo=TZ)
 
     def test_relative_times(self):

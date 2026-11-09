@@ -9,14 +9,43 @@
     "email": "you@example.com",
     "account_id": "",
     "cloud_id": "",
-    "projects": ["APP"]
+    "projects": ["APP"],
+    "start_status": "",
+    "start_from": "",
+    "start_ask": ""
   },
   "github": {
     "repository": "your-org/your-repository",
-    "username": "your-github-login"
+    "username": "your-github-login",
+    "pr_tickets": {},
+    "branch_tickets": {}
   },
   "heroku": {
     "pipeline": ""
+  },
+  "app": {
+    "url": "",
+    "switch_command": "",
+    "current_command": "",
+    "running_command": "",
+    "required_files": "",
+    "ttl_minutes": "30",
+    "wait_minutes": "9"
+  },
+  "qa": {
+    "browser": "",
+    "email": ""
+  },
+  "checks": {
+    "test": "",
+    "lint": ""
+  },
+  "credentials": {},
+  "sync": {
+    "tickets_jql": "",
+    "open_prs": "on",
+    "update": "off",
+    "cleanup": "ask"
   },
   "workspace": {
     "repository": "",
@@ -26,6 +55,10 @@
     "agent_command": "claude",
     "terminal": "auto",
     "tmux_session": "sidequest",
-    "browser": ""
+    "browser": "",
+    "copy_files": "",
+    "agent_tasks": [],
+    "reports_dir": "",
+    "report_command": ""
   }
 }

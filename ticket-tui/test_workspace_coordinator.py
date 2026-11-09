@@ -17,7 +17,7 @@ class Workflow:
     def result(self):
         return LaunchResult(foreground={'argv': ['/bin/sh', '-i'], 'cwd': self.path, 'label': 'Workspace'})
 
-    def start(self, key, summary):
+    def start(self, key, summary, issue_type='', window=False):
         self.calls.append(('start', key, summary))
         return self.result()
 

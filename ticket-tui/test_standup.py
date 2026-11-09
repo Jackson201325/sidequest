@@ -1,5 +1,7 @@
+import tempfile
 import unittest
 from datetime import datetime, time
+from pathlib import Path
 from unittest.mock import patch
 
 import standup
@@ -242,6 +244,52 @@ class ReportRefreshTests(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(sorted(p.name for p in self.reports.iterdir()), ["2026-10-30.md"])
         self.assertEqual((self.reports / "2026-10-30.md").read_text(), SAMPLE_REPORT)
+
+
+class ReportsFolderTests(unittest.TestCase):
+    def test_update_report_writes_into_workspace_reports_dir(self):
+        import os, subprocess, sys
+        root = Path(__file__).resolve().parent
+        with tempfile.TemporaryDirectory() as folder:
+            reports = Path(folder) / "team-reports"
+            env = {k: v for k, v in os.environ.items() if not k.startswith("SIDEQUEST_")}
+            env.update(SIDEQUEST_CONFIG=str(Path(folder) / "none.json"), SIDEQUEST_STATE_DIR=str(Path(folder) / "state"),
+                       SIDEQUEST_DATA_DIR=str(Path(folder) / "data"), SIDEQUEST_WORKSPACE_REPORTS_DIR=str(reports),
+                       HOME=folder)
+            out = subprocess.run([sys.executable, "-B", str(root / "tui.py"), "--update-report"], env=env,
+                                 capture_output=True, text=True, timeout=60)
+            self.assertIn(str(reports), out.stdout + out.stderr)
+
+
+    def report(self, folder, *args, **settings):
+        import os, subprocess, sys
+        env = {k: v for k, v in os.environ.items() if not k.startswith("SIDEQUEST_")}
+        env.update(SIDEQUEST_CONFIG=str(Path(folder) / "none.json"), SIDEQUEST_STATE_DIR=str(Path(folder) / "state"),
+                   SIDEQUEST_DATA_DIR=str(Path(folder) / "data"), HOME=folder, PAGER="cat", **settings)
+        return subprocess.run([sys.executable, "-B", str(Path(__file__).resolve().parent / "tui.py"), "--report", *args],
+                              env=env, capture_output=True, text=True, timeout=60)
+
+    def test_report_shows_the_newest_report_and_says_when_it_is_not_today(self):
+        with tempfile.TemporaryDirectory() as folder:
+            reports = Path(folder) / "reports"
+            reports.mkdir()
+            (reports / "2026-01-01.md").write_text("old report")
+            (reports / "2026-01-02.md").write_text("# Newest report")
+            shown = self.report(folder, SIDEQUEST_WORKSPACE_REPORTS_DIR=str(reports))
+            self.assertEqual(shown.returncode, 0, shown.stderr)
+            self.assertIn("# Newest report", shown.stdout)
+            self.assertNotIn("old report", shown.stdout)
+            self.assertIn("Showing 2026-01-02", shown.stdout)
+            empty = self.report(folder, SIDEQUEST_WORKSPACE_REPORTS_DIR=str(Path(folder) / "none"))
+            self.assertEqual(empty.returncode, 1)
+            self.assertIn("No report yet", empty.stdout + empty.stderr)
+
+    def test_report_command_replaces_the_generic_view(self):
+        with tempfile.TemporaryDirectory() as folder:
+            shown = self.report(folder, "--refresh",
+                                SIDEQUEST_WORKSPACE_REPORT_COMMAND="sh -c 'echo team report \"$0\" \"$@\"; exit 4' first")
+            self.assertEqual(shown.returncode, 4, shown.stderr)
+            self.assertIn("team report first --refresh", shown.stdout)
 
 
 if __name__ == "__main__":

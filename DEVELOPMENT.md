@@ -46,7 +46,14 @@ supports read-only `collect`, `snapshot` and `ticket` helpers, plus independent
 workflow commands for naming, lookup, plans, PR feedback/checks, QA and skills.
 TUI refresh calls
 the bundled dispatcher by its absolute location, never a global personal command.
-`sidequest/config.py` reads optional external JSON configuration; all services are
+`sidequest/credentials.py` resolves secrets by reference (env var, else keychain:/env: from
+the `credentials` setting); `sidequest/projects.py` writes (`project init`) and checks (`project check`) profiles.
+`sidequest/config.py` picks a project profile (SIDEQUEST_PROJECT or --project via
+sidequest/project_flag.py, else the profile whose repository/worktrees folder holds the cwd,
+else the only one), applies projects/NAME/config.json over the shared config.json, then
+SIDEQUEST_<SECTION>_<KEY> environment variables on top (config.KEYS lists every
+setting, including qa.browser and qa.email; unknown names fail; config.NOT_SETTINGS lists the
+credential variables); SIDEQUEST_DATA_DIR/STATE_DIR move storage; all services are
 disabled until configured. Identity defaults contain no account identifiers.
 The default timezone is UTC and business hours are Mon–Fri 09:00–17:00.
 
@@ -60,6 +67,15 @@ stay in process memory or the user's CLI authentication store.
 Healthy sources advance; failed sources preserve their previous data and source
 timestamp. A bounded PR inventory fails explicitly when its limit is reached.
 Optional local Git scans use the configured repository and never fetch or mutate it.
+
+Ticket folders hold plan.md, questions.md (written only by `sidequest-data questions`,
+sidequest/questions.py) and an optional meetings.md; the dashboard reads them and never
+writes them. branch_state.py reads local Git per worktree for the card's Local line.
+Confirmed PR/branch ticket links are config (github.pr_tickets, github.branch_tickets)
+and live in ticket_keys.linked_ticket, so every key rule stays in one place.
+bin/sqapp (sidequest-data app) books an optional shared local app for one worktree at
+a time; sidequest/app_booking.py owns its lock format, expiry and label. The project's
+own commands (app.switch_command, current_command, running_command) do the switching.
 
 The queue's original sorting, business-hour clocks, ownership rules, stacked panes,
 keyboard navigation and saved divider remain. Company ticket-start actions and

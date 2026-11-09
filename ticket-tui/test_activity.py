@@ -37,6 +37,18 @@ class ActivityTests(unittest.TestCase):
         events = ticket_activity(Ticket("DEMO-42", prs=[{"number": 42, "reviews": [written], "unresolved": [inline]}]))
         self.assertIn(("PR #42 review: commented", "Mostly good, two nits"), [(e["title"], e["body"]) for e in events])
 
+    def test_jira_status_and_assignee_changes_are_events(self):
+        ticket = Ticket("APP-42", jira_changes=[
+            {"at": "2026-10-28T10:00:00-03:00", "field": "status", "from": "In Dev", "to": "In Code Review", "author": "Dev"},
+            {"at": "2026-10-28T10:01:00-03:00", "field": "assignee", "from": "Dev", "to": "Rae", "author": "Dev"},
+            {"at": "2026-10-29T09:00:00-03:00", "field": "assignee", "from": "Rae", "to": None, "author": "Rae"},
+            {"at": "not a date", "field": "status", "from": "A", "to": "B"}])
+        events = ticket_activity(ticket)
+        self.assertEqual([(e["source"], e["title"], e["author"]) for e in events], [
+            ("Jira", "Unassigned (was Rae)", "Rae"),
+            ("Jira", "Assigned to Rae (was Dev)", "Dev"),
+            ("Jira", "Moved In Dev → In Code Review", "Dev")])
+
     def test_no_external_events_means_an_empty_log(self):
         ticket = Ticket("DEMO-42")
         ticket.local = {"last_local_activity_at": "2026-10-27T13:00:00Z"}

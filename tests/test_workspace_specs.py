@@ -36,6 +36,27 @@ class WorkspaceSpecs(unittest.TestCase):
         self.assertFalse(reused['created'])
         self.assertEqual((reused['path'], reused['branch']), (applied['path'], applied['branch']))
 
+    def test_listed_local_files_are_copied_only_into_a_new_worktree(self):
+        (self.repo / '.env').write_text('SECRET=1\n')
+        (self.repo / 'config').mkdir()
+        (self.repo / 'config' / 'master.key').write_text('key\n')
+        os.chmod(self.repo / 'config' / 'master.key', 0o600)
+        (self.repo / 'outside.txt').write_text('x')
+        os.symlink(self.repo / 'outside.txt', self.repo / '.env.local')
+        workspace = GitWorkspace(self.repo, base_ref='main',
+                                 copy_files=['.env', 'config/master.key', '.env.local', 'missing.txt', '../escape', '/etc/hosts'])
+        applied = workspace.apply(workspace.preview('APP-12', 'A workspace'))
+        path = Path(applied['path'])
+        self.assertEqual(applied['copied'], ['.env', 'config/master.key'])
+        self.assertEqual((path / '.env').read_text(), 'SECRET=1\n')
+        self.assertEqual(oct((path / 'config' / 'master.key').stat().st_mode & 0o777), '0o600')
+        self.assertFalse((path / '.env.local').exists(), 'symlinks are not followed')
+        self.assertFalse((self.folder / 'escape').exists())
+        (path / '.env').write_text('EDITED=1\n')
+        reused = workspace.apply(workspace.preview('APP-12', 'A workspace'))
+        self.assertNotIn('copied', reused)
+        self.assertEqual((path / '.env').read_text(), 'EDITED=1\n', 'an existing worktree is never touched')
+
     def test_new_branch_does_not_track_its_base_but_remote_branch_does(self):
         origin = self.folder / 'origin.git'
         subprocess.check_call(['git', 'init', '-q', '--bare', str(origin)])

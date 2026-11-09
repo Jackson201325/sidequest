@@ -14,7 +14,7 @@ Follow `{{SIDEQUEST_HOME}}/agents/RULES.md`. Locate the correct checkout first w
 2. Classify each request as a fix, question, disagreement or already addressed.
    Validate automated suggestions against the actual code and requirements.
 3. Reproduce behavioral defects first, make scoped fixes and run relevant project
-   checks. Review the complete resulting diff and leave unrelated changes untouched.
+   checks (the tests and lint under Project commands, when listed). Review the complete resulting diff and leave unrelated changes untouched.
 4. Prepare ticket-scoped commits and a reply for each thread, linking evidence.
    Push and post replies only under the user's explicit authorization. Resolving
    threads is a separate remote action that also needs authorization.

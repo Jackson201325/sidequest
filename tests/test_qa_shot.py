@@ -7,6 +7,7 @@ import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -39,6 +40,24 @@ class SpecTests(unittest.TestCase):
                 result = run(["DEMO-9"], Path(d), env={"SIDEQUEST_QA_BROWSER": "/nonexistent/browser"})
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn(message, result.stderr)
+
+    def test_browser_comes_from_qa_browser_and_the_base_url_from_app_url(self):
+        with tempfile.TemporaryDirectory() as d:
+            settings = Path(d) / "config.json"
+            settings.write_text(json.dumps({"qa": {"browser": "/nonexistent/qa-browser"}}))
+            (Path(d) / "DEMO-9" / "qa").mkdir(parents=True)
+            (Path(d) / "DEMO-9" / "qa" / "shots.json").write_text(json.dumps({"shots": [{"name": "home", "path": "/"}]}))
+            result = run(["DEMO-9"], Path(d), env={"SIDEQUEST_CONFIG": str(settings)})
+            self.assertIn("/nonexistent/qa-browser", result.stderr + result.stdout)
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("qa_shot", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        with unittest.mock.patch.object(module.config, "SETTINGS", {"app": {"url": "http://app.test:4000/"}}):
+            self.assertEqual(module.base_url({}), "http://app.test:4000")
+            self.assertEqual(module.base_url({"base_url": "http://other.test/"}), "http://other.test")
+        with unittest.mock.patch.object(module.config, "SETTINGS", {}):
+            self.assertEqual(module.base_url({}), "http://localhost:3000")
 
     def test_websocket_frames_round_trip_masked_and_long_payloads(self):
         import importlib.util

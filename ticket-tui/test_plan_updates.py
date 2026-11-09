@@ -57,7 +57,7 @@ class PlanUpdatesTests(unittest.TestCase):
             self.assertNotIn(line, plan)
             self.assertIn(line, updates)
         self.assertIn('Add an invalid-input test.', plan)
-        self.assertIn('Confirm the copy.', plan)
+        self.assertNotIn('Confirm the copy.', plan)  # open questions live in the Questions tab
         self.assertNotIn('Add an invalid-input test.', updates)
 
     def test_markdown_examples_do_not_turn_code_into_update_sections(self):

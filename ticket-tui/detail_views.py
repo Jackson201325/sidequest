@@ -3,17 +3,23 @@
 Rows carry a style name ("plain", "heading", "current", "day", "event", "dim"); the dashboard
 only wraps and paints them, so it never guesses a style from the text.
 """
+import sys
 import textwrap
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 from core import now, parse_time
 from activity import ticket_activity
+import branch_state
 from layout import EVENT_INDENT, relative, timeline_rows
-from plan_document import document_views
+from plan_document import document_views, meeting_sections
 from sorting import last_commit
 from workflow import next_owner, ownership, stage_context, workflow_path, workflow_strip
 from worklog import daily_summary
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sidequest import questions
 
 HEADING_MARK = "\x00"  # plan_document's heading marker; never shown
 
@@ -46,6 +52,11 @@ def plain(*texts):
     return [Row(text) for text in texts]
 
 
+def marked(lines):
+    """Rows from document lines; a line starting with HEADING_MARK becomes a heading row."""
+    return [Row(line[len(HEADING_MARK):], "heading") if line.startswith(HEADING_MARK) else Row(line) for line in lines]
+
+
 def wrap(rows, width):
     """Wrap rows to `width`. Continuations keep the indent; an event's continuation lines up
     under its title and is dimmed like its snippet."""
@@ -64,6 +75,9 @@ class DetailViews:
     def __init__(self, evidence, stale_days=2):
         self.evidence, self.stale_days = evidence, stale_days
         self.plan_cache = {}
+        self.questions_cache = {}
+        self.branch_states = {}          # per-ticket local branch state from branch_state (not persisted)
+        self.meetings_cache = {}
 
     def rows(self, tab, ticket, plans, loading=False, standup=None):
         """Every row of a detail tab, refresh errors first. `standup` returns the Standup tab's lines."""
@@ -75,8 +89,12 @@ class DetailViews:
             return rows + plain("No tickets in this view.", "Press r to refresh, / to search, or 1 for All.")
         if tab in ("Plan", "Updates"):
             return rows + self.plan_rows(ticket, tab, plans)
+        if tab == "Questions":
+            return rows + self.question_rows(ticket, plans)
+        if tab == "Meetings":
+            return rows + self.meeting_rows(ticket, plans)
         builder = {"Activity": self.activity_rows, "Workflow": self.flow_rows,
-                   "Work log": self.worklog_rows}.get(tab, lambda t: self.overview_rows(t, loading))
+                   "Work log": self.worklog_rows}.get(tab, lambda t: self.overview_rows(t, loading, plans))
         return rows + builder(ticket)
 
     def environment(self, ticket, loading):
@@ -97,12 +115,14 @@ class DetailViews:
                  for text in workflow_strip(ticket)]
         return strip + plain("Turn: " + next_owner(ticket) + " (" + ownership(ticket)[1] + ")")
 
-    def overview_rows(self, ticket, loading):
+    def overview_rows(self, ticket, loading, plans=None):
         stage, worklog = stage_context(ticket), self.evidence.worklog
         rows = [Row("STATUS", "heading"), *self.current_step(ticket),
                 *plain("To move forward: " + stage["next"],
-                       f"Priority: {ticket.priority or 'unknown'} · Jira status: {ticket.status}", ""),
-                Row("DATES", "heading"),
+                       f"Priority: {ticket.priority or 'unknown'} · Jira status: {ticket.status}"),
+                *(plain(f"Unanswered questions: {self.open_question_count(ticket, plans)} (c)",
+                        f"Meetings: {self.meeting_summary(ticket, plans)} (m)") if plans else []),
+                Row(""), Row("DATES", "heading"),
                 *plain(f"Last commit: {readable_date(last_commit(ticket, worklog))}",
                        f"Last Jira update: {readable_date(ticket.updated)}",
                        f"First assigned to you: {readable_date(ticket.first_assigned_at)}",
@@ -131,9 +151,15 @@ class DetailViews:
                 pr.get("url") or "No PR URL in this snapshot",
                 f"Branch: {pr.get('branch') or 'unknown'}" + (" · Draft" if pr.get("wip") else ""),
                 f"Source activity: {readable_date(pr.get('updated_at'))}")]
-        return rows + [Row(""), Row("WORKSPACE", "heading"),
-                       *plain("Worktree: " + (ticket.worktree or "not found"),
-                              "w / gw: open the existing tmux ticket window")]
+        rows += [Row(""), Row("WORKSPACE", "heading"), Row("Worktree: " + (ticket.worktree or "not found"))]
+        state = self.branch_states.get(ticket.key)
+        if ticket.worktree and state:
+            rows.append(Row(branch_state.summary(state)))
+            if state.get("qa_reason"):
+                rows.append(Row(f"QA screenshots: {state['qa']} ({state['qa_reason']})"))
+            if state.get("ui_files"):
+                rows.append(Row(f"UI files changed: {len(state['ui_files'])}"))
+        return rows + plain("w / gw: open the existing tmux ticket window")
 
     def flow_rows(self, ticket):
         stage = stage_context(ticket)
@@ -190,8 +216,90 @@ class DetailViews:
         age = relative(datetime.fromtimestamp(cached[0], tz=now().tzinfo).isoformat(), now())
         edited = "edited just now" if age == "now" else f"edited {age} ago"
         lines = cached[1][view] or [f"No {view.lower()} recorded yet for {ticket.key}."]
-        return plain(f"{path.parent.parent.name}/{path.parent.name}/{path.name} · {edited}", "") + [
-            Row(line[len(HEADING_MARK):], "heading") if line.startswith(HEADING_MARK) else Row(line) for line in lines]
+        return plain(f"{path.parent.parent.name}/{path.parent.name}/{path.name} · {edited}", "") + marked(lines)
+
+    def plan_view(self, ticket, view, plans):
+        """The named plan.md view's lines, or None when there is no readable plan."""
+        path = plans / ticket.key / "plan.md"
+        try:
+            mtime = path.stat().st_mtime
+            cached = self.plan_cache.get(ticket.key)
+            if not cached or cached[0] != mtime:
+                cached = (mtime, document_views(path.read_text(errors="replace"), HEADING_MARK))
+                self.plan_cache[ticket.key] = cached
+        except OSError:
+            return None
+        return cached[1][view]
+
+    def question_items(self, ticket, plans):
+        """(path, mtime in ns or None, parsed questions); cached until the file changes."""
+        path = plans / ticket.key / "questions.md"
+        try:
+            info = path.stat()
+        except OSError:
+            return path, None, []
+        version = (info.st_mtime_ns, info.st_size)
+        cached = self.questions_cache.get(ticket.key)
+        if not cached or cached[0] != version:
+            try:
+                cached = (version, questions.parse(path.read_text(errors="replace")))
+            except OSError:
+                return path, None, []
+            self.questions_cache[ticket.key] = cached
+        return path, info.st_mtime_ns, cached[1]
+
+    def open_question_count(self, ticket, plans):
+        """Questions without an answer yet (not asked, or asked and waiting)."""
+        return sum(q["status"] != "answered" for q in self.question_items(ticket, plans)[2])
+
+    def question_rows(self, ticket, plans):
+        path, mtime, items = self.question_items(ticket, plans)
+        from_plan = [line for line in (self.plan_view(ticket, "Questions", plans) or []) if line.strip()]
+        if mtime is None and not from_plan:
+            return plain(f"No questions logged yet for {ticket.key}.", "",
+                         "Questions raised while starting the ticket, when they were asked, the answers",
+                         "and the decisions they led to are logged here with `sidequest-data questions`.",
+                         "", str(path))
+        if mtime is None:
+            stamp = "not created yet"
+        else:
+            age = relative(datetime.fromtimestamp(mtime / 1e9, tz=now().tzinfo).isoformat(), now())
+            stamp = "edited just now" if age == "now" else f"edited {age} ago"
+        where = f"{path.parent.parent.name}/{path.parent.name}/{path.name}"
+        return plain(f"{where} · {stamp} · decision record (read-only here)", "") + marked(
+            questions.view_lines(items, from_plan, HEADING_MARK))
+
+    def meeting_notes(self, ticket, plans):
+        """(path, sections newest first) from the ticket's meetings.md; cached until it changes."""
+        path = plans / ticket.key / "meetings.md"
+        try:
+            mtime = path.stat().st_mtime_ns
+        except OSError:
+            return path, []
+        cached = self.meetings_cache.get(ticket.key)
+        if not cached or cached[0] != mtime:
+            try:
+                cached = (mtime, meeting_sections(path.read_text(errors="replace")))
+            except OSError:
+                return path, []
+            self.meetings_cache[ticket.key] = cached
+        return path, cached[1]
+
+    def meeting_summary(self, ticket, plans):
+        sections = self.meeting_notes(ticket, plans)[1]
+        return f"{len(sections)}, latest {sections[0][0].split(' · ')[0]}" if sections else "none recorded"
+
+    def meeting_rows(self, ticket, plans):
+        """What was said about the ticket in meetings, newest first; the file is never rewritten."""
+        path, sections = self.meeting_notes(ticket, plans)
+        if not sections:
+            return plain(f"No meeting notes for {ticket.key} yet.", "",
+                         "A meeting-notes tool can append what was said about the ticket to", str(path))
+        count = f"{len(sections)} meeting{'s' if len(sections) != 1 else ''}"
+        rows = plain(f"{path.parent.parent.name}/{path.parent.name}/{path.name} · {count}, newest first", "")
+        for heading, body in sections:
+            rows += [Row(heading, "heading"), *plain(*body, "")]
+        return rows[:-1]
 
     @staticmethod
     def standup_rows(lines):

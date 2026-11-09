@@ -7,6 +7,26 @@ from pathlib import Path
 
 app = Path(__file__).resolve().parents[1] / "ticket-tui" / "tui.py"
 sys.path.insert(0, str(app.parent))
+sys.path.insert(0, str(app.parents[1]))
+from sidequest.project_flag import take
+
+take(sys.argv)
+if sys.argv[1:2] == ['projects'] or sys.argv[1:] in ([], ['up']):
+    try:
+        from sidequest import overview
+        picker = sys.argv[1:2] == ['projects'] or (overview.unclear() and sys.stdin.isatty() and sys.stdout.isatty())
+    except ValueError:
+        picker = False
+    if picker:
+        command = app.parents[1] / 'bin' / 'sidequest-projects.py'
+        sys.argv = [str(command)]
+        runpy.run_path(str(command), run_name='__main__')
+        raise SystemExit(0)
+if sys.argv[1:2] in (['up'], ['start']):
+    command = app.parents[1] / 'bin' / ('sidequest-' + sys.argv[1] + '.py')
+    sys.argv = [str(command), *sys.argv[2:]]
+    runpy.run_path(str(command), run_name='__main__')
+    raise SystemExit(0)
 try:
     runpy.run_path(str(app), run_name="__main__")
 except (ValueError, RuntimeError) as exc:

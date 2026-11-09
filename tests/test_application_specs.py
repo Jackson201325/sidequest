@@ -49,6 +49,18 @@ class ApplicationSpecs(unittest.TestCase):
         self.assertEqual(result.workspace['path'], path)
         self.assertEqual(result.message, 'Opened by another terminal adapter')
 
+    def test_window_start_uses_the_terminal_window_and_falls_back_to_a_shell(self):
+        windows = []
+        self.terminal.start_window = lambda key, path: windows.append((key, path)) or LaunchResult(message='Window')
+        result = self.workflow.start('APP-21', 'An example', 'Bug', window=True)
+        self.assertEqual(result.message, 'Window')
+        self.assertEqual(windows[0][0], 'APP-21')
+        self.assertTrue(result.workspace['branch'].startswith('fix/APP-21'))
+        self.assertEqual(self.terminal.calls, [])
+        del self.terminal.start_window
+        self.workflow.start('APP-21', 'An example', window=True)
+        self.assertTrue(self.terminal.calls[0][3], 'terminals without windows keep the foreground shell')
+
     def test_failed_preparation_does_not_launch_any_terminal(self):
         with self.assertRaises(RuntimeError):
             self.workflow.start('APP-21', 'An example', base='missing-base')

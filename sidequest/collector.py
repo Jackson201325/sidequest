@@ -51,7 +51,35 @@ def collect_jira(prs=()):
     return {'enabled': True, 'jira_available': True, 'tickets': tickets}
 
 
-def collect(directory=DEFAULT_OUT, max_age=0):
+def sync_jql():
+    """sync.tickets_jql, else your unfinished tickets in the configured projects."""
+    configured = config.get('sync', 'tickets_jql')
+    if configured:
+        return configured
+    projects = config.get('jira', 'projects', [])
+    jql = 'assignee = currentUser() AND statusCategory != Done'
+    return jql + (' AND project IN (' + ','.join('"' + key + '"' for key in projects) + ')' if projects else '')
+
+
+def collect_sync_tickets():
+    """The tickets `sidequest up` prepares a worktree for (read-only search)."""
+    if not config.get('jira', 'site'):
+        return {'enabled': False, 'tickets': []}
+    issues = client.search(sync_jql() + ' ORDER BY created ASC', ['summary', 'issuetype', 'status'], None)
+    tickets = [{'key': row['key'], 'summary': (row.get('fields') or {}).get('summary') or '',
+                'issue_type': ((row.get('fields') or {}).get('issuetype') or {}).get('name') or '',
+                'status': ((row.get('fields') or {}).get('status') or {}).get('name') or ''} for row in issues]
+    return {'enabled': True, 'jql': sync_jql(), 'tickets': tickets}
+
+
+def collect_merged_prs():
+    if not identity.GITHUB_REPO:
+        return {'enabled': False, 'prs': []}
+    return {'enabled': True, 'repo': identity.GITHUB_REPO, 'prs': github.list_merged_prs()}
+
+
+def collect(directory=DEFAULT_OUT, max_age=0, sync=False):
+    """Refresh Jira and PRs; with sync=True (only `sidequest up`) also the sync tickets and merged PRs."""
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     with (directory / '.collect.lock').open('a') as lock:
@@ -62,7 +90,7 @@ def collect(directory=DEFAULT_OUT, max_age=0):
                                                ('prs', bool(identity.GITHUB_REPO))) if not enabled}
         retained_disabled = {name for name in disabled if name in previous['sources']
                              and previous['sources'][name].get('enabled') is not False}
-        if max_age and not retained_disabled and not previous.get('failures') and {'jira', 'prs'} <= set(previous['sources']):
+        if max_age and not sync and not retained_disabled and not previous.get('failures') and {'jira', 'prs'} <= set(previous['sources']):
             dates = [datetime.fromisoformat(previous['sources'][name]['generated_at']) for name in ('jira', 'prs')]
             if all(0 <= (datetime.now(identity.TZ) - date).total_seconds() < max_age for date in dates):
                 return previous
@@ -82,4 +110,11 @@ def collect(directory=DEFAULT_OUT, max_age=0):
             retain_or_update('jira', collect_jira(prs.get('open_prs', [])))
         except (OSError, RuntimeError, ValueError, SystemExit, KeyError) as exc:
             failures['jira'] = str(failure_for('Jira', exc))
+        if sync:
+            for name, label, collect_source in (('sync_tickets', 'Jira', collect_sync_tickets),
+                                                ('merged_prs', 'GitHub', collect_merged_prs)):
+                try:
+                    updates[name] = dict(collect_source(), generated_at=stamp())
+                except (OSError, RuntimeError, ValueError, SystemExit, KeyError) as exc:
+                    failures[name] = str(failure_for(label, exc))
         return store.publish(updates, failures)
