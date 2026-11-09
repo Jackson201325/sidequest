@@ -495,3 +495,9 @@ PATH, runs `sidequest up --when-due` (`--all` when no project is selected). Ever
 so the session's own Sidequest window cannot loop. Herdr sessions are not opened. A pseudo-terminal test first
 failed at bin/sidequest: the session setting still opened the dashboard; inside tmux, with herdr, and without the
 setting the dashboard stays. An unknown value is a settings error (exit 2).
+
+2026-11-09: `sessions`, personal tmux sessions (for example dotfiles) built by every `sidequest up` without
+network, with workspace.windows-style windows validated by the same check. Tests first failed at `sidequest up`:
+--dry-run lists each session and its windows; a real run on a private tmux server (TMUX_TMPDIR) builds the
+session and a second run adds no duplicate windows; a name the project's tmux_session uses is skipped; a bad
+name or window is a settings error. `sidequest up` now exits 2 on a settings error, as its help says (it was 1).
