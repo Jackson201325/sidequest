@@ -635,6 +635,27 @@ args = ["-lc", "sidequest up --all --when-due; exec zsh -l"]
 
 Detaching (prefix `d`) returns to the shell.
 
+### Personal sessions (dotfiles, notes)
+
+Windows that belong to no project, such as your editor or shell configuration, get their own tmux
+session. Put them in the shared `~/.config/sidequest/config.json` under `sessions`: each name is a
+session, and its windows use the `workspace.windows` fields (`name`, `command`, `cwd`, `at`, `stay`,
+`keys`; a missing `cwd` is your home folder):
+
+```json
+"sessions": {
+  "dotfiles": [
+    {"name": "nvim-config", "cwd": "~/.config/nvim", "command": "nvim", "stay": true},
+    {"name": "dotfiles", "cwd": "~/dotfiles", "command": "nvim", "stay": true}
+  ]
+}
+```
+
+Every `sidequest up` (and so `up --all` and plain `sidequest` with `workspace.launch` `session`) builds
+these sessions too, without network: windows are reused by name and never closed, like a project's.
+`--dry-run` lists them. A name that the project's own `workspace.tmux_session` uses is skipped. Switch
+to one with tmux's session list (prefix `s`).
+
 To make plain `sidequest` do this, set `workspace.launch` to `session` (default `dashboard`), usually in
 the shared `~/.config/sidequest/config.json` so every project gets it:
 
