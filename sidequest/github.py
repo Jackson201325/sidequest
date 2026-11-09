@@ -31,6 +31,35 @@ def list_open_prs(limit=100, *, include_activity=False):
     return rows
 
 
+def list_merged_prs(limit=300):
+    """The repository's most recently merged PRs, every author (a worktree's branch may be merged through
+    someone else's PR): number, branch, head commit and merge time (read-only)."""
+    raw = gh_output(['gh', 'pr', 'list', '--repo', GITHUB_REPO, '--state', 'merged',
+                     '--json', 'number,headRefName,headRefOid,mergedAt', '--limit', str(limit)])
+    try:
+        rows = json.loads(raw)
+    except ValueError:
+        raise RuntimeError('Invalid GitHub merged PR response; previous data retained') from None
+    if not isinstance(rows, list) or not all(
+            isinstance(row, dict) and isinstance(row.get('number'), int) and isinstance(row.get('headRefName'), str)
+            and isinstance(row.get('headRefOid'), str) for row in rows):
+        raise RuntimeError('Invalid GitHub merged PR list; previous data retained')
+    return [{'number': row['number'], 'branch': row['headRefName'], 'head_oid': row['headRefOid'],
+             'merged_at': row.get('mergedAt')} for row in rows]
+
+
+def pr_state(number):
+    """{state, head_oid} of one PR, asked now; None when GitHub cannot be asked or answers oddly."""
+    try:
+        data = json.loads(tr.run_tool(['gh', 'pr', 'view', str(number), '--repo', GITHUB_REPO, '--json',
+                                       'state,headRefOid']) or '')
+    except (RuntimeError, OSError, ValueError, SystemExit):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get('state'), str):
+        return None
+    return {'state': data['state'], 'head_oid': data.get('headRefOid') or ''}
+
+
 def rest_pages(path):
     rows, page = [], 1
     while True:

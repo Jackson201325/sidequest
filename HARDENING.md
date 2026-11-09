@@ -271,3 +271,197 @@ broken gateway that answers 5xx after the site refused the token reads as a serv
 error with the note above. Local runs used Python 3.11; CI covers Python 3.9.
 Verification: bin/check passed 233 helper/service/spec tests and 176 UI tests (two
 optional browser checks skipped), on every PR and on main after each merge.
+
+2026-11-07: parity with the personal queue.
+
+Ported the general features the personal queue gained after the extraction. Questions
+(c): sidequest/questions.py and `sidequest-data questions` keep an append-only decision
+record in the ticket folder's questions.md; the tab reads it, plan open-question
+sections move there. Meetings (m) reads meetings.md, newest first; Sidequest does not
+record meetings. Jira changelog status and assignee changes become Activity events and
+survive a comment-only refresh like comments. The card's Local line (branch_state.py)
+reports unpushed, uncommitted, behind-base and QA screenshot state from local Git
+only, with a QA hint on my tickets. Confirmed links (github.pr_tickets,
+github.branch_tickets) attach unnamed PRs and branches to a ticket through
+ticket_keys.linked_ticket, so collector, queue, worktrees and helpers agree; config
+validates them. The QA skills add the screen sweep, and sidequest-start logs
+questions and reads meetings.md.
+
+sqapp generalizes the personal app booking: the same lock line, 30-minute expiry,
+--wait/--release/--status/--force and exit 75, with the project's switch, current and
+running commands from the new `app` config section instead of fixed Docker names.
+Bookings use an fcntl lock on a mutex file and atomic replacement of the lock line.
+Tests run real git checkouts and fictional switch commands. A read-only --status run against
+the real Docker app showed Docker Desktop reports mounts under /host_mnt; such a folder
+still counts as this worktree. switch_command was not run against Docker.
+
+Settings from the environment: every documented setting can come from
+SIDEQUEST_<SECTION>_<KEY>, applied over the file and validated by the same rules;
+unknown names and bad values fail without echoing the value; SIDEQUEST_JIRA_TOKEN is
+never a setting. SIDEQUEST_DATA_DIR/STATE_DIR separate projects without changing XDG
+variables that child tools such as gh also read. A read-only live run with only
+environment settings listed the same 11 tickets, lanes, waits and actions as the
+personal queue; only the saved sort order differed.
+
+Ticket start parity (approved by the user on 2026-11-07, a new boundary). The Jira transport
+stays read-only except POST /rest/api/3/issue/KEY/transitions, allowed only while
+jira.start_status is set; `jira-start` applies start_from (move), start_ask (needs --yes)
+and leaves later statuses alone. Space n runs it before opening the worktree when it is
+set; on a start_ask status it asks first (move with --yes, worktree only, or cancel). Attachments download into the ticket folder with sanitized, unique names and
+numeric ids only. workspace.copy_files copies listed regular files into a new worktree
+only, never over existing files or through symlinks. sidequest-start now follows the
+personal start workflow: attachments first, start move, reuse, copy, numbered markers,
+plan sections and logged questions.
+
+Left in the personal workflow: the meeting recorder, the
+report window's glow width, rubocop lint-changed and company identity/Keychain.
+Verification: bin/check passed 266 helper/service/spec tests and 196 UI tests (two
+optional browser checks skipped). Live Jira, GitHub and tmux were not exercised.
+
+2026-11-09: Space n asks first and QA settings. With jira.start_status set, Space n on a ticket in
+a jira.start_ask status shows a picker (move with --yes, worktree only, Esc cancels); the snapshot
+status chooses the picker and jira-start still checks Jira live. New `qa` section: qa.browser and
+qa.email are settings (SIDEQUEST_QA_BROWSER/EMAIL still work as variables); SIDEQUEST_QA_PASSWORD
+is a credential and never a setting. A shots.json without base_url uses app.url, else
+http://localhost:3000 (it was one project's port). Help examples no longer name one project's
+make target. Verification: bin/check passed 268 helper/service/spec tests and 197 UI tests (two
+optional browser checks skipped).
+
+2026-11-09: tmux Space n, configurable presets and reports folder. Space n passes the Jira issue
+type (now collected as issue_type) so Bugs get fix/ branches, and in tmux mode it selects or creates
+the ticket's window and switches to it; shell and Herdr keep the foreground shell, and CLI --open is
+unchanged. workspace.agent_tasks ([{label, prompt, optional skill}], validated, also as JSON in
+SIDEQUEST_WORKSPACE_AGENT_TASKS) replaces the bundled Space s presets; a skill is a file the prompt
+names, not inlined. workspace.reports_dir moves the daily reports read by the standup and written by
+--update-report; the "no report" message names the folder. Snapshots from before this change have no
+issue_type until the next refresh. Verification: bin/check passed 271 helper/service/spec tests and
+200 UI tests (two optional browser checks skipped).
+
+2026-11-09: project profiles. ~/.config/sidequest/projects/NAME/config.json is applied over the shared
+config.json section by section. The project comes from --project / SIDEQUEST_PROJECT, else the profile
+whose workspace.repository or worktrees_dir holds the current folder (deepest match), else the only
+profile; an unknown name fails and lists the known ones. A selected project is exported as
+SIDEQUEST_PROJECT so child commands stay in it, and gets its own data/state folders under
+sidequest/projects/NAME (the app lock included). SIDEQUEST_CONFIG still means one file and no
+profiles, so existing single-file setups and bin/check are unchanged. `sidequest-data project` prints
+the choice. Profile matching reads only workspace paths before validation; the merged result is then
+validated as before. Fixed: bin/sidequest-data failed when run through a symlink such as
+~/.local/bin/sidequest-data (it looked for its helper beside the link). Verification: bin/check passed
+278 helper/service/spec tests and 200 UI tests (two optional browser checks skipped).
+
+2026-11-09: skills with project additions. `sidequest-data skill NAME` (ship or sidequest-ship) prints
+the rendered skill without its front matter, then projects/PROJECT/skills/NAME.md as "Project
+additions" that win where they differ; unknown names fail with the list. Installed skills are now stubs
+(the canonical name and description, a pointer to `skill NAME`, and the canonical file as fallback), so
+installed copies no longer carry the steps and cannot drift from the clone; the drift/user-edit guard is
+unchanged. Space s bundled presets use the same merged text. Verification: bin/check passed 279
+helper/service/spec tests and 201 UI tests (two optional browser checks skipped).
+
+2026-11-09: skill replace mode. projects/PROJECT/skills/NAME.replace.md replaces the generic skill and
+wins over NAME.md additions; it is printed without front matter, with the {{SIDEQUEST_*}} templates
+filled, after an HTML comment naming the project and file. Links are followed, so a project can keep its
+skills in its own repository. Reason: drafting additions from one project's six skills produced files as
+long as the originals that mostly said "instead of the steps above", which doubles prompts and invites
+conflicts.
+
+2026-11-09: checks as settings. New `checks` section (test, lint; also SIDEQUEST_CHECKS_*). The generic
+and additions forms of `sidequest-data skill NAME` start with "Project commands: PROJECT" listing the
+configured test and lint commands and, when `app` is configured, the sqapp booking; the generic skills
+point at that block. Replace versions print unchanged. Project additions can therefore drop command
+lines. Verification: bin/check passed 281 helper/service/spec tests and 201 UI tests (two optional
+browser checks skipped).
+
+2026-11-09: report view with a project replace. `sidequest --report` pages the newest YYYY-MM-DD.md in
+the reports folder (a note when it is not today's; exit 1 when there is none). workspace.report_command
+replaces that view, as a skill's replace version replaces the skill: the command is exec'd with the
+other arguments, so a project's own report window keeps the terminal and its exit status.
+
+2026-11-09: adopting a project. `credentials` (jira, review, qa) holds only references: keychain:SERVICE,
+keychain:SERVICE/ACCOUNT or env:NAME; any other value is refused without being echoed. sidequest/credentials.py
+resolves them where secrets are used (the Jira transport, the review-app login, the local QA password); the
+documented environment variables still win; the Keychain is read only on macOS and only for a configured
+reference. `sidequest-data project init NAME --repo PATH` writes projects/NAME/config.json (0600) from
+config.example.json with keychain:sidequest-NAME-* references and prints the `security add-generic-password`
+commands the person runs; it refuses an existing profile or a bad name. `project check` reports OK / MISSING /
+FAIL / OFF per part, runs `gh auth status` and `git rev-parse`, and never prints a secret. The README's "Adopt a
+project" section lists where the app, the person's settings, secrets and data live. Verification: bin/check
+passed 288 helper/service/spec tests and 203 UI tests (two optional browser checks skipped).
+
+2026-11-09: `sidequest up` phase 1, read-only sync data. New sources, collected only by collect(sync=True):
+sync_tickets (a Jira search with sync.tickets_jql, default "assigned to me and not Done" in jira.projects;
+key, summary, issue type, status) and merged_prs (gh pr list --state merged, every author, as a worktree's branch may be merged through someone
+else's PR: number, branch, head commit, merge time; 300 most recent). A normal refresh neither calls nor clears them. Each keeps its last
+good copy and timestamp on failure, with the failure in the snapshot like the others (the dashboard shows
+it until the next refresh). New `sync` settings (tickets_jql, open_prs on/off, update on/off, cleanup
+off/ask/on) are validated; nothing reads update/cleanup yet. No Git or terminal changes in this phase.
+Verification: bin/check passed 292 helper/service/spec tests and 203 UI tests (two optional browser checks skipped).
+Live read-only check on one project: collect(sync=True) had no failures; its sync tickets and its 270 merged
+branches with head commits matched that project's existing tool exactly.
+
+2026-11-09: `sidequest up` phase 2, plan and create. sidequest/sync.py: discover(snapshot, workspace) returns
+create / exists / skip / blocked actions (a sync ticket with a merged PR is skipped; fork PRs and PRs on an
+already planned branch are left out; a failed or missing source blocks its part with the reason); apply()
+creates through GitWorkspace.apply, which inspects again and refuses a plan the repository moved past. New
+GitWorkspace.preview_branch(branch) gives a PR's existing branch a worktree (reuse only; the base branch is
+refused), so preview(key) keeps refusing non-ticket keys. `sidequest up [--dry-run] [--offline]` collects
+(sync=True), fetches origin (not in a dry run), then applies; exit 0 / 1 (blocked or failed, listed) / 2.
+Nothing is removed, updated or pushed. Verification: bin/check passed 296 helper/service/spec tests and 203
+UI tests (two optional browser checks skipped); tests use real temporary repositories with a bare origin.
+
+2026-11-09: `sidequest up` phase 3, the tmux session. sync.layout() orders windows: `at: start` extras, the main
+checkout ("Main KEY"), worktrees by first-assignment time (compared as times: snapshot and remembered dates carry
+different offsets), PR-only branches by opened time, unknown dates by ticket number, then `at: end` extras.
+Dates are kept in STATE_DIR/window-order.json so a ticket handed on keeps its place. tmux.open_layout() reuses
+windows by name, renames the main checkout's window when its ticket changes, creates missing ones (typing `keys`
+once into a new window), parks and re-places windows with renumbering paused, and never closes a window; the
+person's own windows go after the worktrees. workspace.on_up commands run after the layout (argv, no shell;
+a leading ~ is expanded); a failing one is listed and makes the exit status 1. workspace.terminal shell or herdr
+skips the layout with a note. Checked: on one project the dry-run order matched the existing tool's live session,
+and a real run into a throwaway session made the same 18 windows and ran both hooks. Verification: bin/check
+passed 303 helper/service/spec tests and 203 UI tests (two optional browser checks skipped).
+
+2026-11-09: `sidequest up` phase 4, branch updates. sidequest/updates.py follows the existing tool's rules: local
+main is fast-forwarded with update-ref (old value checked) when no worktree has it and it holds no commits of its
+own; each worktree takes new commits from its own origin branch with merge --ff-only --autostash; a branch never
+pushed is rebased onto the base; a pushed branch behind the base is listed, or with --update / sync.update on gets
+merge --no-edit --autostash. A failed rebase or merge is aborted, so the worktree is left as it was; nothing is
+pushed. Skipped with the reason: a merge/rebase/cherry-pick in progress, the app booked for it, an agent process's
+cwd inside it (lsof), or a branch that diverged from its origin branch (counted as needing attention). A branch
+tracking the base itself (Git's default for a branch started from origin/main) is not treated as having its own
+origin branch. Updates run only after a successful fetch; a dry run shows them as "would". Verification: bin/check
+passed 311 helper/service/spec tests and 203 UI tests (two optional browser checks skipped).
+
+2026-11-09: `sidequest up` phase 5, removing merged worktrees. sidequest/cleanup.py removes a worktree (never the
+main checkout) on a merged PR's branch only when the caller is not in it, busy() gives no reason, `git status
+--porcelain --untracked-files=all` is empty, the merged head commit exists locally and contains the branch
+(merge-base --is-ancestor), the person confirmed, and github.pr_state(number), asked at that moment, still says
+MERGED with the same head. It closes the window, runs `git worktree remove` without --force, and deletes the local
+branch only after that succeeded. sync.cleanup ask (default) asks per worktree in a terminal and keeps everything
+without one unless --yes; on removes; off skips (--cleanup considers it). --offline never removes; a failed or
+missing merged_prs source skips cleanup. Cleanup runs before creation, as the existing tool does. A boundary test
+parses the dashboard's, collector's and sidequest-data's imports and fails if any reaches cleanup, updates or sync.
+Verification: bin/check passed 319 helper/service/spec tests and 203 UI tests (two optional browser checks skipped).
+
+2026-11-09: `sidequest up` phase 6. One project's own workspace script now only maps its flags to `sidequest up`
+(and keeps a `start` command built from sidequest-data); its tests check what it hands over. Checked on that
+project: `--dry-run` changed nothing, and an offline run into a throwaway tmux session made the same 18 windows
+in the same order and ran both hooks. Its live session was not touched.
+
+2026-11-09: `sidequest up` short options and `sidequest start`. `-n` is --offline, `-u` is --update, and `-r`
+(--rebuild) closes the tmux session (`kill-session -t =NAME`) just before the layout and builds it again; a dry
+run only says it would. `sidequest start KEY` (bin/sidequest-start.py, sidequest/start.py) moves the ticket with
+the same jira.start_* rules, creates or reuses the worktree with the same naming, runs `sidequest up -n
+--no-attach`, selects the window and prints `DIR <path>`. A refused move is noted and the worktree is still made;
+a bad key exits 2 before any service call. Attaching is shared in tmux.attach. One project's workspace script was
+removed; its skills, rules and old queue now call `sidequest up` and `sidequest start`. Verification: bin/check
+passed 324 helper/service/spec tests and 203 UI tests (two optional browser checks skipped).
+
+2026-11-09: project overview. With several profiles and none selected, `sidequest up` and `sidequest start` exit 2
+and name the projects instead of guessing; before, they reported a missing workspace.repository. In a terminal,
+`sidequest` and `sidequest up` with no options open the overview; `sidequest projects` opens it anywhere and
+prints it without a terminal. sidequest/overview.py reads each profile's settings, snapshot time, app booking,
+`git worktree list` and `tmux list-windows -t =SESSION` (read-only), draws text lines and maps keys to commands;
+bin/sidequest-projects.py owns curses and runs the chosen command with SIDEQUEST_PROJECT set. `r` asks before
+`up -r`. Checked in a throwaway tmux session with two temporary profiles: the list, `d`, the `r` question and
+Esc. Verification: bin/check passed 329 helper/service/spec tests and 203 UI tests (two optional browser checks
+skipped).

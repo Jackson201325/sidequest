@@ -12,7 +12,7 @@ from sidequest.snapshots import SnapshotStore, source_problem
 
 SOURCES = {"jira": "Jira", "prs": "GitHub"}
 EVERY = "all"
-COMMENT_FIELDS = ("jira_comments", "jira_comment_total", "jira_comments_checked_at")
+COMMENT_FIELDS = ("jira_comments", "jira_comment_total", "jira_comments_checked_at", "jira_changes")
 EPOCH = parse_time("1970-01-01")
 
 

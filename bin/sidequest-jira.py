@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Read-only Jira transport. Search uses Jira's documented POST search endpoint."""
+"""Jira transport. Read-only, except the opt-in start move (jira.start_status) through the issue
+transitions endpoint. Search uses Jira's documented POST search endpoint."""
 import base64
 import http.client
 import json
@@ -10,7 +11,8 @@ import ssl
 import urllib.error
 import urllib.request
 from datetime import datetime
-from sidequest import config, identity
+from pathlib import Path
+from sidequest import config, credentials, identity
 from sidequest.access import CAUSES
 
 SITE = config.get('jira', 'site').rstrip('/')
@@ -35,14 +37,22 @@ class JiraError(RuntimeError):
             raise ValueError('unknown Jira error cause: ' + self.cause)
 
 def _auth():
-    email, token = identity.JIRA_EMAIL, os.environ.get('SIDEQUEST_JIRA_TOKEN')
+    email, token = identity.JIRA_EMAIL, credentials.secret('jira')
     if not email or not token:
-        raise JiraError('No Jira credentials: configure jira.email and set SIDEQUEST_JIRA_TOKEN in your terminal',
+        raise JiraError('No Jira credentials: configure jira.email and credentials.jira (or set SIDEQUEST_JIRA_TOKEN)',
                         cause='credentials')
     return 'Basic ' + base64.b64encode((email + ':' + token).encode()).decode()
 
+TRANSITION_PATH = re.compile(r'/rest/api/3/issue/[A-Z][A-Z0-9_]*-\d+/transitions')
+
+
+def _write_allowed(method, path):
+    """The only write: moving an issue through its transitions, and only once a start status is set."""
+    return method == 'POST' and bool(TRANSITION_PATH.fullmatch(path)) and bool(config.get('jira', 'start_status'))
+
+
 def jira(method, path, body=None):
-    if method != 'GET' and not (method == 'POST' and path == '/rest/api/3/search/jql'):
+    if method != 'GET' and not (method == 'POST' and path == '/rest/api/3/search/jql') and not _write_allowed(method, path):
         raise JiraError('Jira adapter is read-only', permanent=True)
     if not path.startswith('/rest/api/3/') or '..' in path or '\\' in path:
         raise JiraError('Unsupported Jira request path', permanent=True)
@@ -55,7 +65,9 @@ def jira(method, path, body=None):
             headers={'Authorization': _auth(), 'Accept': 'application/json', 'Content-Type': 'application/json'})
         try:
             with urllib.request.urlopen(request, timeout=20) as response:
-                data = json.load(response)
+                raw = response.read()
+            # A transition answers 204 with no body.
+            data = json.loads(raw) if raw.strip() or method == 'GET' else {}
             if not isinstance(data, dict):
                 raise JiraError('Invalid Jira response; previous data retained')
             _base[0] = base
@@ -93,7 +105,7 @@ def workflow_dates(key, current_status, created=None, account_id=None, current_a
         except (ValueError, TypeError, AttributeError):
             raise JiraError("invalid Jira status timestamp; retain the previous snapshot")
 
-    start, changes, assignments = 0, [], []
+    start, changes, assignments, events = 0, [], [], []
     while True:
         page = jira("GET", "/rest/api/3/issue/%s/changelog?startAt=%d&maxResults=100" % (key, start))
         values = page.get("values") if isinstance(page, dict) else None
@@ -101,10 +113,15 @@ def workflow_dates(key, current_status, created=None, account_id=None, current_a
             raise JiraError("invalid Jira changelog; retain the previous snapshot")
         for change in values:
             for item in change.get("items", []):
-                if (item.get("fieldId") or item.get("field")) == "status":
+                name = item.get("fieldId") or item.get("field")
+                if name in ("status", "assignee"):
+                    events.append({"at": timestamp(change.get("created")).isoformat(), "field": name,
+                                   "from": item.get("fromString"), "to": item.get("toString"),
+                                   "author": (change.get("author") or {}).get("displayName", "")})
+                if name == "status":
                     stamp = timestamp(change.get("created"))
                     changes.append((stamp, (item.get("to"), item.get("toString")), stamp.isoformat()))
-                elif account_id and (item.get("fieldId") or item.get("field")) == "assignee":
+                elif account_id and name == "assignee":
                     assignments.append((timestamp(change.get("created")), item.get("from"), item.get("to")))
         start += len(values)
         if page["isLast"]:
@@ -128,7 +145,86 @@ def workflow_dates(key, current_status, created=None, account_id=None, current_a
     initial_owner = min(assignments, key=lambda row: row[0])[1] if assignments else current_assignee
     if account_id and initial_owner == account_id and created:
         first = timestamp(created)
-    return {"status_since": status_at, "first_assigned_at": first.isoformat() if first else None}
+    return {"status_since": status_at, "first_assigned_at": first.isoformat() if first else None,
+            "jira_changes": events}
+
+
+def _names(setting):
+    return [part.strip() for part in config.get('jira', setting).split(',') if part.strip()]
+
+
+def start_ticket(key, yes=False, dry_run=False):
+    """Move KEY to jira.start_status: (exit code, one-line result).
+
+    jira.start_from statuses move without asking; jira.start_ask statuses need yes; any other
+    status (later work such as review or QA) is left alone. The message starts with MOVED, ALREADY,
+    ASK, SKIPPED or WOULD MOVE (exit 0); 1 means moving is off, 3 that no transition reaches it.
+    """
+    target = config.get('jira', 'start_status')
+    if not target:
+        return 1, 'Moving tickets is off; set SIDEQUEST_JIRA_START_STATUS (jira.start_status) to enable it'
+    issue = jira('GET', '/rest/api/3/issue/%s?fields=status' % key)
+    current = (((issue.get('fields') or {}).get('status')) or {}).get('name') or ''
+    fold = current.casefold()
+    if fold == target.casefold():
+        return 0, 'ALREADY %s is %s' % (key, current)
+    if fold in [name.casefold() for name in _names('start_ask')]:
+        if not yes:
+            return 0, 'ASK %s is in %s; confirm before moving it to %s (--yes)' % (key, current, target)
+    elif fold not in [name.casefold() for name in _names('start_from')]:
+        return 0, 'SKIPPED %s is in %s; not moved' % (key, current)
+    options = jira('GET', '/rest/api/3/issue/%s/transitions' % key).get('transitions') or []
+    match = [t for t in options if ((t.get('to') or {}).get('name') or '').casefold() == target.casefold()
+             or (t.get('name') or '').casefold() == target.casefold()]
+    if not match:
+        available = ', '.join(sorted({(t.get('to') or {}).get('name') or '?' for t in options})) or 'none'
+        return 3, "%s: can't move from %s to %s. Available: %s" % (key, current, target, available)
+    destination = (match[0].get('to') or {}).get('name') or target
+    if dry_run:
+        return 0, 'WOULD MOVE %s %s → %s' % (key, current, destination)
+    jira('POST', '/rest/api/3/issue/%s/transitions' % key, {'transition': {'id': str(match[0]['id'])}})
+    return 0, 'MOVED %s %s → %s' % (key, current, destination)
+
+
+def download_attachments(key, folder):
+    """Save each attachment of KEY into folder: [{filename, path, size, mime}] or an error per file."""
+    issue = jira('GET', '/rest/api/3/issue/%s?fields=attachment' % key)
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    rows, used = [], set()
+    for item in (issue.get('fields') or {}).get('attachment') or []:
+        base = re.sub(r'[^\w.\- ]', '_', os.path.basename(item.get('filename') or 'attachment')).strip() or 'attachment'
+        if base.startswith('.'):
+            base = '_' + base
+        stem, ext = os.path.splitext(base)
+        filename, number = base, 1
+        while filename.lower() in used:  # Jira allows two attachments with one name
+            number += 1
+            filename = '%s (%d)%s' % (stem, number, ext)
+        used.add(filename.lower())
+        path = folder / filename
+        row = {'filename': filename, 'path': str(path), 'size': item.get('size'), 'mime': item.get('mimeType')}
+        if not re.fullmatch(r'\d+', str(item.get('id') or '')):
+            rows.append(dict(row, error='invalid attachment id'))
+            continue
+        error = None
+        for base_url in ([_base[0]] if _base[0] else BASES):
+            request = urllib.request.Request(base_url + '/rest/api/3/attachment/content/%s' % item['id'],
+                                             headers={'Authorization': _auth()})
+            try:
+                with urllib.request.urlopen(request, timeout=60) as response, open(str(path) + '.part', 'wb') as out:
+                    while True:
+                        chunk = response.read(1 << 16)
+                        if not chunk:
+                            break
+                        out.write(chunk)
+                os.replace(str(path) + '.part', path)
+                _base[0], error = base_url, None
+                break
+            except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+                error = 'download failed: %s' % (getattr(exc, 'code', None) or exc.__class__.__name__)
+        rows.append(dict(row, error=error) if error else row)
+    return rows
 
 
 def status_since(key, current_status, created=None):
@@ -247,7 +343,7 @@ def name(v):
 def fetch_one(key, include_activity=False, account_id=None):
     if not re.fullmatch(r'[A-Z][A-Z0-9_]*-\d+', key):
         raise JiraError('Expected a Jira key such as APP-123', permanent=True)
-    fields = 'summary,status,assignee,priority,created,updated,description'
+    fields = 'summary,status,assignee,priority,issuetype,created,updated,description'
     issue = jira('GET', '/rest/api/3/issue/%s?fields=%s' % (key, fields))
     if isinstance(issue.get('key'), str) and issue['key'] != key:
         new = issue['key'] if re.fullmatch(r'[A-Z][A-Z0-9_]*-\d+', issue['key']) else 'another key'
@@ -258,7 +354,8 @@ def fetch_one(key, include_activity=False, account_id=None):
     assignee = f.get('assignee') or {}
     account_id = account_id or identity.JIRA_ACCOUNT_ID
     result = {'key': key, 'summary': f.get('summary') or '', 'status': name(f.get('status')) or 'Unknown',
-              'priority': name(f.get('priority')), 'assignee': name(assignee) or 'Unassigned',
+              'priority': name(f.get('priority')), 'issue_type': name(f.get('issuetype')),
+              'assignee': name(assignee) or 'Unassigned',
               'assignee_ok': assignee.get('accountId') == account_id if account_id else None,
               'created': f.get('created'), 'updated': f.get('updated'), 'description': text_of(f.get('description'))}
     if include_activity:

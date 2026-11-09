@@ -104,7 +104,9 @@ class Ticket:
     jira_comments: list = field(default_factory=list)
     jira_comment_total: int | None = None
     jira_comments_checked_at: str = ""
+    jira_changes: list = field(default_factory=list)
     status_since: str = ""
+    issue_type: str = ""
     first_assigned_at: str = ""
     wait_since: str = ""
     wait_source: str = ""
@@ -136,10 +138,12 @@ def tickets_from(jira, prs, fallback=None, worktrees=None, projects=()):
                              issue.get("priority", ""), issue.get("assignee", "Unknown"),
                              issue.get("assignee_ok"), updated=issue.get("updated", ""))
         result[key].status_since = issue.get("status_since") or ""
+        result[key].issue_type = issue.get("issue_type") or ""
         result[key].first_assigned_at = issue.get("first_assigned_at") or ""
         result[key].jira_comments = issue.get("jira_comments", [])
         result[key].jira_comment_total = issue.get("jira_comment_total")
         result[key].jira_comments_checked_at = issue.get("jira_comments_checked_at", "")
+        result[key].jira_changes = issue.get("jira_changes", [])
     pr_list = prs.get("open_prs", []) if prs else (fallback or {}).get("open_prs", [])
     known = {p.upper() for p in projects} | {key.rsplit("-", 1)[0].upper() for key in result}
     for pr in pr_list:

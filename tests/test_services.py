@@ -41,6 +41,11 @@ class ServiceTests(unittest.TestCase):
         with patch.object(client, 'jira', side_effect=response):
             result = client.fetch_one('APP-42', include_activity=True)
         self.assertEqual(result['jira_comments'][0]['body'], 'Check quantities')
+        self.assertEqual(result['issue_type'], '')
+        issue['fields']['issuetype'] = {'name': 'Bug'}
+        with patch.object(client, 'jira', side_effect=response) as request:
+            self.assertEqual(client.fetch_one('APP-42')['issue_type'], 'Bug')
+        self.assertIn('issuetype', request.call_args_list[0][0][1])
         self.assertEqual(result['jira_comment_total'], 1)
 
     def test_failed_source_retains_data_and_original_timestamp(self):
@@ -124,6 +129,47 @@ class ServiceTests(unittest.TestCase):
         jira = {'tickets': [{'key': key} for key in fetched]}
         queue_keys = sorted(t.key for t in core.tickets_from(jira, {'open_prs': prs}))
         self.assertEqual(queue_keys, ['APP-1', 'APP-5', 'APP-9', 'PR-3'])
+
+    def test_confirmed_pr_and_branch_links_join_their_ticket_in_collector_and_queue(self):
+        import core
+        settings = {'jira': {'site': 'https://example.atlassian.net'},
+                    'github': {'pr_tickets': {'2115': 'APP-807'}, 'branch_tickets': {'hotfix/prices': 'APP-807'}}}
+        prs = [{'number': 2115, 'title': 'Keep face value', 'branch': 'fix/face-value'},
+               {'number': 2116, 'title': 'Restore prices', 'branch': 'hotfix/prices'},
+               {'number': 9999, 'title': 'Unlinked work', 'branch': 'chore/tidy'}]
+        fetched = self.jira_keys_fetched_for(prs, settings)
+        self.assertEqual(sorted(fetched), ['APP-1', 'APP-807'])
+        jira = {'tickets': [{'key': 'APP-807', 'summary': 'Gift card prices'}]}
+        with patch.object(collector.config, 'SETTINGS', settings):
+            tickets = {t.key: t for t in core.tickets_from(jira, {'open_prs': prs})}
+        self.assertEqual(set(tickets), {'APP-807', 'PR-9999'})
+        self.assertEqual([p['number'] for p in tickets['APP-807'].prs], [2115, 2116])
+        self.assertEqual(tickets['APP-807'].title, 'Gift card prices')
+
+    def test_a_confirmed_branch_link_selects_that_worktree(self):
+        import tui
+        listing = ('worktree /wt/main\nbranch refs/heads/main\n\n'
+                   'worktree /wt/hotfix\nbranch refs/heads/hotfix/prices\n\n'
+                   'worktree /wt/app-807\nbranch refs/heads/feature/APP-807-prices\n')
+        settings = {'github': {'branch_tickets': {'hotfix/prices': 'APP-807'}}}
+        with patch.object(collector.config, 'SETTINGS', settings), patch.object(tui, 'run', return_value=listing), \
+                patch.object(tui.config, 'workspace_repository', return_value='/wt/main'):
+            self.assertEqual(tui.worktrees()['APP-807'], '/wt/hotfix')
+
+    def test_link_settings_must_map_numbers_or_branches_to_ticket_keys(self):
+        from sidequest import config
+        good = {'github': {'pr_tickets': {'2115': 'APP-807'}, 'branch_tickets': {'hotfix/prices': 'APP-807'}}}
+        bad = [{'github': {'pr_tickets': {'abc': 'APP-807'}}}, {'github': {'pr_tickets': {'1': 'not a key'}}},
+               {'github': {'branch_tickets': ['hotfix/prices']}}, {'github': {'repository': {'a': 'b'}}}]
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'config.json'
+            path.write_text(json.dumps(good))
+            self.assertEqual(config.load(path), good)
+            for settings in bad:
+                with self.subTest(settings=settings):
+                    path.write_text(json.dumps(settings))
+                    with self.assertRaises(ValueError):
+                        config.load(path)
 
     def test_moved_pr_derived_jira_issue_does_not_fail_collection(self):
         def fetch(key, include_activity=False, account_id=None):

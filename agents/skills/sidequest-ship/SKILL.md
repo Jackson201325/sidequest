@@ -6,7 +6,8 @@ description: Review and test a ticket branch, prepare a scoped commit and PR, th
 # Ship a ticket
 
 Follow `{{SIDEQUEST_HOME}}/agents/RULES.md` and the target project's PR template.
-Use that project's base branch and test commands; do not assume a deployment model.
+Use that project's base branch, tests and lint (named under Project commands when listed);
+do not assume a deployment model.
 
 1. Read the ticket, plan, full branch diff and uncommitted changes. Identify what
    belongs to this ticket. Preserve unrelated files and hunks; ask about ambiguity.

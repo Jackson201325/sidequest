@@ -32,7 +32,7 @@ def collect_worklog(tickets, root, run):
 
 
 def daily_summary(ticket, commits):
-    """Group evidence by Asuncion date and deduplicate commits across sources."""
+    """Group evidence by local date (identity.timezone) and deduplicate commits across sources."""
     days, seen = defaultdict(list), set()
     events = list(commits)
     for pr in ticket.prs:
