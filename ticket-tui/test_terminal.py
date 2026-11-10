@@ -63,8 +63,10 @@ class TerminalTests(unittest.TestCase):
                 until("Update view only.")
                 send("p")
                 until("Plan view only.")
-                send("/no-match\n")
+                send("/no-match")
+                until("(0 of 1)")                    # the list filters while typing
                 until("No matching tickets")
+                send("\n")
                 send("\x1b")
                 until("DEMO-901")
                 # Narrow terminals keep the queue above a full-width details pane.
@@ -90,7 +92,7 @@ class TerminalTests(unittest.TestCase):
                 send("a")
                 until("newest first")
                 send("o")
-                until("SORT TICKETS")
+                until("┏━ SORT TICKETS")
                 send("j\n")
                 until("Sorted by Last Jira update")
                 send("O")                            # reversal is verified in the saved settings below

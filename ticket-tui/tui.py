@@ -29,8 +29,9 @@ from sidequest.environments import fetch_environments
 from sidequest.ticket_keys import branch_keys, is_key, linked_ticket
 from sidequest.worktrees import parse_worktrees
 from worklog import collect_worklog
+from workflow import stage_context
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
-from layout import (EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, pr_glyph_offset,
+from layout import (EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, menu_box, pr_glyph_offset,
                     relative, scroll_label, table_header, table_row, panel_rects)
 import standup
 import branch_state
@@ -39,7 +40,7 @@ from detail_views import DetailViews, readable_date, source_age, wrap  # noqa: F
 
 WORKFLOW = Path(__file__).resolve().parents[1]
 ROOT = Path(config.workspace_repository() or WORKFLOW).expanduser().resolve()
-VIEWS = ["All", "Needs me", "Waiting", "Clarify"]
+VIEWS = ["All", "Needs me", "Waiting", "Clarify", "In Dev"]
 # Right-pane views: key, tab label, internal name.
 TABS = [("a", "Activity", "Activity"), ("p", "Plan", "Plan"), ("d", "Updates", "Updates"),
         ("c", "Questions", "Questions"), ("m", "Meetings", "Meetings"), ("v", "Overview", "Overview"),
@@ -49,7 +50,7 @@ TAB_KEYS = {key: name for key, _, name in TABS}
 PLANS = qa.tickets_dir()
 # Bottom bar. On narrow terminals descriptions shorten first, then MOVE is dropped, then DO.
 # (key, description, short description used when the terminal is narrow)
-FOOTER = [("MOVE", [("j/k", "tickets", ""), ("h/l", "pane", ""), ("1-4", "lane", ""), ("/", "search", "search")]),
+FOOTER = [("MOVE", [("j/k", "tickets", ""), ("h/l", "pane", ""), ("1-5", "lane", ""), ("/", "search", "search")]),
           ("DO", [("Space", "open menu", "menu"), ("w", "go to worktree", "work"), ("r", "refresh", "refresh"),
                   ("o", "sort", "sort"), ("+/-", "resize sections", "size")]),
           ("", [("?", "help", "help"), ("q", "quit", "quit")])]
@@ -276,49 +277,41 @@ class App:
         self.dirty = True
 
     def choose_sort(self):
-        selected = SORT_MODES.index(self.sort_mode)
-        while True:
-            self.drain()
-            self.screen.erase()
-            self.put(1, 2, "SORT TICKETS", curses.A_BOLD)
-            self.put(2, 2, "j/k choose · Enter apply · Esc cancel · O reverse current sort")
-            for i, mode in enumerate(SORT_MODES):
-                self.put(4 + i, 2, ("> " if i == selected else "  ") + mode,
-                         curses.A_REVERSE if i == selected else 0)
-            self.put(13, 2, "Dates: newest first by default. Missing dates always go last.")
-            self.put(14, 2, "Last commit: your git commits on the ticket plus its PR's commits.")
-            self.screen.refresh()
-            try:
-                key = self.screen.get_wch()
-            except curses.error:
-                continue
-            if key in ("j", curses.KEY_DOWN):
-                selected = (selected + 1) % len(SORT_MODES)
-            elif key in ("k", curses.KEY_UP):
-                selected = (selected - 1) % len(SORT_MODES)
-            elif key in ("\n", "\r"):
-                self.set_sort(SORT_MODES[selected])
-                break
-            elif key == "O":
-                self.set_sort(self.sort_mode, not self.sort_descending)
-                break
-            elif key in ("\x1b", "q"):
-                break
-        self.screen.clear()
-        self.dirty = True
+        selected = current = SORT_MODES.index(self.sort_mode)
+        arrow = "↓" if self.sort_descending else "↑"
+        options = [mode + (f" {arrow}" if i == current else "") for i, mode in enumerate(SORT_MODES)]
+        notes = ["Dates: newest first by default. Missing dates always go last.",
+                 "Last commit: your git commits on the ticket plus its PR's commits."]
+        try:
+            while True:
+                self.drain()
+                self.draw(lambda: self.draw_menu("SORT TICKETS", options, selected, current, notes,
+                                                 "j/k · Enter apply · O reverse · Esc"))
+                try:
+                    key = self.screen.get_wch()
+                except curses.error:
+                    continue
+                if key in ("j", curses.KEY_DOWN):
+                    selected = (selected + 1) % len(SORT_MODES)
+                elif key in ("k", curses.KEY_UP):
+                    selected = (selected - 1) % len(SORT_MODES)
+                elif key in ("\n", "\r"):
+                    self.set_sort(SORT_MODES[selected])
+                    break
+                elif key == "O":
+                    self.set_sort(self.sort_mode, not self.sort_descending)
+                    break
+                elif key in ("\x1b", "q"):
+                    break
+        finally:
+            self.dirty = True
 
-    def choose(self, title, options, hint="j/k choose · Enter apply · Esc cancel"):
-        """Full-screen picker; returns the chosen index or None."""
+    def choose(self, title, options, hint="j/k · Enter apply · Esc cancel"):
+        """Picker box over the dashboard; returns the chosen index or None."""
         selected = 0
         try:
             while True:
-                self.screen.erase()
-                self.put(1, 2, title, curses.A_BOLD)
-                self.put(2, 2, hint)
-                for i, option in enumerate(options):
-                    self.put(4 + i, 2, ("> " if i == selected else "  ") + option,
-                             curses.A_REVERSE if i == selected else 0)
-                self.screen.refresh()
+                self.draw(lambda: self.draw_menu(title, options, selected, hint=hint))
                 try:
                     key = self.screen.get_wch()
                 except curses.error:
@@ -334,8 +327,46 @@ class App:
                 elif key in ("\x1b", "q"):
                     return None
         finally:
-            self.screen.clear()
             self.dirty = True
+
+    def draw_menu(self, title, options, selected, current=None, notes=(), hint=""):
+        height, width = self.screen.getmaxyx()
+        rows = menu_box(title, options, selected, width - 4, current, notes, hint)
+        top, left = max(2, (height - len(rows)) // 2), max(1, (width - len(rows[0][0])) // 2)
+        accent, bold = self.style("accent"), curses.A_BOLD
+        for y in range(top - 1, min(height - 2, top + len(rows) + 1)):
+            self.put(y, left - 1, " " * (len(rows[0][0]) + 2))
+        styles = {"border": bold | accent, "selected": bold | curses.A_REVERSE, "note": curses.A_DIM, "option": 0}
+        for y, (text, style) in enumerate(rows[:height - top - 1], top):
+            if style == "selected":
+                # Keep the side borders in the accent colour; only the row itself is reversed.
+                self.put(y, left, text[:2], styles["border"])
+                self.put(y, left + 2, text[2:-2], styles["selected"])
+                self.put(y, left + len(text) - 2, text[-2:], styles["border"])
+            elif style in ("option", "note"):
+                self.put(y, left, text[0], styles["border"])
+                self.put(y, left + 1, text[1:-1], styles[style])
+                self.put(y, left + len(text) - 1, text[-1], styles["border"])
+            else:
+                self.put(y, left, text, styles["border"])
+
+    def search(self):
+        """/: filter the list while typing; Enter keeps the query, Esc restores the previous one."""
+        before, index = self.query, self.index
+
+        def changed(value):
+            self.query, self.index, self.offset = value, 0, 0
+            self.fit()
+            total = sum(self.in_view(t, self.view) for t in self.tickets)
+            return f"  ({len(self.visible())} of {total})"
+
+        query = self.prompt("Search", self.query, changed)
+        if query is None:
+            self.query, self.index = before, index
+        else:
+            self.query, self.index = query, 0
+        self.dirty = True
+        return query
 
     def launch_agent(self, ticket):
         if self.demo:
@@ -467,9 +498,17 @@ class App:
     def pr_label(self, ticket):
         return " / ".join(f"#{p['number']}" for p in ticket.prs) if ticket.prs else "none linked"
 
+    @staticmethod
+    def in_view(ticket, view):
+        """In Dev is a workflow stage (implementation or rework), not an ownership lane."""
+        if ticket.lane == "Done":
+            return False
+        if view == "In Dev":
+            return stage_context(ticket)["index"] == 1
+        return view == "All" or ticket.lane == view
+
     def visible(self):
-        return [t for t in self.tickets if t.lane != "Done"
-                and (self.view == "All" or t.lane == self.view)
+        return [t for t in self.tickets if self.in_view(t, self.view)
                 and self.query.casefold() in f"{t.key} {t.title} {t.status} {t.action}".casefold()]
 
     def selected(self):
@@ -761,11 +800,14 @@ class App:
             self.put(row, x, side, attr)
             self.put(row, x + w - 1, side, attr)
 
-    def draw(self):
+    def draw(self, overlay=None):
+        """Paint the dashboard; overlay (a menu or prompt) is painted on top before the one refresh."""
         self.screen.erase()
         height, width = self.screen.getmaxyx()
         if height < 12 or width < 64:
             self.put(0, 0, "Resize terminal to at least 64 columns x 12 rows. q: quit")
+            if overlay:
+                overlay()
             self.screen.refresh()
             return
         bold, accent = curses.A_BOLD, self.style("accent")
@@ -775,7 +817,7 @@ class App:
         parts = [(" Sidequest" + (" · DEMO" if self.demo else "") + "  ", bold | accent)]
         compact = width < 130
         for i, view in enumerate(VIEWS):
-            count = sum(t.lane != "Done" and (view == "All" or t.lane == view) for t in self.tickets)
+            count = sum(self.in_view(t, view) for t in self.tickets)
             label = lane_tab(i + 1, view, count, self.view == view, compact)
             parts.append((label, (curses.A_REVERSE | bold) if self.view == view else self.style(view) or 0))
         x = self.put_parts(0, 0, parts, width - 1)
@@ -861,23 +903,32 @@ class App:
                            for k, d, *rest in keys]) for label, keys in FOOTER]
         self.put_parts(height - 2, 1, self.key_parts(footer, width - 3), width - 1)
         self.put(height - 1, 1, self.message)
+        if overlay:
+            overlay()
         self.screen.refresh()
 
-    def prompt(self, label, initial=""):
+    def prompt(self, label, initial="", on_change=None):
+        """Edit one line at the bottom. on_change(value) runs after each edit, the dashboard is
+        redrawn behind the line and its returned text follows the value."""
         value, cursor = initial, len(initial)
+        suffix = on_change(value) if on_change else ""
         curses.curs_set(1)
         try:
             while True:
                 height, width = self.screen.getmaxyx()
-                self.screen.move(height - 1, 0)
-                self.screen.clrtoeol()
                 prefix = label + ": "
-                available = max(1, width - len(prefix) - 2)
+                available = max(1, width - len(prefix) - len(suffix) - 2)
                 start = max(0, cursor - available + 1)
-                self.put(height - 1, 0, prefix + value[start:start + available])
+
+                def line():
+                    self.screen.move(height - 1, 0)
+                    self.screen.clrtoeol()
+                    self.put(height - 1, 0, prefix + value[start:start + available] + suffix)
+                self.draw(line) if on_change else line()
                 self.screen.move(height - 1, min(width - 2, len(prefix) + cursor - start))
                 self.screen.refresh()
                 key = self.screen.get_wch()
+                previous = value
                 if key in ("\n", "\r"):
                     return value
                 if key == "\x1b":
@@ -898,6 +949,8 @@ class App:
                 elif isinstance(key, str) and key.isprintable():
                     value = value[:cursor] + key + value[cursor:]
                     cursor += 1
+                if on_change and value != previous:
+                    suffix = on_change(value)
         finally:
             curses.curs_set(0)
 
@@ -943,8 +996,8 @@ class App:
                  "  Ctrl-f/b      Page the ticket list          Ctrl-d/u  Scroll the preview",
                  "  h / l, Enter  List / preview pane           gl / gL   Next / previous ticket needing you",
                  "  + / -         Grow / shrink ticket section   =       Reset 30/70 split (size is remembered)",
-                 "  1..4          All / Needs me / Waiting / Clarify",
-                 "  /             Filter tickets (Enter applies)  Esc     Clear filter, back to list",
+                 "  1..5          All / Needs me / Waiting / Clarify / In Dev",
+                 "  /             Filter while typing (Enter keeps)  Esc  Clear filter, back to list",
                  "",
                  "WAIT starts at the later of Jira status entry or first assignment to you.",
                  "  Comments, commits and PR reviews do not reset WAIT.",
@@ -1092,12 +1145,10 @@ class App:
                 self.resize_sections({"+": 1, "-": -1, "=": 0}[key])
             elif key in ("h", "l", "\n", "\r"):
                 self.focus_pane = "list" if key == "h" else "preview"
-            elif isinstance(key, str) and key in "1234":
+            elif isinstance(key, str) and key in "12345":
                 self.view, self.index, self.preview_scroll = VIEWS[int(key) - 1], 0, 0
             elif key == "/":
-                query = self.blocking(lambda: self.prompt("Search", self.query))
-                if query is not None:
-                    self.query, self.index = query, 0
+                self.blocking(self.search)
             elif key == "\x1b":
                 self.query, self.focus_pane, self.preview_scroll = "", "list", 0
             elif key == "r":

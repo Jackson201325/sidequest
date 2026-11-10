@@ -92,6 +92,8 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(lane_tab(3, "Waiting", 2, False, True), " 3 ○ 2 ")
         self.assertEqual(lane_tab(3, "Waiting", 2, True, True), " 3 ○ Waiting 2 ")
         self.assertEqual(lane_tab(1, "All", 6, False, True), " 1 All 6 ")
+        self.assertEqual(lane_tab(5, "In Dev", 3, False, True), " 5 ◆ 3 ")
+        self.assertEqual(lane_tab(5, "In Dev", 3, True, True), " 5 ◆ In Dev 3 ")
 
     def test_ci_glyph_offset_points_at_the_glyph(self):
         ticket = Ticket("DEMO-7", "Title", court="me", lane="Needs me", prs=[{"number": 2059, "ci": "failing"}])

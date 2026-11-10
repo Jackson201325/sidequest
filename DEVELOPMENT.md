@@ -179,3 +179,9 @@ Some projects track tickets on a Notion board instead of Jira. Explored 2026-11-
 - Keys: board cards may have no key like APP-123. Branch names and `sidequest start` need one, such
   as a Notion unique ID property; the mapping from card to key is still open.
 - Not an option: reusing a browser session cookie. It is a secret and an unofficial API.
+
+2026-11-10: dashboard menus and search. ticket-tui/test_menus.py failed first (no menu_box, no App.search).
+Menus draw as a box over the dashboard through App.draw(overlay); prompt(on_change=...) redraws the
+dashboard after each edit. The PTY test checks the box border and the live "(0 of 1)" count.
+
+2026-11-10: lane tab 5 In Dev. test_keys and test_layout failed first (no view, no ◆ glyph).

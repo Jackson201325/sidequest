@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,7 +25,7 @@ class PersonalSessionTests(unittest.TestCase):
         self.env = {k: v for k, v in os.environ.items() if not k.startswith(('SIDEQUEST_', 'TMUX'))}
         self.env.update(SIDEQUEST_CONFIG=str(self.settings), SIDEQUEST_STATE_DIR=str(self.home / 'state'),
                         SIDEQUEST_DATA_DIR=str(self.home / 'data'), HOME=str(self.home),
-                        TMUX_TMPDIR=str(self.home / 'tmux'))
+                        TMUX_TMPDIR=str(self.home / 'tmux'), SHELL='/bin/sh')
         (self.home / 'tmux').mkdir()
 
     def write(self, sessions, session='proj'):
@@ -35,6 +36,13 @@ class PersonalSessionTests(unittest.TestCase):
     def up(self, *args):
         return subprocess.run([sys.executable, '-B', str(ROOT / 'bin/sidequest'), 'up', '-n', *args],
                               cwd=self.repo, env=self.env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+
+    def stop_tmux(self):
+        # kill-server returns before the server and its panes exit; deleting the folder sooner races them.
+        subprocess.run(['tmux', 'kill-server'], env=self.env, capture_output=True)
+        deadline = time.monotonic() + 5
+        while any((self.home / 'tmux').glob('tmux-*/*')) and time.monotonic() < deadline:
+            time.sleep(0.05)
 
     DOTFILES = {'dotfiles': [{'name': 'nvim-config', 'cwd': '~/nvim', 'command': 'nvim', 'stay': True},
                              {'name': 'dots', 'cwd': '~/dots'}]}
@@ -51,7 +59,7 @@ class PersonalSessionTests(unittest.TestCase):
     @unittest.skipUnless(shutil.which('tmux'), 'tmux is not installed')
     def test_up_builds_the_personal_session_once_on_a_private_tmux_server(self):
         self.write({'dotfiles': [{'name': 'nvim-config', 'cwd': '~/nvim'}, {'name': 'dots', 'cwd': '~/dots'}]})
-        self.addCleanup(subprocess.run, ['tmux', 'kill-server'], env=self.env, capture_output=True)
+        self.addCleanup(self.stop_tmux)
         for _ in range(2):
             ran = self.up('--no-attach')
             self.assertNotEqual(ran.returncode, 2, ran.stdout + ran.stderr)
