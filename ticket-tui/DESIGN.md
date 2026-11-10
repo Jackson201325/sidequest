@@ -99,3 +99,7 @@ when it does not fit); App.draw_menu centres it with a blank margin. Sort, the a
 picker share it. draw(overlay) paints the menu or prompt before its one refresh, so the dashboard stays
 visible. / filters the list on each edit and shows "(N of M)" for the current lane; Enter keeps the
 query and Esc restores the previous one. Keys and results of the menus are unchanged.
+
+2026-11-10: 5 In Dev (◆) filters by workflow stage, not ownership: tickets whose Jira status maps to
+implementation or rework (workflow.stage_context index 1). It can overlap the ownership lanes; Done
+tickets stay hidden. Header counts, search counts and the list share App.in_view.

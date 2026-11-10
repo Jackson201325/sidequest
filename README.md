@@ -532,7 +532,7 @@ environment reads and external programs. It only reads the source.
 | --- | --- |
 | `j/k`, arrows | Move through tickets or scroll details |
 | `h/l`, Enter | Switch between the list and details |
-| `1`–`4` | All, Needs me, Waiting, Clarify |
+| `1`–`5` | All, Needs me, Waiting, Clarify, In Dev (implementation or rework, from the Jira status) |
 | `/` | Search; the list filters while you type and shows the match count. Enter keeps it, Esc restores the previous search |
 | `a/p/d/c/m/v/s/f/u` | Activity, Plan, Updates, Questions, Meetings, Overview, Work log, Flow, Standup |
 | `o/O` | Choose or reverse a sort (a box over the dashboard; ✓ marks the current sort) |

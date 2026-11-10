@@ -29,6 +29,7 @@ from sidequest.environments import fetch_environments
 from sidequest.ticket_keys import branch_keys, is_key, linked_ticket
 from sidequest.worktrees import parse_worktrees
 from worklog import collect_worklog
+from workflow import stage_context
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
 from layout import (EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, menu_box, pr_glyph_offset,
                     relative, scroll_label, table_header, table_row, panel_rects)
@@ -39,7 +40,7 @@ from detail_views import DetailViews, readable_date, source_age, wrap  # noqa: F
 
 WORKFLOW = Path(__file__).resolve().parents[1]
 ROOT = Path(config.workspace_repository() or WORKFLOW).expanduser().resolve()
-VIEWS = ["All", "Needs me", "Waiting", "Clarify"]
+VIEWS = ["All", "Needs me", "Waiting", "Clarify", "In Dev"]
 # Right-pane views: key, tab label, internal name.
 TABS = [("a", "Activity", "Activity"), ("p", "Plan", "Plan"), ("d", "Updates", "Updates"),
         ("c", "Questions", "Questions"), ("m", "Meetings", "Meetings"), ("v", "Overview", "Overview"),
@@ -49,7 +50,7 @@ TAB_KEYS = {key: name for key, _, name in TABS}
 PLANS = qa.tickets_dir()
 # Bottom bar. On narrow terminals descriptions shorten first, then MOVE is dropped, then DO.
 # (key, description, short description used when the terminal is narrow)
-FOOTER = [("MOVE", [("j/k", "tickets", ""), ("h/l", "pane", ""), ("1-4", "lane", ""), ("/", "search", "search")]),
+FOOTER = [("MOVE", [("j/k", "tickets", ""), ("h/l", "pane", ""), ("1-5", "lane", ""), ("/", "search", "search")]),
           ("DO", [("Space", "open menu", "menu"), ("w", "go to worktree", "work"), ("r", "refresh", "refresh"),
                   ("o", "sort", "sort"), ("+/-", "resize sections", "size")]),
           ("", [("?", "help", "help"), ("q", "quit", "quit")])]
@@ -356,7 +357,7 @@ class App:
         def changed(value):
             self.query, self.index, self.offset = value, 0, 0
             self.fit()
-            total = sum(t.lane != "Done" and (self.view == "All" or t.lane == self.view) for t in self.tickets)
+            total = sum(self.in_view(t, self.view) for t in self.tickets)
             return f"  ({len(self.visible())} of {total})"
 
         query = self.prompt("Search", self.query, changed)
@@ -497,9 +498,17 @@ class App:
     def pr_label(self, ticket):
         return " / ".join(f"#{p['number']}" for p in ticket.prs) if ticket.prs else "none linked"
 
+    @staticmethod
+    def in_view(ticket, view):
+        """In Dev is a workflow stage (implementation or rework), not an ownership lane."""
+        if ticket.lane == "Done":
+            return False
+        if view == "In Dev":
+            return stage_context(ticket)["index"] == 1
+        return view == "All" or ticket.lane == view
+
     def visible(self):
-        return [t for t in self.tickets if t.lane != "Done"
-                and (self.view == "All" or t.lane == self.view)
+        return [t for t in self.tickets if self.in_view(t, self.view)
                 and self.query.casefold() in f"{t.key} {t.title} {t.status} {t.action}".casefold()]
 
     def selected(self):
@@ -808,7 +817,7 @@ class App:
         parts = [(" Sidequest" + (" · DEMO" if self.demo else "") + "  ", bold | accent)]
         compact = width < 130
         for i, view in enumerate(VIEWS):
-            count = sum(t.lane != "Done" and (view == "All" or t.lane == view) for t in self.tickets)
+            count = sum(self.in_view(t, view) for t in self.tickets)
             label = lane_tab(i + 1, view, count, self.view == view, compact)
             parts.append((label, (curses.A_REVERSE | bold) if self.view == view else self.style(view) or 0))
         x = self.put_parts(0, 0, parts, width - 1)
@@ -987,7 +996,7 @@ class App:
                  "  Ctrl-f/b      Page the ticket list          Ctrl-d/u  Scroll the preview",
                  "  h / l, Enter  List / preview pane           gl / gL   Next / previous ticket needing you",
                  "  + / -         Grow / shrink ticket section   =       Reset 30/70 split (size is remembered)",
-                 "  1..4          All / Needs me / Waiting / Clarify",
+                 "  1..5          All / Needs me / Waiting / Clarify / In Dev",
                  "  /             Filter while typing (Enter keeps)  Esc  Clear filter, back to list",
                  "",
                  "WAIT starts at the later of Jira status entry or first assignment to you.",
@@ -1136,7 +1145,7 @@ class App:
                 self.resize_sections({"+": 1, "-": -1, "=": 0}[key])
             elif key in ("h", "l", "\n", "\r"):
                 self.focus_pane = "list" if key == "h" else "preview"
-            elif isinstance(key, str) and key in "1234":
+            elif isinstance(key, str) and key in "12345":
                 self.view, self.index, self.preview_scroll = VIEWS[int(key) - 1], 0, 0
             elif key == "/":
                 self.blocking(self.search)

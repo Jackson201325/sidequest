@@ -11,6 +11,7 @@ from workflow import STAGE_LABELS, next_owner, stage_context
 
 # Lane glyphs: filled = your move, empty = waiting, ? = unclear.
 LANE_GLYPH = {"Needs me": "●", "Waiting": "○", "Clarify": "?", "Done": "✓"}
+VIEW_GLYPH = {**LANE_GLYPH, "In Dev": "◆"}
 CI_GLYPH = {"green": "✓", "failing": "✗", "pending": "…", "mixed": "~"}
 
 # Focused panel: heavy border; other panel: light rounded border. Focus is visible by shape.
@@ -249,7 +250,7 @@ def scroll_label(offset, shown, total):
 
 def lane_tab(index, view, count, active, compact):
     """Header tab. When space is short, only the active lane keeps its name."""
-    glyph = "" if view == "All" else LANE_GLYPH[view] + " "
+    glyph = "" if view == "All" else VIEW_GLYPH[view] + " "
     if compact and not active and view != "All":
         return f" {index} {glyph}{count} "
     return f" {index} {glyph}{view} {count} "

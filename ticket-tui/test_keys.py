@@ -75,6 +75,16 @@ class KeyTests(unittest.TestCase):
         self.press("1")
         self.assertEqual(self.app.view, "All")
 
+    def test_5_shows_only_tickets_in_development_including_rework(self):
+        from workflow import stage_context
+        self.press("5")
+        self.assertEqual(self.app.view, "In Dev")
+        shown = self.app.visible()
+        self.assertTrue(shown, "demo data must contain a ticket in development")
+        self.assertTrue(all(stage_context(t)["index"] == 1 for t in shown))
+        self.assertEqual({t.key for t in shown},
+                         {t.key for t in self.rows if stage_context(t)["index"] == 1})
+
     def test_h_l_and_enter_move_focus_and_escape_clears_search_and_focus(self):
         self.press("\n")
         self.assertEqual(self.app.focus_pane, "preview")

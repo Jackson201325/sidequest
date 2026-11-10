@@ -183,3 +183,5 @@ Some projects track tickets on a Notion board instead of Jira. Explored 2026-11-
 2026-11-10: dashboard menus and search. ticket-tui/test_menus.py failed first (no menu_box, no App.search).
 Menus draw as a box over the dashboard through App.draw(overlay); prompt(on_change=...) redraws the
 dashboard after each edit. The PTY test checks the box border and the live "(0 of 1)" count.
+
+2026-11-10: lane tab 5 In Dev. test_keys and test_layout failed first (no view, no ◆ glyph).

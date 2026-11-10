@@ -33,4 +33,5 @@ class MergedWaitingTests(unittest.TestCase):
         screen = KeyScreen(('4', '5', 'q'))
         with patch.dict('os.environ', {'NO_COLOR': '1'}), patch('curses.curs_set'), patch('curses.set_escdelay'):
             app.loop(screen)
-        self.assertEqual(app.view, 'Clarify')
+        self.assertEqual(app.view, 'In Dev')              # 5 is the In Dev stage tab, not a follow-up lane
+        self.assertNotIn('Follow up', screen.frames[-1][0])
