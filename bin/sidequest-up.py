@@ -54,16 +54,46 @@ def up_all(argv):
     worst = 0
     for row in rows:
         print('== ' + row['name'] + ' ==', flush=True)
-        env = dict(os.environ, SIDEQUEST_PROJECT=row['name'])
+        env = dict(os.environ, SIDEQUEST_PROJECT=row['name'], SIDEQUEST_UP_SESSIONS='off')
         code = subprocess.run([sys.executable, str(Path(__file__).resolve().with_name('sidequest')), 'up', *args,
                                '--no-attach'], env=env).returncode
         worst = max(worst, code)
         print(flush=True)
+    from sidequest import sync, terminal_mode
+    shared = terminal_mode.mode(os.environ, config.SETTINGS)
+    box = None if terminal_mode.unavailable(shared) else terminal_mode.sessions(shared)
+    taken = {row['session'] for row in rows}
+    for name, windows, _ in sync.personal_sessions(config.SETTINGS.get('sessions'), '', str(Path.home())):
+        print('== ' + name + ' ==', flush=True)
+        if name in taken:
+            print('session  skipped: a project already uses that tmux session')
+        elif not windows:
+            print('session  skipped: no windows')
+        elif '--dry-run' in args:
+            for window in windows:
+                print('window   ' + window.name.ljust(12) + ' ' + window.path)
+        elif not box:
+            print('session  not opened: ' + terminal_mode.unavailable(shared))
+        else:
+            try:
+                print('session  ' + name + ': ' + str(box.open_layout(name, windows)) + ' windows')
+            except RuntimeError as exc:
+                worst = max(worst, 1)
+                print('failed   ' + box.noun + ' ' + name + ': ' + str(exc))
+        print(flush=True)
     if '--no-attach' not in args and '--dry-run' not in args:
-        from sidequest import terminal_mode
-        chosen = rows[0].get('terminal') or 'tmux'
-        if not terminal_mode.unavailable(chosen):
-            terminal_mode.sessions(chosen).attach(rows[0]['session'])
+        session, _, window = (config.get('workspace', 'attach_to') or rows[0]['session']).partition(':')
+        row = next((row for row in rows if row['session'] == session), None)
+        chosen = (row or {}).get('terminal') or shared
+        target = None if terminal_mode.unavailable(chosen) else terminal_mode.sessions(chosen)
+        if target and not target.exists(session):
+            print('attach   ' + session + ' is not open; attaching to ' + rows[0]['session'])
+            session, window, chosen = rows[0]['session'], '', rows[0].get('terminal') or 'tmux'
+            target = None if terminal_mode.unavailable(chosen) else terminal_mode.sessions(chosen)
+        if target:
+            if window:
+                target.select_window(session, window)
+            target.attach(session)
     return worst
 
 
@@ -104,6 +134,8 @@ def session_windows(snapshot, repository, save=True):
 
 def personal_sessions(dry_run):
     """(lines, problems): build each tmux session in the `sessions` setting (no network), or list it."""
+    if os.environ.get('SIDEQUEST_UP_SESSIONS') == 'off':  # --all builds them once, under their own header
+        return [], 0
     project_session = config.get('workspace', 'tmux_session') or config.PROJECT or 'sidequest'
     lines, problems = [], 0
     for name, windows, note in sync.personal_sessions(config.SETTINGS.get('sessions'), project_session,

@@ -89,10 +89,13 @@ class OverviewTests(unittest.TestCase):
 
 
 class OutsideEveryProjectTests(unittest.TestCase):
-    def run_sidequest(self, *args):
+    def run_sidequest(self, *args, shared=None):
         folder = tempfile.TemporaryDirectory(prefix='sidequest outside ')
         self.addCleanup(folder.cleanup)
         home = Path(folder.name).resolve()
+        if shared:
+            (home / 'config/sidequest').mkdir(parents=True)
+            (home / 'config/sidequest/config.json').write_text(json.dumps(shared))
         for name in ('acme', 'globex'):
             (home / 'config/sidequest/projects' / name).mkdir(parents=True)
             (home / 'config/sidequest/projects' / name / 'config.json').write_text(
@@ -121,6 +124,14 @@ class OutsideEveryProjectTests(unittest.TestCase):
         named = self.run_sidequest('--project', 'acme', 'up', '--all')
         self.assertEqual(named.returncode, 2)
         self.assertIn('--all prepares every project; leave out --project', named.stderr)
+
+    def test_up_all_lists_personal_sessions_once_under_their_own_name(self):
+        shared = {'sessions': {'dotfiles': [{'name': 'nvim-config', 'cwd': '~/dotfiles'}]},
+                  'workspace': {'attach_to': 'acme:trd-tui'}}
+        ran = self.run_sidequest('up', '--all', '-n', '--dry-run', shared=shared)
+        self.assertEqual(ran.stdout.count('== dotfiles =='), 1, ran.stdout + ran.stderr)
+        self.assertEqual(ran.stdout.count('nvim-config'), 1, ran.stdout)
+        self.assertGreater(ran.stdout.index('== dotfiles =='), ran.stdout.index('== globex =='))
 
     def test_projects_prints_the_overview_when_there_is_no_terminal(self):
         ran = self.run_sidequest('projects')

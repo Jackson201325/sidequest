@@ -81,7 +81,7 @@ KEYS = {
     'heroku': ('pipeline',),
     'workspace': ('repository', 'plans_dir', 'worktrees_dir', 'base_ref', 'agent_command', 'terminal',
                   'tmux_session', 'browser', 'copy_files', 'agent_tasks', 'reports_dir', 'report_command', 'windows', 'on_up',
-                  'launch'),
+                  'launch', 'attach_to'),
     'app': ('url', 'switch_command', 'current_command', 'running_command', 'required_files', 'ttl_minutes',
             'wait_minutes'),
     'qa': ('browser', 'email'),
