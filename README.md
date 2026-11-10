@@ -651,8 +651,11 @@ tmux session first and builds it again. This stops what runs in its windows, so 
 Short options combine: `sidequest up -rn`.
 
 `sidequest up --all` prepares every project in turn, each in its own tmux session (the project's
-tickets are that session's windows), then attaches to the first. Switch projects with tmux's
-session list (prefix `s`).
+tickets are that session's windows), then builds your personal sessions once, each under its own
+`== name ==` header, and attaches to the first project. To land somewhere else, set
+`workspace.attach_to` in the shared `~/.config/sidequest/config.json` to a session, or a session and
+window (`"tierrewards:trd-tui"`); when that session is not open, the first project is attached.
+Switch projects with tmux's session list (prefix `s`).
 
 `--when-due` syncs only when the last sync is older than `sync.every_minutes` (for example
 `"120"`). Before that, it attaches to the open session, or builds a missing one without network.
