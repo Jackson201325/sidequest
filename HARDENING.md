@@ -561,3 +561,6 @@ worktree. A refresh without sync keeps the recorded sync_tickets/merged_prs fail
 jira and prs), and they do not defeat --max-age. A refused jira-start (exit 3) writes a failure record, so Space n
 shows its reason. Not changed: a ticket with a merged PR is still skipped by `sidequest up` when it returns for
 rework; that needs a decision on the branch for the second round and on cleanup of the first.
+
+2026-11-10: menu and search display only. Menus no longer clear the screen, and / filters while typing.
+No data, refresh, network or Git behaviour changed; Esc on / restores the previous query and selection.

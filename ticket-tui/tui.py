@@ -30,7 +30,7 @@ from sidequest.ticket_keys import branch_keys, is_key, linked_ticket
 from sidequest.worktrees import parse_worktrees
 from worklog import collect_worklog
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
-from layout import (EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, pr_glyph_offset,
+from layout import (EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, menu_box, pr_glyph_offset,
                     relative, scroll_label, table_header, table_row, panel_rects)
 import standup
 import branch_state
@@ -276,49 +276,41 @@ class App:
         self.dirty = True
 
     def choose_sort(self):
-        selected = SORT_MODES.index(self.sort_mode)
-        while True:
-            self.drain()
-            self.screen.erase()
-            self.put(1, 2, "SORT TICKETS", curses.A_BOLD)
-            self.put(2, 2, "j/k choose · Enter apply · Esc cancel · O reverse current sort")
-            for i, mode in enumerate(SORT_MODES):
-                self.put(4 + i, 2, ("> " if i == selected else "  ") + mode,
-                         curses.A_REVERSE if i == selected else 0)
-            self.put(13, 2, "Dates: newest first by default. Missing dates always go last.")
-            self.put(14, 2, "Last commit: your git commits on the ticket plus its PR's commits.")
-            self.screen.refresh()
-            try:
-                key = self.screen.get_wch()
-            except curses.error:
-                continue
-            if key in ("j", curses.KEY_DOWN):
-                selected = (selected + 1) % len(SORT_MODES)
-            elif key in ("k", curses.KEY_UP):
-                selected = (selected - 1) % len(SORT_MODES)
-            elif key in ("\n", "\r"):
-                self.set_sort(SORT_MODES[selected])
-                break
-            elif key == "O":
-                self.set_sort(self.sort_mode, not self.sort_descending)
-                break
-            elif key in ("\x1b", "q"):
-                break
-        self.screen.clear()
-        self.dirty = True
+        selected = current = SORT_MODES.index(self.sort_mode)
+        arrow = "↓" if self.sort_descending else "↑"
+        options = [mode + (f" {arrow}" if i == current else "") for i, mode in enumerate(SORT_MODES)]
+        notes = ["Dates: newest first by default. Missing dates always go last.",
+                 "Last commit: your git commits on the ticket plus its PR's commits."]
+        try:
+            while True:
+                self.drain()
+                self.draw(lambda: self.draw_menu("SORT TICKETS", options, selected, current, notes,
+                                                 "j/k · Enter apply · O reverse · Esc"))
+                try:
+                    key = self.screen.get_wch()
+                except curses.error:
+                    continue
+                if key in ("j", curses.KEY_DOWN):
+                    selected = (selected + 1) % len(SORT_MODES)
+                elif key in ("k", curses.KEY_UP):
+                    selected = (selected - 1) % len(SORT_MODES)
+                elif key in ("\n", "\r"):
+                    self.set_sort(SORT_MODES[selected])
+                    break
+                elif key == "O":
+                    self.set_sort(self.sort_mode, not self.sort_descending)
+                    break
+                elif key in ("\x1b", "q"):
+                    break
+        finally:
+            self.dirty = True
 
-    def choose(self, title, options, hint="j/k choose · Enter apply · Esc cancel"):
-        """Full-screen picker; returns the chosen index or None."""
+    def choose(self, title, options, hint="j/k · Enter apply · Esc cancel"):
+        """Picker box over the dashboard; returns the chosen index or None."""
         selected = 0
         try:
             while True:
-                self.screen.erase()
-                self.put(1, 2, title, curses.A_BOLD)
-                self.put(2, 2, hint)
-                for i, option in enumerate(options):
-                    self.put(4 + i, 2, ("> " if i == selected else "  ") + option,
-                             curses.A_REVERSE if i == selected else 0)
-                self.screen.refresh()
+                self.draw(lambda: self.draw_menu(title, options, selected, hint=hint))
                 try:
                     key = self.screen.get_wch()
                 except curses.error:
@@ -334,8 +326,46 @@ class App:
                 elif key in ("\x1b", "q"):
                     return None
         finally:
-            self.screen.clear()
             self.dirty = True
+
+    def draw_menu(self, title, options, selected, current=None, notes=(), hint=""):
+        height, width = self.screen.getmaxyx()
+        rows = menu_box(title, options, selected, width - 4, current, notes, hint)
+        top, left = max(2, (height - len(rows)) // 2), max(1, (width - len(rows[0][0])) // 2)
+        accent, bold = self.style("accent"), curses.A_BOLD
+        for y in range(top - 1, min(height - 2, top + len(rows) + 1)):
+            self.put(y, left - 1, " " * (len(rows[0][0]) + 2))
+        styles = {"border": bold | accent, "selected": bold | curses.A_REVERSE, "note": curses.A_DIM, "option": 0}
+        for y, (text, style) in enumerate(rows[:height - top - 1], top):
+            if style == "selected":
+                # Keep the side borders in the accent colour; only the row itself is reversed.
+                self.put(y, left, text[:2], styles["border"])
+                self.put(y, left + 2, text[2:-2], styles["selected"])
+                self.put(y, left + len(text) - 2, text[-2:], styles["border"])
+            elif style in ("option", "note"):
+                self.put(y, left, text[0], styles["border"])
+                self.put(y, left + 1, text[1:-1], styles[style])
+                self.put(y, left + len(text) - 1, text[-1], styles["border"])
+            else:
+                self.put(y, left, text, styles["border"])
+
+    def search(self):
+        """/: filter the list while typing; Enter keeps the query, Esc restores the previous one."""
+        before, index = self.query, self.index
+
+        def changed(value):
+            self.query, self.index, self.offset = value, 0, 0
+            self.fit()
+            total = sum(t.lane != "Done" and (self.view == "All" or t.lane == self.view) for t in self.tickets)
+            return f"  ({len(self.visible())} of {total})"
+
+        query = self.prompt("Search", self.query, changed)
+        if query is None:
+            self.query, self.index = before, index
+        else:
+            self.query, self.index = query, 0
+        self.dirty = True
+        return query
 
     def launch_agent(self, ticket):
         if self.demo:
@@ -761,11 +791,14 @@ class App:
             self.put(row, x, side, attr)
             self.put(row, x + w - 1, side, attr)
 
-    def draw(self):
+    def draw(self, overlay=None):
+        """Paint the dashboard; overlay (a menu or prompt) is painted on top before the one refresh."""
         self.screen.erase()
         height, width = self.screen.getmaxyx()
         if height < 12 or width < 64:
             self.put(0, 0, "Resize terminal to at least 64 columns x 12 rows. q: quit")
+            if overlay:
+                overlay()
             self.screen.refresh()
             return
         bold, accent = curses.A_BOLD, self.style("accent")
@@ -861,23 +894,32 @@ class App:
                            for k, d, *rest in keys]) for label, keys in FOOTER]
         self.put_parts(height - 2, 1, self.key_parts(footer, width - 3), width - 1)
         self.put(height - 1, 1, self.message)
+        if overlay:
+            overlay()
         self.screen.refresh()
 
-    def prompt(self, label, initial=""):
+    def prompt(self, label, initial="", on_change=None):
+        """Edit one line at the bottom. on_change(value) runs after each edit, the dashboard is
+        redrawn behind the line and its returned text follows the value."""
         value, cursor = initial, len(initial)
+        suffix = on_change(value) if on_change else ""
         curses.curs_set(1)
         try:
             while True:
                 height, width = self.screen.getmaxyx()
-                self.screen.move(height - 1, 0)
-                self.screen.clrtoeol()
                 prefix = label + ": "
-                available = max(1, width - len(prefix) - 2)
+                available = max(1, width - len(prefix) - len(suffix) - 2)
                 start = max(0, cursor - available + 1)
-                self.put(height - 1, 0, prefix + value[start:start + available])
+
+                def line():
+                    self.screen.move(height - 1, 0)
+                    self.screen.clrtoeol()
+                    self.put(height - 1, 0, prefix + value[start:start + available] + suffix)
+                self.draw(line) if on_change else line()
                 self.screen.move(height - 1, min(width - 2, len(prefix) + cursor - start))
                 self.screen.refresh()
                 key = self.screen.get_wch()
+                previous = value
                 if key in ("\n", "\r"):
                     return value
                 if key == "\x1b":
@@ -898,6 +940,8 @@ class App:
                 elif isinstance(key, str) and key.isprintable():
                     value = value[:cursor] + key + value[cursor:]
                     cursor += 1
+                if on_change and value != previous:
+                    suffix = on_change(value)
         finally:
             curses.curs_set(0)
 
@@ -944,7 +988,7 @@ class App:
                  "  h / l, Enter  List / preview pane           gl / gL   Next / previous ticket needing you",
                  "  + / -         Grow / shrink ticket section   =       Reset 30/70 split (size is remembered)",
                  "  1..4          All / Needs me / Waiting / Clarify",
-                 "  /             Filter tickets (Enter applies)  Esc     Clear filter, back to list",
+                 "  /             Filter while typing (Enter keeps)  Esc  Clear filter, back to list",
                  "",
                  "WAIT starts at the later of Jira status entry or first assignment to you.",
                  "  Comments, commits and PR reviews do not reset WAIT.",
@@ -1095,9 +1139,7 @@ class App:
             elif isinstance(key, str) and key in "1234":
                 self.view, self.index, self.preview_scroll = VIEWS[int(key) - 1], 0, 0
             elif key == "/":
-                query = self.blocking(lambda: self.prompt("Search", self.query))
-                if query is not None:
-                    self.query, self.index = query, 0
+                self.blocking(self.search)
             elif key == "\x1b":
                 self.query, self.focus_pane, self.preview_scroll = "", "list", 0
             elif key == "r":

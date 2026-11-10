@@ -92,3 +92,10 @@ keeps selection and detail scroll in range after keys, list changes and resizes;
 draw changes no navigation state. A resize clears the screen even while a Space or
 g prefix waits. The UI reaches tmux only through WorkspaceWorkflow and imports
 Heroku reading and browser opening from the package.
+
+2026-11-10: menus are boxes over the dashboard. layout.menu_box builds the rows (heavy border, › for the
+choice, ✓ for the current value, notes under a divider, the key hint in the bottom border or as a note
+when it does not fit); App.draw_menu centres it with a blank margin. Sort, the agent picker and the start
+picker share it. draw(overlay) paints the menu or prompt before its one refresh, so the dashboard stays
+visible. / filters the list on each edit and shows "(N of M)" for the current lane; Enter keeps the
+query and Esc restores the previous one. Keys and results of the menus are unchanged.

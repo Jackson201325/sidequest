@@ -124,6 +124,31 @@ def border(width, title, focused, top=True, label=""):
     return tl + h + label + h * max(0, width - 3 - len(label)) + tr
 
 
+def menu_box(title, options, selected, max_width, current=None, notes=(), hint=""):
+    """A focused menu box as (text, style) rows: border, option, selected or note.
+
+    The selected option starts with › and the current value ends with ✓, so both survive NO_COLOR.
+    """
+    content = max([len(title) + 4, len(hint) + 4] + [len(o) + 6 for o in options] + [len(n) + 1 for n in notes])
+    width = max(12, min(max_width, content + 4))
+    inner = width - 4
+    tl, h, tr, v, bl, br = HEAVY
+    if len(hint) + 6 > width:
+        # A long hint is easier to read as a note than cut off in the border.
+        notes, hint = [*notes, hint], ""
+    rows = [(border(width, title, True), "border")]
+    for i, option in enumerate(options):
+        mark = " ✓" if i == current else "  "
+        text = ("› " if i == selected else "  ") + cell(option, inner - 4) + mark
+        rows.append((f"{v} {text} {v}", "selected" if i == selected else "option"))
+    if notes:
+        rows.append(("┣" + h * (width - 2) + "┫", "border"))
+        rows += [(f"{v} {cell(note, inner)} {v}", "note") for note in notes]
+    label = f" {hint} " if hint else ""
+    rows.append((border(width, title, True, top=False, label=label), "border"))
+    return rows
+
+
 def card(ticket, clock, last_commit_at=None, environment="", stale_days=2, local=(), hint=""):
     """The summary at the top of the right panel: where it stands, the PR, the dates, what's next.
 
