@@ -129,7 +129,7 @@ class ManagerPaneTests(unittest.TestCase):
         code, _ = self.open(TmuxTerminal(run, "sidequest", "/bin/sh"), {"TMUX_PANE": "%1"})
         self.assertEqual(code, 0)
         split = next(c for c in calls if c[1] == "split-window")
-        self.assertEqual(split[2:7], ["-v", "-l", "70%", "-t", "%1"])
+        self.assertEqual(split[2:7], ["-v", "-l", "40%", "-t", "%1"])
         self.assertIn("skill manage", split[-1])
         self.assertFalse(any(c[1] == "new-window" for c in calls))
 

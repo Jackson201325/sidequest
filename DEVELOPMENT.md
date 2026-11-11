@@ -171,7 +171,7 @@ sidequest/runs.py owns run.json (written only by `sidequest-data run`); Claude C
 UserPromptSubmit/Stop/Notification hooks through `--settings`, and a hook always exits 0 and never
 overrides a state the worker reported. The dashboard reads run.json for the card and AI mode (6).
 The manager opens in a pane below the caller's pane (tmux.open_below, HerdrTerminal.split_below)
-at 70% of its height; tmux tags it with the @sidequest_role pane option, so a second open selects it.
+at 40% of its height; tmux tags it with the @sidequest_role pane option, so a second open selects it.
 `sidequest-data update-branch` (sidequest/updates.py update_branch) updates one worktree's branch by
 update_all's rules and can leave a conflict open (exit 3) for the worker to resolve; it never pushes.
 

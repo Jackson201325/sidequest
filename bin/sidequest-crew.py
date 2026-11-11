@@ -2,7 +2,7 @@
 """sidequest crew: a manager agent for every ticket, and one worker agent per ticket worktree.
 
   sidequest crew                    open the manager (crew.manager_command) in a pane below this
-                                    one (70% of its height) in tmux or Herdr, else in this terminal
+                                    one (40% of its height) in tmux or Herdr, else in this terminal
   sidequest crew APP-1 APP-2        start a worker (crew.worker_command) in each ticket's worktree
                                     window; it runs start, implement, qa-local and ship-check and
                                     stops when it needs you or is ready to ship
@@ -66,7 +66,7 @@ def worker_launcher(flow, worker, data):
 
 
 def open_manager(flow, in_shell, environ=os.environ):
-    """The manager opens in a pane below the caller's pane (70% of its height) inside tmux or Herdr;
+    """The manager opens in a pane below the caller's pane (40% of its height) inside tmux or Herdr;
     a tmux pane that is already open is selected instead."""
     from sidequest import tmux
     from sidequest.terminal import TmuxTerminal, agent_argv, run_request

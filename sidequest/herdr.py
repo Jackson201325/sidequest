@@ -99,7 +99,7 @@ class HerdrTerminal:
                          'os.execvp(argv[0], argv)\n')
         return shlex.join([sys.executable, name])
 
-    def split_below(self, path, argv, share=0.7):
+    def split_below(self, path, argv, share=0.4):
         """Run argv in a new pane under the caller's pane; the new pane gets `share` of the height."""
         self.require_context()
         result = self._call(['pane', 'split', '--pane', self.context['HERDR_PANE_ID'], '--direction', 'down',

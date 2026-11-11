@@ -102,7 +102,7 @@ def start_agent(run, key, path, argv, inside, session, display_name, focus=True)
 ROLE_OPTION = '@sidequest_role'
 
 
-def open_below(run, pane, path, argv, role, percent=70):
+def open_below(run, pane, path, argv, role, percent=40):
     """Show the pane tagged `role` in pane's session, or split pane with a new pane below it that
     takes `percent` of its height and runs argv."""
     for line in run(['tmux', 'list-panes', '-s', '-t', pane, '-F',

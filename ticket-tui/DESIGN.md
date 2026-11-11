@@ -125,4 +125,4 @@ one is recorded as working or queued); Space C opens the manager. Both run bin/s
 job, so its worktree, duplicate and terminal checks apply; outside tmux/Herdr Space C hands this terminal to the
 manager. The status line shows only the command's last line. Demo mode disables both.
 Workers start in the background (detached tmux pane or window, no Herdr focus), so Space c keeps the dashboard
-in front; Space C opens the manager in a pane below the dashboard (70% of the height), or selects it.
+in front; Space C opens the manager in a pane below the dashboard (40% of the height), or selects it.

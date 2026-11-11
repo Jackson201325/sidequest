@@ -82,10 +82,10 @@ class PaneBelowTests(unittest.TestCase):
         message = tmux.open_below(run, "%1", "/tickets", ["claude", "manage"], "crew")
         return calls, message
 
-    def test_splits_the_callers_pane_with_a_pane_below_it_at_seventy_percent(self):
+    def test_splits_the_callers_pane_with_a_pane_below_it_at_forty_percent(self):
         calls, message = self.run_with("%1\t@2\t\n")
         split = next(c for c in calls if c[1] == "split-window")
-        self.assertEqual(split, ["tmux", "split-window", "-v", "-l", "70%", "-t", "%1", "-c", "/tickets",
+        self.assertEqual(split, ["tmux", "split-window", "-v", "-l", "40%", "-t", "%1", "-c", "/tickets",
                                  "-P", "-F", "#{pane_id}", "claude manage"])
         self.assertIn(["tmux", "set-option", "-p", "-t", "%9", "@sidequest_role", "crew"], calls)
         self.assertIn("below", message)

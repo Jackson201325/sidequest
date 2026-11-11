@@ -109,11 +109,11 @@ class HerdrSpecs(unittest.TestCase):
         self.assertTrue(any(c[1:3] == ['pane', 'run'] for c in self.calls))
         self.assertIn('background', result.message)
 
-    def test_split_below_puts_the_command_under_the_callers_pane_at_seventy_percent(self):
+    def test_split_below_puts_the_command_under_the_callers_pane_at_forty_percent(self):
         result = self.terminal.split_below(self.path, ['my-agent', 'manage'])
         split = next(c for c in self.calls if c[1:3] == ['pane', 'split'])
         self.assertEqual(split, ['herdr', 'pane', 'split', '--pane', 'w7:p2', '--direction', 'down',
-                                 '--ratio', '0.3', '--cwd', self.path, '--focus'])
+                                 '--ratio', '0.6', '--cwd', self.path, '--focus'])
         command = next(c for c in self.calls if c[1:3] == ['pane', 'run'])
         self.assertEqual(command[3], 'w7:p52')
         self.assertIn('below', result.message)

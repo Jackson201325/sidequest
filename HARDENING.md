@@ -589,8 +589,8 @@ with a bare origin: a branch never pushed is rebased with its uncommitted work k
 commit and its origin branch is unchanged; a conflict is aborted with HEAD and the tree unchanged, or left open with
 --keep-conflicts (exit 3, files listed); a branch that diverged from its origin branch is refused. Only `git fetch`
 reaches the remote. Crew workers run it at ship-check and may finish that rebase or merge; they never push.
-2026-11-11: The crew manager opens in a pane below the caller's pane (70% of its height), not in a Crew window.
+2026-11-11: The crew manager opens in a pane below the caller's pane (40% of its height), not in a Crew window.
 tests/test_tmux_launch.py, tests/test_herdr.py and tests/test_crew.py failed first. tmux splits $TMUX_PANE with
-`split-window -v -l 70%` and tags the pane @sidequest_role=crew; an open crew pane in the session is selected.
-Herdr splits HERDR_PANE_ID down with --ratio 0.3 (the ratio is assumed to be the top pane's share; not checked
+`split-window -v -l 40%` and tags the pane @sidequest_role=crew; an open crew pane in the session is selected.
+Herdr splits HERDR_PANE_ID down with --ratio 0.6 (the ratio is assumed to be the top pane's share; not checked
 live). Herdr has no reuse check, so a second open adds a second pane.
