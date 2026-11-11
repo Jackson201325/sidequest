@@ -100,6 +100,29 @@ picker share it. draw(overlay) paints the menu or prompt before its one refresh,
 visible. / filters the list on each edit and shows "(N of M)" for the current lane; Enter keeps the
 query and Esc restores the previous one. Keys and results of the menus are unchanged.
 
+2026-11-11: Crew (t) lists every crew worker from the ticket folders' run.json, the person's turn first
+(waiting, failed, ready, then working and queued); the card adds an `Agent step · state · age · note` line.
+Both read only; run.json is written by `sidequest-data run` and the workers' hooks. Its file versions are
+part of view_key, so a worker's change redraws without waiting for the minute tick.
+
+2026-11-11: AI mode (6, ✦) replaces the Crew tab and board. It is a lane, not a ticket tab: the list
+becomes one pipeline row per open ticket (plus workers on tickets outside the queue) with ✓━ done stages,
+the current state's glyph and a moving ▶ while working, ordered waiting, failed, ready, working, queued,
+then no worker. The details panel shows the selected ticket's agent story (step track, note, history,
+unanswered questions) instead of the ticket tabs. 1–5 return to the ticket lanes.
+
+Earlier the same day: Crew (t) was a full-screen board of every open ticket and every crew worker, grouped NEEDS YOU
+(waiting, failed, ready), WORKING (working, queued) and NO WORKER YET (with the `sidequest crew KEY` command).
+The ticket list hides while it is open; Esc returns to the tab used before. Working glyphs spin and waiting
+glyphs blink only while such a worker is on screen.
+
 2026-11-10: 5 In Dev (◆) filters by workflow stage, not ownership: tickets whose Jira status maps to
 implementation or rework (workflow.stage_context index 1). It can overlap the ownership lanes; Done
 tickets stay hidden. Header counts, search counts and the list share App.in_view.
+
+2026-11-11: Space c starts the selected ticket's crew worker after a confirm box (a restart with --again when
+one is recorded as working or queued); Space C opens the manager. Both run bin/sidequest-crew.py in a background
+job, so its worktree, duplicate and terminal checks apply; outside tmux/Herdr Space C hands this terminal to the
+manager. The status line shows only the command's last line. Demo mode disables both.
+Workers start in the background (detached tmux pane or window, no Herdr focus), so Space c keeps the dashboard
+in front; Space C opens the manager in a pane below the dashboard (70% of the height), or selects it.

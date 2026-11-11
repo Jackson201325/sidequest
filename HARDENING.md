@@ -564,3 +564,33 @@ rework; that needs a decision on the branch for the second round and on cleanup 
 
 2026-11-10: menu and search display only. Menus no longer clear the screen, and / filters while typing.
 No data, refresh, network or Git behaviour changed; Esc on / restores the previous query and selection.
+
+2026-11-11: agent crew. tests/test_runs.py, tests/test_crew.py and ticket-tui/test_crew_tab.py failed first (no
+`run` helper, no crew module, no `t` tab). run.json is written atomically and only by `sidequest-data run`;
+unknown steps and states are refused without a write. Hooks always exit 0, write nothing without a record and
+keep ready, failed and waiting states the worker set. Dispatch skips tickets without their own worktree
+(including the main checkout) and does not start a second worker while one is recorded as working or queued.
+Worker prompts forbid commits, pushes, PRs, comments and Jira changes except the start workflow's start move.
+Limits: workers' stop points rely on the prompt and the skills; a worker that dies without a hook stays
+"working" until `--again`. Live Claude Code hooks and tmux/Herdr launches are not exercised offline.
+
+2026-11-11: tmux window choice. A live crew run split the worker into a newer launcher window in the same folder,
+because find_window compared window ids as text (@12 before @5). tests/test_tmux_launch.py failed first. A window in
+the worktree folder still wins over one that only names the ticket; among those, the window that also names the
+ticket wins, then the oldest by numeric id.
+
+2026-11-11: crew workers start without focus. tests/test_tmux_launch.py, tests/test_herdr.py and tests/test_crew.py
+failed first. WorkspaceWorkflow.agent takes focus (default True, so Space s and the manager are unchanged); workers
+pass False. tmux then uses split-window -d / new-window -d and runs no select-window or switch-client; Herdr splits
+without --focus and skips tab focus. Not verified live in Herdr.
+
+2026-11-11: `sidequest-data update-branch`. tests/test_updates.py failed first (no command). In real repositories
+with a bare origin: a branch never pushed is rebased with its uncommitted work kept; a pushed branch gets a merge
+commit and its origin branch is unchanged; a conflict is aborted with HEAD and the tree unchanged, or left open with
+--keep-conflicts (exit 3, files listed); a branch that diverged from its origin branch is refused. Only `git fetch`
+reaches the remote. Crew workers run it at ship-check and may finish that rebase or merge; they never push.
+2026-11-11: The crew manager opens in a pane below the caller's pane (70% of its height), not in a Crew window.
+tests/test_tmux_launch.py, tests/test_herdr.py and tests/test_crew.py failed first. tmux splits $TMUX_PANE with
+`split-window -v -l 70%` and tags the pane @sidequest_role=crew; an open crew pane in the session is selected.
+Herdr splits HERDR_PANE_ID down with --ratio 0.3 (the ratio is assumed to be the top pane's share; not checked
+live). Herdr has no reuse check, so a second open adds a second pane.

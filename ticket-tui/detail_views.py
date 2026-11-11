@@ -19,7 +19,7 @@ from workflow import next_owner, ownership, stage_context, workflow_path, workfl
 from worklog import daily_summary
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest import questions
+from sidequest import questions, runs
 
 HEADING_MARK = "\x00"  # plan_document's heading marker; never shown
 
@@ -78,6 +78,8 @@ class DetailViews:
         self.questions_cache = {}
         self.branch_states = {}          # per-ticket local branch state from branch_state (not persisted)
         self.meetings_cache = {}
+        self.runs_cache = {}
+        self.frame = 0                   # animation frame for crew glyphs, set by the dashboard
 
     def rows(self, tab, ticket, plans, loading=False, standup=None):
         """Every row of a detail tab, refresh errors first. `standup` returns the Standup tab's lines."""
@@ -247,6 +249,65 @@ class DetailViews:
                 return path, None, []
             self.questions_cache[ticket.key] = cached
         return path, info.st_mtime_ns, cached[1]
+
+    def run_paths(self, plans):
+        return sorted(plans.glob("*/run.json")) if plans.is_dir() else []
+
+    @staticmethod
+    def run_version(paths):
+        """File versions of the given run.json files, so a worker's change redraws the dashboard."""
+        versions = []
+        for path in paths:
+            try:
+                info = path.stat()
+                versions.append((str(path), info.st_mtime_ns, info.st_size))
+            except OSError:
+                versions.append((str(path), None, None))
+        return tuple(versions)
+
+    def run_record(self, key, plans):
+        """The ticket's crew worker record, or None; cached until the file changes."""
+        path = plans / key / "run.json"
+        version = self.run_version([path])[0][1:]
+        cached = self.runs_cache.get(key)
+        if not cached or cached[0] != version:
+            try:
+                cached = (version, runs.read(path) if version[0] is not None else None)
+            except (OSError, ValueError):
+                cached = (version, None)
+            self.runs_cache[key] = cached
+        return cached[1]
+
+    def agent_line(self, ticket, plans):
+        record = self.run_record(ticket.key, plans)
+        return ["Agent " + runs.glyph(record["state"], self.frame) + " " + runs.summary(record, now())] if record else []
+
+    def crew_records(self, plans):
+        return [r for r in (self.run_record(p.parent.name, plans) for p in self.run_paths(plans)) if r]
+
+    def agent_rows(self, ticket, plans):
+        """AI mode: one ticket's whole crew story, newest change first."""
+        if not ticket:
+            return plain("No tickets in this view.")
+        record = self.run_record(ticket.key, plans)
+        questions_line = f"Unanswered questions: {self.open_question_count(ticket, plans)}"
+        if not record:
+            return plain(f"No worker for {ticket.key} yet.", "", f"Start one:  sidequest crew {ticket.key}",
+                         f"It needs the ticket's own worktree first:  sidequest start {ticket.key}", "", questions_line)
+        clock = now()
+        rows = [Row("PIPELINE", "heading"), Row(runs.track(record["step"], record["state"], self.frame)),
+                Row(f"{record['step']} · {runs.LABELS[record['state']]} · {runs.age(record.get('updated'), clock)}",
+                    "current" if record["state"] in ("waiting", "failed", "ready") else "plain")]
+        if record.get("note"):
+            rows.append(Row("→ " + record["note"]))
+        rows += plain("", questions_line,
+                      "Answer the worker in its window (w).  Restart it: sidequest crew " + ticket.key + " --again",
+                      "Ask the manager about every ticket: sidequest crew")
+        rows += [Row(""), Row("HISTORY", "heading")]
+        for entry in reversed(record.get("history") or []):
+            line = f"{readable_date(entry.get('at')):<18} {entry.get('step')} · {runs.LABELS.get(entry.get('state'), '?')}"
+            rows.append(Row(line + (f"  {entry['note']}" if entry.get("note") else "")))
+        return rows
 
     def open_question_count(self, ticket, plans):
         """Questions without an answer yet (not asked, or asked and waiting)."""

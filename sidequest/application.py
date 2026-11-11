@@ -30,8 +30,8 @@ class WorkspaceWorkflow:
     def open(self, key, path):
         return self.terminal.launch(key, path)
 
-    def agent(self, key, path, prompt):
-        return self.terminal.launch(key, path, agent_argv(prompt, self.agent_command))
+    def agent(self, key, path, prompt, focus=True):
+        return self.terminal.launch(key, path, agent_argv(prompt, self.agent_command), focus=focus)
 
 
 def build_workflow(settings, environ, run=run_command):

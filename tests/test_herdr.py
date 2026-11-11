@@ -101,6 +101,23 @@ class HerdrSpecs(unittest.TestCase):
         self.assertIn(repr(argv), script.read_text())
         self.assertEqual(self.calls[-1], ['herdr', 'tab', 'focus', 'w7:t8'])
 
+    def test_unfocused_agent_leaves_the_person_in_their_tab(self):
+        result = self.terminal.launch('APP-21', self.path, ['my-agent', 'Review APP-21'], focus=False)
+        split = next(c for c in self.calls if c[1:3] == ['pane', 'split'])
+        self.assertNotIn('--focus', split)
+        self.assertFalse(any(c[1:3] == ['tab', 'focus'] for c in self.calls))
+        self.assertTrue(any(c[1:3] == ['pane', 'run'] for c in self.calls))
+        self.assertIn('background', result.message)
+
+    def test_split_below_puts_the_command_under_the_callers_pane_at_seventy_percent(self):
+        result = self.terminal.split_below(self.path, ['my-agent', 'manage'])
+        split = next(c for c in self.calls if c[1:3] == ['pane', 'split'])
+        self.assertEqual(split, ['herdr', 'pane', 'split', '--pane', 'w7:p2', '--direction', 'down',
+                                 '--ratio', '0.3', '--cwd', self.path, '--focus'])
+        command = next(c for c in self.calls if c[1:3] == ['pane', 'run'])
+        self.assertEqual(command[3], 'w7:p52')
+        self.assertIn('below', result.message)
+
     def test_agent_handoff_executes_literal_arguments_in_the_requested_directory(self):
         recorded = Path(self.path) / 'received.json'
         agent = Path(self.path) / 'agent.py'

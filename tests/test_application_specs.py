@@ -13,7 +13,7 @@ class RecordingTerminal:
     def __init__(self):
         self.calls = []
 
-    def launch(self, key, path, argv=None, foreground=False):
+    def launch(self, key, path, argv=None, foreground=False, focus=True):
         self.calls.append((key, path, argv, foreground))
         return LaunchResult(message='Opened by another terminal adapter')
 

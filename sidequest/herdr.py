@@ -69,7 +69,7 @@ class HerdrTerminal:
             raise RuntimeError('Herdr returned an invalid new tab; inspect it before retrying')
         return pane
 
-    def _split(self, pane, path):
+    def _split(self, pane, path, focus=True):
         layout = self._call(['pane', 'layout', '--pane', pane['pane_id']], 'pane_layout').get('layout')
         if (not isinstance(layout, dict) or layout.get('workspace_id') != self.context['HERDR_WORKSPACE_ID']
                 or layout.get('tab_id') != pane['tab_id'] or not isinstance(layout.get('panes'), list)):
@@ -80,7 +80,7 @@ class HerdrTerminal:
             raise RuntimeError('Herdr did not report the target pane size')
         direction = 'right' if rect['width'] >= 120 and rect['width'] >= rect['height'] * 2 else 'down'
         result = self._call(['pane', 'split', '--pane', pane['pane_id'], '--direction', direction,
-                             '--cwd', path, '--focus'], 'pane_info')
+                             '--cwd', path, *(['--focus'] if focus else [])], 'pane_info')
         created = self._pane(result.get('pane'))
         if created['tab_id'] != pane['tab_id'] or created['pane_id'] == pane['pane_id']:
             raise RuntimeError('Herdr returned an invalid split target')
@@ -99,7 +99,18 @@ class HerdrTerminal:
                          'os.execvp(argv[0], argv)\n')
         return shlex.join([sys.executable, name])
 
-    def launch(self, key, path, argv=None, foreground=False):
+    def split_below(self, path, argv, share=0.7):
+        """Run argv in a new pane under the caller's pane; the new pane gets `share` of the height."""
+        self.require_context()
+        result = self._call(['pane', 'split', '--pane', self.context['HERDR_PANE_ID'], '--direction', 'down',
+                             '--ratio', str(round(1 - share, 2)), '--cwd', path, '--focus'], 'pane_info')
+        created = self._pane(result.get('pane'))
+        if created['pane_id'] == self.context['HERDR_PANE_ID']:
+            raise RuntimeError('Herdr returned an invalid split target')
+        self._call(['pane', 'run', created['pane_id'], self._agent_command(path, argv)], 'ok', empty_ok=True)
+        return LaunchResult(message='Opened in a pane below')
+
+    def launch(self, key, path, argv=None, foreground=False, focus=True):
         self.require_context()
         if foreground:
             return self.foreground.launch(key, path, argv)
@@ -110,10 +121,12 @@ class HerdrTerminal:
         if pane is None:
             pane = self._create_tab(key, path)
         elif argv is not None:
-            pane = self._split(pane, path)
+            pane = self._split(pane, path, focus)
         if argv is not None:
             command = self._agent_command(path, argv)
             self._call(['pane', 'run', pane['pane_id'], command], 'ok', empty_ok=True)
+            if not focus:
+                return LaunchResult(message='Agent started in the background for ' + key + ' in Herdr')
         focused = self._call(['tab', 'focus', pane['tab_id']], 'tab_info').get('tab')
         if (not isinstance(focused, dict) or focused.get('tab_id') != pane['tab_id']
                 or focused.get('workspace_id') != self.context['HERDR_WORKSPACE_ID']):

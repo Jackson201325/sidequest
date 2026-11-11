@@ -86,7 +86,7 @@ own commands (app.switch_command, current_command, running_command) do the switc
 
 The queue's original sorting, business-hour clocks, ownership rules, stacked panes,
 keyboard navigation and saved divider remain. Company ticket-start actions and
-company-specific agent assumptions are excluded. Eight reusable `sidequest-*` skills
+company-specific agent assumptions are excluded. Nine reusable `sidequest-*` skills
 are bundled under agents/skills/<name>/SKILL.md. The dashboard's agent menu renders
 the selected canonical skill; the optional installer binds absolute helper paths
 for Codex/Claude, checks drift and preserves user edits. `agents/RULES.md` supplies
@@ -163,6 +163,17 @@ explicit update/progress/result sections and their children; u remains Standup.
 Fenced code is not parsed as headings, and unrecognized sections stay in Plan.
 Tests exercise rendered views, no document writes, reload behavior and real PTY
 keyboard navigation at the approved TUI interface.
+
+`sidequest crew` (bin/sidequest-crew.py, sidequest/crew.py) starts the manager (crew.manager_command)
+and one worker per ticket worktree (crew.worker_command) through WorkspaceWorkflow.agent, so tmux and
+Herdr placement stay in the terminal adapters. Workers chain the bundled skills and stop at human gates.
+sidequest/runs.py owns run.json (written only by `sidequest-data run`); Claude Code workers get
+UserPromptSubmit/Stop/Notification hooks through `--settings`, and a hook always exits 0 and never
+overrides a state the worker reported. The dashboard reads run.json for the card and AI mode (6).
+The manager opens in a pane below the caller's pane (tmux.open_below, HerdrTerminal.split_below)
+at 70% of its height; tmux tags it with the @sidequest_role pane option, so a second open selects it.
+`sidequest-data update-branch` (sidequest/updates.py update_branch) updates one worktree's branch by
+update_all's rules and can leave a conflict open (exit 3) for the worker to resolve; it never pushes.
 
 ## Future: Notion boards as a ticket source (not built)
 

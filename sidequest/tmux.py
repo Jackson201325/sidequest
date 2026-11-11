@@ -22,18 +22,20 @@ def find_window(panes, key, path, session):
         path_match = bool(root and (current_path == root or current_path.startswith(root + '/')))
         name_match = key.upper() in mentions(title)
         if path_match or name_match:
-            candidates.append((not path_match, wid, title))
-    return min(candidates)[1:] if candidates else None
+            # The worktree folder first, then the ticket's own name, then the oldest window (ids are @N).
+            number = int(wid[1:]) if wid[1:].isdigit() else float('inf')
+            candidates.append((not path_match, not name_match, number, wid, title))
+    return min(candidates)[3:] if candidates else None
 
 
-def split_command(window_id, path, argv):
-    return ['tmux', 'split-window', '-h', '-t', window_id, '-c', path, shlex.join(argv)]
+def split_command(window_id, path, argv, detached=False):
+    return ['tmux', 'split-window', *(['-d'] if detached else []), '-h', '-t', window_id, '-c', path, shlex.join(argv)]
 
 
-def window_command(key, path, argv, session, session_exists=True):
+def window_command(key, path, argv, session, session_exists=True, detached=False):
     command = shlex.join(argv)
     if session_exists:
-        return ['tmux', 'new-window', '-t', session + ':', '-n', key, '-c', path, command]
+        return ['tmux', 'new-window', *(['-d'] if detached else []), '-t', session + ':', '-n', key, '-c', path, command]
     return ['tmux', 'new-session', '-d', '-s', session, '-n', key, '-c', path, command]
 
 
@@ -73,7 +75,9 @@ def start_window(run, key, path, inside, session):
     return switch_client(run, inside, session) or 'Switched to ' + title
 
 
-def start_agent(run, key, path, argv, inside, session, display_name):
+def start_agent(run, key, path, argv, inside, session, display_name, focus=True):
+    """Run argv beside the ticket's window, or in a new window named KEY. Without focus the person
+    stays where they are: the pane or window is created detached and nothing is selected."""
     try:
         panes = list_panes(run)
     except RuntimeError:
@@ -81,14 +85,38 @@ def start_agent(run, key, path, argv, inside, session, display_name):
     target = find_window(panes, key, path, session)
     if target:
         wid, title = target
-        run(split_command(wid, path, argv), timeout=5)
-        run(['tmux', 'select-window', '-t', wid], timeout=5)
+        run(split_command(wid, path, argv, detached=not focus), timeout=5)
+        if focus:
+            run(['tmux', 'select-window', '-t', wid], timeout=5)
     else:
         session_exists = any(line.startswith(session + '\t') for line in panes.splitlines())
-        run(window_command(key, path, argv, session, session_exists), timeout=5)
-        run(['tmux', 'select-window', '-t', session + ':' + key], timeout=5)
+        run(window_command(key, path, argv, session, session_exists, detached=not focus), timeout=5)
+        if focus:
+            run(['tmux', 'select-window', '-t', session + ':' + key], timeout=5)
         title = key + ' (new window)'
+    if not focus:
+        return f'{display_name} started in the background in {title}'
     return switch_client(run, inside, session) or f'{display_name} started in {title}: {argv[-1]}'
+
+
+ROLE_OPTION = '@sidequest_role'
+
+
+def open_below(run, pane, path, argv, role, percent=70):
+    """Show the pane tagged `role` in pane's session, or split pane with a new pane below it that
+    takes `percent` of its height and runs argv."""
+    for line in run(['tmux', 'list-panes', '-s', '-t', pane, '-F',
+                     '#{pane_id}\t#{window_id}\t#{' + ROLE_OPTION + '}'], timeout=5).splitlines():
+        parts = line.split('\t')
+        if len(parts) == 3 and parts[2] == role:
+            run(['tmux', 'select-window', '-t', parts[1]], timeout=5)
+            run(['tmux', 'select-pane', '-t', parts[0]], timeout=5)
+            return 'Switched to the open ' + role + ' pane'
+    created = run(['tmux', 'split-window', '-v', '-l', f'{percent}%', '-t', pane, '-c', path,
+                   '-P', '-F', '#{pane_id}', shlex.join(argv)], timeout=5).strip()
+    if created:
+        run(['tmux', 'set-option', '-p', '-t', created, ROLE_OPTION, role], timeout=5)
+    return 'Opened ' + role + ' in a pane below'
 
 
 def open_layout(run, session, windows):

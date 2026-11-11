@@ -54,7 +54,7 @@ class ShellTerminal:
     def __init__(self, shell):
         self.shell = shell
 
-    def launch(self, key, path, argv=None, foreground=False):
+    def launch(self, key, path, argv=None, foreground=False, focus=True):
         action = request(argv, path, 'Agent') if argv is not None else shell_request(path, self.shell)
         return LaunchResult(foreground=action)
 
@@ -64,13 +64,13 @@ class TmuxTerminal:
         self.run, self.session = run, session
         self.foreground = ShellTerminal(shell)
 
-    def launch(self, key, path, argv=None, foreground=False):
+    def launch(self, key, path, argv=None, foreground=False, focus=True):
         if foreground:
             return self.foreground.launch(key, path, argv)
         if argv is None:
             message = tmux.jump(self.run, key, path, True, self.session)
         else:
-            message = tmux.start_agent(self.run, key, path, argv, True, self.session, agent_display_name(argv))
+            message = tmux.start_agent(self.run, key, path, argv, True, self.session, agent_display_name(argv), focus)
         return LaunchResult(message=message)
 
     def start_window(self, key, path):
