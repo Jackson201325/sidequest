@@ -594,3 +594,6 @@ tests/test_tmux_launch.py, tests/test_herdr.py and tests/test_crew.py failed fir
 `split-window -v -l 40%` and tags the pane @sidequest_role=crew; an open crew pane in the session is selected.
 Herdr splits HERDR_PANE_ID down with --ratio 0.6 (the ratio is assumed to be the top pane's share; not checked
 live). Herdr has no reuse check, so a second open adds a second pane.
+2026-11-11: Space c on a ticket without a worktree skipped it with only a status line (TRD-817).
+ticket-tui/test_crew_tab.py failed first. Space c now creates the worktree with WorkspaceWorkflow.prepare
+(apply=True: no window, no Jira move) in the background job, then starts the worker.

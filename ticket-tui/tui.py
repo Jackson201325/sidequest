@@ -407,14 +407,23 @@ class App:
                         lambda: workflow.agent(ticket.key, path, prompt), 'launch')
 
     def crew_worker(self, ticket):
-        """Space c: confirm, then start (or restart) the ticket's crew worker in its worktree window."""
+        """Space c: confirm, then start (or restart) the ticket's crew worker in its worktree window.
+        A ticket without a worktree gets one first (no window opens, no Jira move)."""
         if self.demo:
             self.message = "Demo: crew workers are disabled"
+            return
+        create = not ticket.worktree
+        if create and not config.workspace_repository():
+            self.message = 'Configure workspace.repository (or SIDEQUEST_REPO) first'
+            return
+        if create and ticket.key.startswith('PR-'):
+            self.message = 'Use the PR branch checkout; creating a ticket worktree needs a Jira key'
             return
         record = self.views.run_record(ticket.key, PLANS)
         running = bool(record and record["state"] in ("working", "queued"))
         step = crew.first_step(record, (PLANS / ticket.key / "plan.md").is_file())
-        first = (f"Restart the worker at {step} (recorded as {record['state']})" if running
+        first = (f"Create the worktree, then start a worker at {step}" if create
+                 else f"Restart the worker at {step} (recorded as {record['state']})" if running
                  else f"Start a worker at {step}")
         choice = self.choose(f"CREW WORKER FOR {ticket.key}", [first, "Cancel"],
                              "Runs sidequest crew in the ticket's worktree window · Enter · Esc cancel")
@@ -422,7 +431,17 @@ class App:
             self.message = "Crew worker cancelled"
             return
         args = [ticket.key] + (["--again"] if running else [])
-        self.background("crew", "Starting crew worker for " + ticket.key, lambda: run_crew(args))
+        workflow = self.workflow_factory() if create else None
+
+        def task():
+            if workflow is None:
+                return run_crew(args)
+            workflow.prepare(ticket.key, ticket.title, ticket.issue_type, apply=True)
+            result = run_crew(args)
+            self.events.put(("worktrees", worktrees()))
+            return result
+        self.background("crew", ("Creating the worktree and starting a worker for " if create
+                                 else "Starting crew worker for ") + ticket.key, task)
 
     def crew_manager(self):
         """Space C: the manager in a pane below the dashboard inside tmux or Herdr, else in this terminal."""

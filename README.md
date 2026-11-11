@@ -543,7 +543,7 @@ environment reads and external programs. It only reads the source.
 | `w` | Open the worktree through the selected shell, tmux window or Herdr tab |
 | Space `n` | Create/reuse a local ticket worktree and open a shell there |
 | Space `s` | Run a bundled workflow or custom prompt with the configured agent |
-| Space `c` | Start (or restart) the selected ticket's crew worker, after a confirm box |
+| Space `c` | Start (or restart) the selected ticket's crew worker, after a confirm box; a ticket without a worktree gets one first |
 | Space `C` | Open the crew manager in a pane below the dashboard (40% of its height) in tmux/Herdr, else this terminal |
 | `y` | Copy standup with macOS pbcopy; --standup prints it on any platform |
 | `?`, `q` | Help, quit |

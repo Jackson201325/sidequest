@@ -126,3 +126,5 @@ job, so its worktree, duplicate and terminal checks apply; outside tmux/Herdr Sp
 manager. The status line shows only the command's last line. Demo mode disables both.
 Workers start in the background (detached tmux pane or window, no Herdr focus), so Space c keeps the dashboard
 in front; Space C opens the manager in a pane below the dashboard (40% of the height), or selects it.
+Space c on a ticket without a worktree offers "Create the worktree, then start a worker": the job runs
+WorkspaceWorkflow.prepare (no window, no Jira move), then sidequest crew, then reloads worktrees.

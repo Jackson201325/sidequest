@@ -109,6 +109,7 @@ class CrewTests(unittest.TestCase):
 
     def test_space_c_confirms_then_starts_a_worker_on_the_selected_ticket(self):
         self.app.demo = False
+        self.ticket.worktree = '/w/' + self.ticket.key
         key = self.ticket.key
         calls, choose = self.space('c')
         title, options = choose.call_args[0][:2]
@@ -119,13 +120,32 @@ class CrewTests(unittest.TestCase):
 
     def test_space_c_offers_a_restart_when_a_worker_is_recorded_as_running(self):
         self.app.demo = False
+        self.ticket.worktree = '/w/' + self.ticket.key
         self.record(self.ticket.key, 'implement', 'working')
         calls, choose = self.space('c')
         self.assertTrue(choose.call_args[0][1][0].startswith('Restart'), choose.call_args[0][1])
         self.assertEqual(calls, [[self.ticket.key, '--again']])
 
+    def test_space_c_without_a_worktree_creates_it_then_starts_the_worker(self):
+        self.app.demo = False
+        key = self.ticket.key
+        prepared = []
+
+        class Flow:
+            def prepare(self, *args, **kwargs):
+                prepared.append((args, kwargs))
+                return {'path': '/w/' + key}
+        with patch.object(tui.config, 'workspace_repository', return_value='/repo'), \
+                patch.object(self.app, 'workflow_factory', Flow), patch.object(tui, 'worktrees', lambda: {}):
+            calls, choose = self.space('c')
+        self.assertTrue(choose.call_args[0][1][0].startswith('Create the worktree, then start a worker'))
+        self.assertEqual(prepared[0][0][0], key)
+        self.assertTrue(prepared[0][1].get('apply'))
+        self.assertEqual(calls, [[key]])
+
     def test_space_c_cancelled_or_in_demo_starts_nothing(self):
         self.app.demo = False
+        self.ticket.worktree = '/w/' + self.ticket.key
         calls, _ = self.space('c', choice=None)
         self.assertEqual(calls, [])
         self.assertIn('cancelled', self.app.message)
