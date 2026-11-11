@@ -594,3 +594,25 @@ tests/test_tmux_launch.py, tests/test_herdr.py and tests/test_crew.py failed fir
 `split-window -v -l 70%` and tags the pane @sidequest_role=crew; an open crew pane in the session is selected.
 Herdr splits HERDR_PANE_ID down with --ratio 0.3 (the ratio is assumed to be the top pane's share; not checked
 live). Herdr has no reuse check, so a second open adds a second pane.
+
+2026-11-11: redesign phase 1 (specs/tui-redesign-inbox.md): colour tokens and a short footer. ticket-tui/test_theme.py
+failed first (no token table, nine-key footer). Colours are named by meaning in layout.TOKENS; lanes map to tokens.
+Needs me is yellow (was red), Waiting is dim (was green), In Dev is blue; red now means failed or changes requested.
+Stale data in the header uses `bad`. The footer shows j/k, ⏎, Space, / and ?; help keeps every key and adds a colour
+legend. NO_COLOR is unchanged: no colour, glyphs carry the meaning. Keys and their actions are unchanged.
+
+2026-11-11: redesign phase 2: grouped, borderless list. ticket-tui/test_inbox.py failed first (no group_rows,
+list_offset, inbox_row or title_rule). The table helpers (columns, table_header, table_row, pr_glyph_offset) and
+App.draw_box are removed; their wait-label tests now check inbox_row. Tests that found panes by box corners now find
+the title rules (test_responsive, test_terminal, test_workspace); an 18-row terminal shows four list rows instead of
+two. Keys, sorting choices and menus are unchanged; only All and In Dev change their order (grouped by lane).
+
+2026-11-11: redesign phase 3: inspector. ticket-tui/test_inspector.py failed first (no inspector_rows or
+agent_track). The single "Agent glyph summary" card line became a step track plus a summary line
+(test_crew_tab updated); DetailViews.agent_line is removed. Tabs moved under the summary, so the stacked 80x24 pane
+has eight body rows instead of seven (half page is four; test_responsive updated). Card wording is unchanged.
+
+2026-11-11: redesign phase 4: side by side. ticket-tui/test_side_by_side.py failed first (no SIDE_BY_SIDE_WIDTH,
+no side_fraction, no divider). Tests that drew at 145 columns to check the stacked layout now draw at 119
+(test_inbox, test_inspector) or expect the details on row 1 (test_responsive, test_workspace). The tab strip
+gained a key-only fallback after the narrower details pane cut it off. The stacked size setting is unchanged.

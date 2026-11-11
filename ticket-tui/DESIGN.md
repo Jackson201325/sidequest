@@ -6,8 +6,8 @@ It is read-only toward Jira, GitHub and Heroku. Explicit local workspace actions
 use the shared WorkspaceWorkflow; refresh never mutates Git. Ticket changes,
 shipping, application management and scheduled reporting belong to other tools.
 
-Keep the ticket list above details at every width with at least 18 rows. Smaller
-terminals show the focused pane. Keep readable focus borders, lane symbols and
+With at least 18 rows, put the ticket list beside the details from 120 columns and
+above them below 120 columns. Smaller terminals show the focused pane. Keep a readable focus marker (▸), lane symbols and
 NO_COLOR support. Preserve selection after refresh and sorting. Network I/O never
 blocks input; only the UI thread updates UI state and SQLite.
 
@@ -126,3 +126,27 @@ job, so its worktree, duplicate and terminal checks apply; outside tmux/Herdr Sp
 manager. The status line shows only the command's last line. Demo mode disables both.
 Workers start in the background (detached tmux pane or window, no Herdr focus), so Space c keeps the dashboard
 in front; Space C opens the manager in a pane below the dashboard (70% of the height), or selects it.
+
+2026-11-11: redesign phase 1 of specs/tui-redesign-inbox.md. Colours are tokens by meaning (accent, you, unclear,
+waiting, good, bad, info, agent, aging) in layout.TOKENS; draw code names a token or a lane. Needs me is yellow,
+Waiting dim, Clarify magenta, In Dev blue; red is only for failure. The footer shows five keys
+(j/k, ⏎, Space, /, ?); ? help lists the rest and a colour legend. Layout and keys are unchanged.
+
+2026-11-11: redesign phase 2. The panes have no boxes: each starts with a title rule (▸ on the focused one) and a
+rule closes the details above the footer; menus keep their boxes. All and In Dev group tickets under NEEDS YOU,
+UNCLEAR and WAITING ON OTHERS (layout.group_rows), with no blank rows so the default list fits; App.visible returns
+group order, so j/k, paging and gl follow the screen and the sort orders tickets inside a group. A row is glyph, key,
+title, a tag (PR state on yours, owner on theirs, WHEN with date sorts), WAIT (aging colour past stale_days) and the
+crew worker's mark. STATUS, TURN and PR moved to the details card. The list's offset counts heading rows (list_offset).
+
+2026-11-11: redesign phase 3. The details pane is summary first: the card's facts (status in the lane colour, PR,
+dim dates and local branch), a blank row, NEXT → action (the one bold sentence), hints, and the crew worker as a step
+track (✓ start ━ ⠋ implement ━ · qa-local ━ · ship-check) with its summary. Then the view tabs (inactive ones dim) and
+the body. The rule under the card is gone. layout.inspector_rows builds the styled rows; App.summary_card returns
+their text. Short panes keep status and NEXT. Standup and AI mode have no summary, so the tabs follow the title.
+
+2026-11-11: redesign phase 4. From 120 columns (and 18 rows) the list sits left of the details: layout.panel_rects
+gives the list side_fraction of the width (default 45%, kept between 30% and 60%) and one divider column (┬ │ ┴)
+joins the title row and the closing rule. Below 120 columns the stacked layout and list_fraction are unchanged.
++ and - move the divider in 5% steps; = resets the active layout's split; both sizes are saved separately. When the
+tab strip does not fit, the other tabs show only their keys (a Activity  p  d  c …).

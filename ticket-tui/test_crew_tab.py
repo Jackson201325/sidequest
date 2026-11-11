@@ -1,4 +1,4 @@
-"""AI mode (6) and the card's Agent line read each ticket's run.json; the dashboard never writes it."""
+"""AI mode (6) and the card's Agent track read each ticket's run.json; the dashboard never writes it."""
 from pathlib import Path
 import tempfile
 import unittest
@@ -33,10 +33,12 @@ class CrewTests(unittest.TestCase):
         self.assertFalse(any(line.startswith('Agent ') for line in self.app.summary_card(self.ticket)))
         self.record(self.ticket.key, 'implement', 'waiting', 'Q2: Which copy?')
         before = self.path.read_text()
-        agent = [line for line in self.app.summary_card(self.ticket) if line.startswith('Agent ')]
+        lines = self.app.summary_card(self.ticket)
+        agent = [i for i, line in enumerate(lines) if line.startswith('Agent ')]
         self.assertEqual(len(agent), 1)
-        self.assertTrue(agent[0].startswith('Agent ● implement · waiting on you · '), agent[0])
-        self.assertTrue(agent[0].endswith('Q2: Which copy?'))
+        self.assertEqual(lines[agent[0]], 'Agent ✓ start ━ ● implement ━ · qa-local ━ · ship-check')
+        self.assertTrue(lines[agent[0] + 1].strip().startswith('implement · waiting on you · '))
+        self.assertTrue(lines[agent[0] + 1].endswith('Q2: Which copy?'))
         self.assertEqual(self.path.read_text(), before)
 
     def test_working_agents_move_waiting_ones_blink_and_finished_ones_stay_still(self):

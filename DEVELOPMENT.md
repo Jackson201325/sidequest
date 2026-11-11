@@ -15,7 +15,12 @@ It receives GitWorkspace and a terminal adapter; build_workflow captures explici
 settings/environment once per workflow. The dashboard accepts a workflow factory
 and schedules actions in background jobs. QueueEvidence (ticket-tui/queue_evidence.py)
 owns queue data, retention and failed sources; DetailViews (ticket-tui/detail_views.py)
-builds each detail tab as styled rows; App only draws them. App.viewport computes
+builds each detail tab as styled rows; App only draws them. Colours are tokens named
+by meaning (layout.TOKENS, LANE_TOKEN); App.style takes a token or a lane name and
+setup_colors maps tokens to curses pairs. layout.group_rows turns the visible tickets into
+heading and ticket lines; App.offset counts those lines and layout.list_offset keeps the
+selection and its heading on screen. layout.inspector_rows builds the details summary as
+(text, style) rows. App.viewport computes
 page sizes from the terminal size, and App.fit keeps selection and scroll in range.
 Only App's event loop changes UI state
 and performs curses handoffs. Shell/tmux policy no longer lives in App.
@@ -84,8 +89,9 @@ bin/sqapp (sidequest-data app) books an optional shared local app for one worktr
 a time; sidequest/app_booking.py owns its lock format, expiry and label. The project's
 own commands (app.switch_command, current_command, running_command) do the switching.
 
-The queue's original sorting, business-hour clocks, ownership rules, stacked panes,
-keyboard navigation and saved divider remain. Company ticket-start actions and
+The queue's original sorting, business-hour clocks, ownership rules, keyboard navigation
+and saved divider remain; panes stack below 120 columns and sit side by side from 120
+(layout.panel_rects, saved side_fraction). Company ticket-start actions and
 company-specific agent assumptions are excluded. Nine reusable `sidequest-*` skills
 are bundled under agents/skills/<name>/SKILL.md. The dashboard's agent menu renders
 the selected canonical skill; the optional installer binds absolute helper paths

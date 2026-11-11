@@ -55,7 +55,8 @@ cd sidequest
 
 The demo contains fictional tickets and uses an in-memory database. No accounts,
 network access or agent installation are needed. Use `j/k` to move, Enter for
-details, `1`–`4` for lanes, `?` for help and `q` to quit.
+details, `1`–`6` for lanes, `?` for help and `q` to quit. The bottom bar shows
+five keys; `?` lists every key and the colour legend.
 
 To print the demo in a regular terminal:
 
@@ -537,7 +538,7 @@ environment reads and external programs. It only reads the source.
 | `/` | Search; the list filters while you type and shows the match count. Enter keeps it, Esc restores the previous search |
 | `a/p/d/c/m/v/s/f/u` | Activity, Plan, Updates, Questions, Meetings, Overview, Work log, Flow, Standup |
 | `o/O` | Choose or reverse a sort (a box over the dashboard; ✓ marks the current sort) |
-| `+/-`, `=` | Resize sections or reset the split |
+| `+/-`, `=` | Resize sections or reset the split (width from 120 columns, height below) |
 | `r`, `e` | Refresh Jira/GitHub, or optional Heroku status |
 | Space `j/o` | Open the ticket or PR in your configured/default browser |
 | `w` | Open the worktree through the selected shell, tmux window or Herdr tab |

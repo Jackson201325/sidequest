@@ -31,8 +31,9 @@ from sidequest.worktrees import parse_worktrees
 from worklog import collect_worklog
 from workflow import stage_context
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
-from layout import (EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, menu_box, pipeline_header, pipeline_row, pr_glyph_offset,
-                    relative, scroll_label, table_header, table_row, panel_rects)
+from layout import (EVENT_INDENT, GROUP_RANK, GROUPED_VIEWS, LANE_TOKEN, SIDE_SHARE, TOKENS, TONE, side_by_side,
+                    group_rows, inspector_rows, inbox_columns, inbox_row, lane_tab, list_offset, menu_box, pipeline_header, pipeline_row,
+                    relative, scroll_label, title_rule, panel_rects)
 import standup
 import branch_state
 from queue_evidence import EVERY, QueueEvidence
@@ -48,12 +49,8 @@ TABS = [("a", "Activity", "Activity"), ("p", "Plan", "Plan"), ("d", "Updates", "
 TAB_KEYS = {key: name for key, _, name in TABS}
 # Optional per-ticket plans stay outside this source tree.
 PLANS = qa.tickets_dir()
-# Bottom bar. On narrow terminals descriptions shorten first, then MOVE is dropped, then DO.
-# (key, description, short description used when the terminal is narrow)
-FOOTER = [("MOVE", [("j/k", "tickets", ""), ("h/l", "pane", ""), ("1-6", "lane", ""), ("/", "search", "search")]),
-          ("DO", [("Space", "open menu", "menu"), ("w", "go to worktree", "work"), ("r", "refresh", "refresh"),
-                  ("o", "sort", "sort"), ("+/-", "resize sections", "size")]),
-          ("", [("?", "help", "help"), ("q", "quit", "quit")])]
+# Bottom bar: five keys; ? help lists the rest. (key, description, optional short description)
+FOOTER = [("", [("j/k", "move"), ("⏎", "inspect"), ("Space", "actions"), ("/", "search"), ("?", "help")])]
 SPACE_MENU = [("Open", [("j", "Jira"), ("o", "PR"), ("w", "worktree"), ("s", "agent")]),
               ("Work", [("n", "create/open local worktree"), ("c", "crew worker"), ("C", "crew manager")])]
 CREW = WORKFLOW / 'bin' / 'sidequest-crew.py'
@@ -213,7 +210,7 @@ class App:
         self.stale_days, self.escalate_days = stale_days, escalate_days
         self.view, self.query, self.index, self.offset = "All", "", 0, 0
         self.preview_scroll = 0
-        self.list_fraction = 0.3
+        self.list_fraction, self.side_fraction = 0.3, 0.45
         self.focus_pane = "list"
         self.detail_tab = "Activity"     # Jira + GitHub events only, newest first
         self.message = "+/- resize sections   = reset   Space: menu   ?: help"
@@ -234,6 +231,9 @@ class App:
         fraction = settings.get("list_fraction", 0.3)
         if isinstance(fraction, (int, float)) and 0 < fraction < 1:
             self.list_fraction = fraction
+        side = settings.get("side_fraction", 0.45)
+        if isinstance(side, (int, float)) and SIDE_SHARE[0] <= side <= SIDE_SHARE[1]:
+            self.side_fraction = side
         self.sort_mode = {"Last work date": "Last commit"}.get(settings.get("sort_mode"), settings.get("sort_mode", "Attention"))
         if self.sort_mode not in SORT_MODES:
             self.sort_mode = "Attention"
@@ -269,10 +269,19 @@ class App:
         self.dirty = True
 
     def resize_sections(self, change):
+        height, width = self.screen.getmaxyx()
+        if side_by_side(height, width):
+            # Side by side, + and - move the divider in 5% steps of the width.
+            share = 0.45 if change == 0 else round(self.side_fraction + 0.05 * change, 2)
+            self.side_fraction = max(SIDE_SHARE[0], min(SIDE_SHARE[1], share))
+            self.store.save("@app", {"side_fraction": self.side_fraction})
+            percentage = round(self.side_fraction * 100)
+            self.message = f"Tickets {percentage}% / details {100 - percentage}% of the width   +/- resize   = reset"
+            self.dirty = True
+            return
         if change == 0:
             self.list_fraction = 0.3
         else:
-            height, width = self.screen.getmaxyx()
             ticket_rect, detail_rect = panel_rects(height, width, self.focus_pane, self.list_fraction)
             if not ticket_rect or not detail_rect:
                 self.message = "Use at least 18 terminal rows to resize sections"
@@ -557,7 +566,12 @@ class App:
             order = {t.key: runs.ORDER.get((self.views.run_record(t.key, PLANS) or {}).get("state"), len(runs.ORDER))
                      for t in rows}
             rows.sort(key=lambda t: order[t.key])
+        elif self.view in GROUPED_VIEWS:
+            rows.sort(key=lambda t: GROUP_RANK.get(t.lane, len(GROUP_RANK)))
         return [t for t in rows if self.query.casefold() in f"{t.key} {t.title} {t.status} {t.action}".casefold()]
+
+    def list_lines(self):
+        return group_rows(self.visible(), self.view in GROUPED_VIEWS)
 
     def selected(self):
         rows = self.visible()
@@ -635,12 +649,16 @@ class App:
             self.background("branch_state", "Checking local branches", lambda: branch_state.collect(folders),
                             "branch_state")
 
-    def summary_card(self, ticket):
+    def inspector(self, ticket, short=False):
+        """The details pane's summary rows (text, style): facts, NEXT, hints and the crew worker."""
         state = self.views.branch_states.get(ticket.key) if ticket.worktree else None
-        return card(ticket, now(), last_commit(ticket, self.evidence.worklog), self.environment(ticket),
-                    self.stale_days, local=([branch_state.summary(state)] if state else []) +
-                    self.views.agent_line(ticket, PLANS),
-                    hint=branch_state.qa_hint(ticket, state))
+        return inspector_rows(ticket, now(), last_commit(ticket, self.evidence.worklog), self.environment(ticket),
+                              self.stale_days, local=[branch_state.summary(state)] if state else [],
+                              hint=branch_state.qa_hint(ticket, state), record=self.views.run_record(ticket.key, PLANS),
+                              frame=self.views.frame, short=short)
+
+    def summary_card(self, ticket):
+        return [text for text, _ in self.inspector(ticket)]
 
     def notify(self, text):
         """Show a background result without overwriting what you just did."""
@@ -737,21 +755,21 @@ class App:
     def viewport(self):
         """Panel sizes, page sizes and the wrapped detail rows for the current terminal size."""
         height, width = self.screen.getmaxyx() if getattr(self, "screen", None) else (24, 80)
-        list_rect, preview_rect = panel_rects(height, width, self.focus_pane, self.list_fraction)
+        list_rect, preview_rect = panel_rects(height, width, self.focus_pane, self.list_fraction, self.side_fraction)
         summary, lines, detail_rows, detail_width, detail_top = [], [], 1, 10, 0
         ticket = self.selected()
         if preview_rect:
             top, _, panel_h, pw = preview_rect
-            detail_width, detail_top = pw - 4, top + 3
+            # Summary rows, a blank row, the tab strip, then the body.
+            detail_width, detail_top = pw - 4, top + 2
             if ticket and self.detail_tab != "Standup" and self.view != "AI":
-                summary = self.summary_card(ticket)
-                summary = summary[:2] if panel_h < 16 else summary
+                summary = self.inspector(ticket, short=panel_h < 16)
                 detail_top += len(summary) + 1
             lines = wrap(self.detail_rows(ticket), detail_width)
             while lines and not lines[0].text.strip():
                 lines = lines[1:]
             detail_rows = max(1, top + panel_h - 1 - detail_top)
-        return Viewport(list_rect, preview_rect, max(1, list_rect[2] - 3) if list_rect else 1,
+        return Viewport(list_rect, preview_rect, max(1, list_rect[2] - (2 if self.view == "AI" else 1)) if list_rect else 1,
                         summary, lines, detail_rows, detail_width, detail_top)
 
     def view_key(self):
@@ -759,7 +777,7 @@ class App:
         evidence, selected = self.evidence, self.selected()
         self.views.frame = int(time.monotonic() * 8) if self.animating() else 0
         size = self.screen.getmaxyx() if getattr(self, "screen", None) else None
-        return (size, self.focus_pane, self.list_fraction, self.view, self.query, self.detail_tab,
+        return (size, self.focus_pane, self.list_fraction, self.side_fraction, self.view, self.query, self.detail_tab,
                 selected.key if selected else None, tuple(self.jobs), tuple(evidence.refresh_errors),
                 evidence.environment_error, self.standup_time, int(time.time() // 60), self.views.frame,
                 self.views.run_version(self.views.run_paths(PLANS) if self.view == "AI" else
@@ -778,13 +796,12 @@ class App:
         view = self.cached_viewport()
         self.index = max(0, min(self.index, len(self.visible()) - 1))
         if view.list_rect:
-            self.offset = min(self.offset, self.index)
-            if self.index >= self.offset + view.list_rows:
-                self.offset = self.index - view.list_rows + 1
+            self.offset = list_offset(self.list_lines(), self.index, self.offset, view.list_rows)
         self.preview_scroll = max(0, min(self.preview_scroll, len(view.detail_lines) - view.detail_rows))
 
     def style(self, name):
-        return self.styles.get(name, 0)
+        """Attribute for a colour token or a lane name (see layout.TOKENS)."""
+        return self.styles.get(LANE_TOKEN.get(name, name), 0)
 
     def setup_colors(self):
         # NO_COLOR (https://no-color.org) wins; glyph shapes and heavy borders still carry meaning.
@@ -796,12 +813,12 @@ class App:
             background = -1
         except curses.error:
             background = curses.COLOR_BLACK
-        for i, (name, color) in enumerate((("accent", curses.COLOR_CYAN),
-                ("Needs me", curses.COLOR_RED),
-                ("Waiting", curses.COLOR_GREEN), ("Clarify", curses.COLOR_MAGENTA),
-                ("good", curses.COLOR_GREEN), ("bad", curses.COLOR_RED)), 1):
-            curses.init_pair(i, color, background)
-            self.styles[name] = curses.color_pair(i)
+        for i, (token, color) in enumerate(TOKENS.items(), 1):
+            if color is None:
+                self.styles[token] = curses.A_DIM
+                continue
+            curses.init_pair(i, getattr(curses, "COLOR_" + color.upper()), background)
+            self.styles[token] = curses.color_pair(i)
 
     def loading_line(self):
         loading = []
@@ -854,14 +871,11 @@ class App:
     def tone(self, glyph):
         return self.style(TONE.get(glyph, ""))
 
-    def draw_box(self, y, x, h, w, title, focused, label=""):
-        attr = (curses.A_BOLD | self.style("accent")) if focused else curses.A_DIM
-        self.put(y, x, border(w, title, focused), attr, w + 1)
-        self.put(y + h - 1, x, border(w, title, focused, top=False, label=label), attr, w + 1)
-        side = (HEAVY if focused else LIGHT)[3]
-        for row in range(y + 1, y + h - 1):
-            self.put(row, x, side, attr)
-            self.put(row, x + w - 1, side, attr)
+    def draw_rule(self, y, x, w, title, focused, label=""):
+        """A pane's title line; the focused pane gets ▸ and the accent colour."""
+        self.put(y, x, title_rule(w, title, focused, label), curses.A_DIM, w)
+        head = ("▸ " if focused else "  ") + title
+        self.put(y, x, head, curses.A_BOLD | (self.style("accent") if focused else 0), min(w, len(head)))
 
     def draw_pipeline(self, top, panel_h, list_w, rows, capacity, list_active, clock):
         """AI mode list: one crew pipeline per ticket, the person's turn first."""
@@ -874,9 +888,9 @@ class App:
         title = (f"✦ AI pipeline · {count(len(rows), 'ticket')} · {count(len(active), 'worker')} · {needs} need you"
                  f" · {working} working"
                  + (f"  /{self.query}" if self.query else ""))
-        self.draw_box(top, 0, panel_h, list_w, title, list_active, scroll_label(self.offset, capacity, len(rows)))
+        self.draw_rule(top, 0, list_w, title, list_active, scroll_label(self.offset, capacity, len(rows)))
         self.put(top + 1, 1, "  " + pipeline_header(inner_w - 2), curses.A_DIM, inner_w)
-        tones = {"waiting": "Needs me", "failed": "Needs me", "ready": "accent", "working": "Waiting", "queued": "Waiting"}
+        tones = {"waiting": "you", "failed": "bad", "ready": "good", "working": "agent", "queued": "waiting"}
         for i, item in enumerate(rows[self.offset:self.offset + capacity], self.offset):
             y = top + 2 + (i - self.offset)
             record = records[item.key]
@@ -911,7 +925,7 @@ class App:
         x = self.put_parts(0, 0, parts, width - 1)
         status, status_attr, stale = self.header_status()
         if stale and not self.loading_line():
-            status_attr = self.style("Needs me") or bold
+            status_attr = self.style("bad") or bold
         room = width - x - 3
         if len(status) > room and not self.loading_line():
             status = status.replace("Sort: ", "").replace("  ·  ", " · ").replace("GitHub", "GH")
@@ -928,62 +942,73 @@ class App:
         if list_rect:
             top, _, panel_h, list_w = list_rect
             title = f"Tickets {len(rows)}" + (f"  /{self.query}" if self.query else "")
-            inner_w = list_w - 2
             with_when = self.sort_mode in DATE_SORTS
-            cols = columns(inner_w, with_when)
             capacity = view.list_rows
             if self.view == "AI":
                 self.draw_pipeline(top, panel_h, list_w, rows, capacity, list_active, clock)
-                rows = []
             else:
-                self.put(top + 1, 1, table_header(cols), curses.A_DIM, inner_w)
-                self.draw_box(top, 0, panel_h, list_w, title, list_active, scroll_label(self.offset, capacity, len(rows)))
-            ci_x = 1 + cols["glyph"] + pr_glyph_offset(cols)
-            for i, item in enumerate(rows[self.offset:self.offset + capacity], self.offset):
-                y = top + 2 + (i - self.offset)
-                selected = i == self.index
-                when = relative(activity_date(item, self.sort_mode, self.evidence.worklog), clock) if with_when else ""
-                glyph, rest = table_row(item, cols, when)
-                # Selection is solid while the list has the keys, underlined while the preview does.
-                sel = (curses.A_REVERSE if list_active else curses.A_UNDERLINE) if selected else 0
-                self.put(y, 1, glyph, (sel or self.style(item.lane)) | bold, inner_w)
-                self.put(y, 1 + len(glyph), rest, sel | (bold if selected else 0), inner_w - len(glyph))
-                pr_cell = rest[pr_glyph_offset(cols) - 0:pr_glyph_offset(cols) + cols["pr"]].split(" ")
-                if len(pr_cell) > 1 and pr_cell[1] in TONE:
-                    self.put(y, ci_x + len(pr_cell[0]) + 1, pr_cell[1],
-                             sel | bold | self.tone(pr_cell[1]), 1)
+                lines = group_rows(rows, self.view in GROUPED_VIEWS)
+                self.draw_rule(top, 0, list_w, title, list_active, scroll_label(self.offset, capacity, len(lines)))
+                cols = inbox_columns(list_w - 2, with_when)
+                for y, line in enumerate(lines[self.offset:self.offset + capacity], top + 1):
+                    if line[0] == "heading":
+                        self.put(y, 2, line[1], bold | self.style(line[2]), list_w - 2)
+                    if line[0] != "ticket":
+                        continue
+                    item = rows[line[1]]
+                    selected = line[1] == self.index
+                    when = relative(activity_date(item, self.sort_mode, self.evidence.worklog), clock) if with_when else ""
+                    record = self.views.run_record(item.key, PLANS) or {}
+                    # Selection is solid while the list has the keys, underlined while the preview does.
+                    sel = (curses.A_REVERSE if list_active else curses.A_UNDERLINE) if selected else 0
+                    x = 2
+                    for n, (text, name) in enumerate(inbox_row(item, cols, when, record.get("state", ""), self.stale_days)):
+                        attr = (sel | bold) if selected else self.style(name)
+                        self.put(y, x, text, attr | (bold if n == 0 else 0), list_w - x)
+                        x += len(text)
             if not rows and self.view != "AI":
-                self.put(top + 3, 2, "No matching tickets. r: refresh  /: search  Esc: clear", curses.A_DIM)
+                self.put(top + 2, 2, "No matching tickets. r: refresh  /: search  Esc: clear", curses.A_DIM)
         if preview_rect:
             top, px, panel_h, pw = preview_rect
             title = (f"{ticket.key} · {ticket.title}" if ticket else "No ticket") + (" · agent" if self.view == "AI" else "")
             x, detail_width = px + 2, pw - 4
             def tab_strip(short):
+                """short=1 keeps the first word; short=2 shows only the keys of the other tabs."""
                 parts = []
                 for key, label, name in TABS:
-                    label = label.split()[0] if short else label
-                    parts += [(f" {key} {label} ", (curses.A_REVERSE | bold) if self.detail_tab == name else accent)]
+                    current = self.detail_tab == name
+                    label = "" if short == 2 and not current else label.split()[0] if short else label
+                    parts += [(f" {key} {label} " if label else f" {key} ", (curses.A_REVERSE | bold) if current else curses.A_DIM)]
                 return parts
-            tabs = tab_strip(False)
-            if sum(len(t) for t, _ in tabs) > detail_width:
-                tabs = tab_strip(True)
+            for short in (0, 1, 2):
+                tabs = tab_strip(short)
+                if sum(len(t) for t, _ in tabs) <= detail_width:
+                    break
             if self.view == "AI":
                 tabs = [(" ✦ AI mode: this ticket's worker · 1-5 back to the ticket lanes ", accent)]
-            self.put_parts(top + 1, x - 1, tabs, x + detail_width)
-            summary, y0 = view.summary, top + 3
-            for i, line in enumerate(summary):
-                attr = (bold | self.style(ticket.lane)) if i == 0 else curses.A_BOLD if line.startswith("→") else 0
-                self.put(y0 + i, x, line, attr, detail_width)
+            self.put_parts(view.detail_top - 1, x - 1, tabs, x + detail_width)
+            for y, (line, style) in enumerate(view.summary, top + 1):
+                if style == "next":
+                    self.put_parts(y, x, [("NEXT", bold | accent), (line[4:], bold)], x + detail_width)
+                    continue
+                attr = {"dim": curses.A_DIM, "agent": bold | self.style("agent"), "plain": 0, "pr": 0}.get(
+                    style, bold | self.style(style))
+                self.put(y, x, line, attr, detail_width)
                 if line.startswith("PR #"):
                     pieces = line.split(" ")
                     if len(pieces) > 2 and pieces[2] in TONE:
-                        self.put(y0 + i, x + len(pieces[0]) + len(pieces[1]) + 2, pieces[2],
+                        self.put(y, x + len(pieces[0]) + len(pieces[1]) + 2, pieces[2],
                                  bold | self.tone(pieces[2]), 1)
-            if summary:
-                self.put(y0 + len(summary), x, "─" * detail_width, curses.A_DIM, detail_width)
             lines, body_height, y0 = view.detail_lines, view.detail_rows, view.detail_top
-            self.draw_box(top, px, panel_h, pw, title, not list_active,
-                          scroll_label(self.preview_scroll, body_height, len(lines)))
+            self.draw_rule(top, px, pw, title, not list_active, scroll_label(self.preview_scroll, body_height, len(lines)))
+            self.put(top + panel_h - 1, 0, "─" * (px + pw), curses.A_DIM, px + pw)
+            if list_rect and px:
+                # Side by side: one divider column joins the title row and the closing rule.
+                divider = list_rect[3]
+                self.put(top, divider, "┬", curses.A_DIM, 1)
+                for y in range(top + 1, top + panel_h - 1):
+                    self.put(y, divider, "│", curses.A_DIM, 1)
+                self.put(top + panel_h - 1, divider, "┴", curses.A_DIM, 1)
             styles = {"heading": bold | accent, "day": bold | accent, "current": bold | curses.A_REVERSE,
                       "dim": curses.A_DIM}
             for y, row in enumerate(lines[self.preview_scroll:self.preview_scroll + body_height], y0):
@@ -1094,20 +1119,27 @@ class App:
                  "  j/k, arrows   Next / previous ticket (or scroll the preview)   gg / G  First / last",
                  "  Ctrl-f/b      Page the ticket list          Ctrl-d/u  Scroll the preview",
                  "  h / l, Enter  List / preview pane           gl / gL   Next / previous ticket needing you",
-                 "  + / -         Grow / shrink ticket section   =       Reset 30/70 split (size is remembered)",
+                 "  + / -         Grow / shrink ticket section   =       Reset the split (each size is remembered)",
+                 "                From 120 columns the list is left of the details (45% of the width); below, it is above (30%).",
                  "  1..5          All / Needs me / Waiting / Clarify / In Dev",
                  "  6             ✦ AI mode: every ticket's crew pipeline; details show its worker (sidequest crew)",
+                 "  All and In Dev group tickets: NEEDS YOU, UNCLEAR, WAITING ON OTHERS; the sort applies inside each.",
+                 "  Row: lane · key · title · PR state (yours) or owner (theirs) · WAIT · worker (✦ working ⏸ asks you ✗ failed)",
+                 "  ▸ marks the pane your keys control.",
                  "  /             Filter while typing (Enter keeps)  Esc  Clear filter, back to list",
                  "",
                  "WAIT starts at the later of Jira status entry or first assignment to you.",
                  "  Comments, commits and PR reviews do not reset WAIT.",
                  "  Mon–Fri 09–17 in your configured timezone; 8h = 1d. Missing history uses labeled observed wait.",
+                 "Colours: ● yellow your turn  ○ dim waiting  ? magenta unclear  ✓ green  ✗ red failed  ◆ blue In Dev",
+                 "  NO_COLOR turns colour off; the glyphs keep the meaning.",
                  "VIEWS (details pane)",
                  "  a Activity (Jira + GitHub events only; opens first)   p Plan (tickets/DEMO-###/plan.md)",
                  "  d Updates (progress and recorded results)   v Overview",
                  "  c Questions (decision record: sidequest-data questions)   m Meetings (meetings.md)",
                  "  s Work log   f Flow   u Standup (y copies it)",
-                 "  The card on top: lane · stage · whose turn · waiting; PR + CI; dates; local branch; → next step.",
+                 "  The summary on top: lane · stage · whose turn · waiting; PR + CI; dates; local branch;",
+                 "  NEXT → the next step; the crew worker's step track. The view tabs follow it.",
                  "  Activity marks: ✓ approved ✗ changes requested ✎ comment • commit → moved ⇄ assigned ↻ updated (a bare",
                  "  'updated' stamp doesn't say what changed).",
                  "",
