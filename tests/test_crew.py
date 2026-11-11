@@ -30,6 +30,23 @@ class WorkerPromptTests(unittest.TestCase):
         self.assertLess(prompt.index("update-branch"), prompt.index(DATA + " ship-check"))
         self.assertIn("finishing the rebase or merge", prompt)
 
+    def test_qa_local_ends_with_screenshots_and_a_report(self):
+        prompt = crew.worker_prompt("DEMO-9", None, DATA)
+        qa = prompt[prompt.index("3. qa-local"):prompt.index("4. ship-check")]
+        self.assertIn(DATA + " qa-shot DEMO-9", qa)
+        self.assertIn("qa/report.md", qa)
+
+    def test_a_ready_ship_check_continues_at_qa_review_on_the_review_app(self):
+        record = {"key": "DEMO-9", "step": "ship-check", "state": "ready", "note": "Ready to ship"}
+        self.assertEqual(crew.first_step(record, True), "qa-review")
+        prompt = crew.worker_prompt("DEMO-9", record, DATA)
+        self.assertIn("Continue from qa-review", prompt)
+        self.assertIn(DATA + " run DEMO-9 set qa-review working", prompt)
+        self.assertIn(DATA + " skill qa-review-app", prompt)
+        self.assertIn(DATA + " review-app DEMO-9 --json", prompt)
+        self.assertIn("qa-review waiting", prompt)
+        self.assertEqual(crew.first_step(dict(record, state="working"), True), "ship-check")
+
     def test_resumed_worker_continues_from_the_recorded_step(self):
         record = {"key": "DEMO-9", "step": "qa-local", "state": "waiting", "note": "Q1: Staging data?"}
         prompt = crew.worker_prompt("DEMO-9", record, DATA)

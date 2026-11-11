@@ -597,3 +597,7 @@ live). Herdr has no reuse check, so a second open adds a second pane.
 2026-11-11: Space c on a ticket without a worktree skipped it with only a status line (TRD-817).
 ticket-tui/test_crew_tab.py failed first. Space c now creates the worktree with WorkspaceWorkflow.prepare
 (apply=True: no window, no Jira move) in the background job, then starts the worker.
+2026-11-11: Crew step qa-review after ship-check. tests/test_crew.py, tests/test_runs.py and
+ticket-tui/test_crew_tab.py failed first. A ready ship-check restarts at qa-review; the worker checks
+`review-app KEY --json` and waits when no PR or review app exists, and never updates PR screenshots or
+asks for passwords in chat. Qa-local must end with qa-shot screenshots and qa/report.md.

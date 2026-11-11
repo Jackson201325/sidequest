@@ -45,12 +45,12 @@ class CrewTests(unittest.TestCase):
         self.assertEqual(frames('waiting'), {'●', '○'})
         self.assertEqual((frames('ready'), frames('failed')), ({'✓'}, {'✗'}))
         self.assertEqual(runs.track('qa-local', 'working', 0),
-                         '✓ start  ✓ implement  ' + runs.glyph('working', 0) + ' qa-local  · ship-check')
+                         '✓ start  ✓ implement  ' + runs.glyph('working', 0) + ' qa-local  · ship-check  · qa-review')
 
     def test_pipeline_row_shows_done_stages_and_a_moving_arrow_on_the_working_one(self):
         record = {'key': 'DEMO-1', 'step': 'implement', 'state': 'working', 'note': '', 'updated': ''}
         first = layout.pipeline_cells(record, 0, 12)
-        self.assertEqual(len(first), 4)
+        self.assertEqual(len(first), 5)
         self.assertTrue(first[0].startswith('✓━'))
         self.assertTrue(first[1].startswith(runs.glyph('working', 0)))
         self.assertIn('▶', first[1])
@@ -58,8 +58,12 @@ class CrewTests(unittest.TestCase):
         self.assertNotEqual(first[1], layout.pipeline_cells(record, 3, 12)[1])
         self.assertTrue(all(len(cell) == 12 for cell in first))
         ready = dict(record, step='ship-check', state='ready')
-        self.assertTrue(all(cell.startswith('✓') for cell in layout.pipeline_cells(ready, 0, 12)))
-        self.assertEqual([c.strip() for c in layout.pipeline_cells(None, 0, 12)], ['·'] * 4)
+        cells = layout.pipeline_cells(ready, 0, 12)
+        self.assertTrue(all(cell.startswith('✓') for cell in cells[:4]))
+        self.assertEqual(cells[4].strip(), '·')
+        reviewed = dict(record, step='qa-review', state='ready')
+        self.assertTrue(all(cell.startswith('✓') for cell in layout.pipeline_cells(reviewed, 0, 12)))
+        self.assertEqual([c.strip() for c in layout.pipeline_cells(None, 0, 12)], ['·'] * 5)
 
     def test_ai_mode_lists_every_ticket_as_a_pipeline_the_persons_turn_first(self):
         keys = [t.key for t in self.app.tickets if t.lane != 'Done']

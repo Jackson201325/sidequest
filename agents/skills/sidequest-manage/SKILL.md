@@ -24,7 +24,8 @@ which source failed and why.
 Give one short overview, the user's turn first:
 1. Waiting on you: the ticket, the step, the open question or request, and how long it waited.
 2. Failed: what failed and what you suggest.
-3. Ready for you: what is ready to ship (the user runs sidequest-ship).
+3. Ready for you: at ship-check, what is ready to ship (the user runs sidequest-ship); after
+   shipping, suggest starting qa-review with `crew KEY`. At qa-review, the review app result.
 4. Working and queued: the step and the age of the last update. A worker that has not
    updated for a long time may have stopped; say so.
 5. Tickets in progress with no worker: suggest which ones to start.

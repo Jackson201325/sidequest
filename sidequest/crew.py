@@ -30,6 +30,8 @@ def worker_command(command, key, data):
 
 def first_step(record, has_plan):
     if record and record.get("step") in runs.STEPS:
+        if record["step"] == "ship-check" and record.get("state") == "ready":
+            return "qa-review"  # The person ships in between; the review app needs the open PR.
         return record["step"]
     return "implement" if has_plan else "start"
 
@@ -44,7 +46,8 @@ def worker_prompt(key, record, data, has_plan=False):
         "Skip this step when the ticket's plan.md exists.",
         f"2. implement: run `{report} implement working`, then `{data} skill implement` and follow it.",
         f"3. qa-local: run `{report} qa-local working`, then `{data} skill qa-local` and follow it. "
-        "Skip this step when the change has no UI part.",
+        f"Finish it with the screenshots from `{data} qa-shot {key}` and the ticket's qa/report.md. "
+        "Skip this step only when the change has no UI part, and say so in the step's note.",
         f"4. ship-check: run `{report} ship-check working`, then bring the branch up to date with "
         f"`{data} update-branch --keep-conflicts`. Exit 3 means conflicts are open: resolve each listed file so "
         "both the base's change and this ticket's change survive, run the focused and full checks, then finish "
@@ -52,6 +55,11 @@ def worker_prompt(key, record, data, has_plan=False):
         f"then `{report} ship-check waiting --note \"Conflict in <files>: <the decision>\"` and ask. Exit 1 or 2: "
         f"report it as waiting with its message. Then run `{data} ship-check` and review its report and the full "
         "branch diff against the plan. Fix what is in scope and run the checks again. Do not run the ship workflow.",
+        f"5. qa-review: only after the person shipped (an open PR). Run `{report} qa-review working`, then "
+        f"`{data} review-app {key} --json`. With no open PR or no review app yet, run `{report} qa-review "
+        "waiting --note \"Ship first: open the PR with sidequest-ship\"` and stop. Otherwise run "
+        f"`{data} skill qa-review-app` and follow it. When the review login is not set, report waiting with "
+        "the variables to set; never ask for a password in chat. Never update the PR screenshots yourself.",
         "",
         "Stop and wait for the person when you need them:",
         f"- A question blocks a criterion: log it with `{data} questions {key} add \"<question>\" --source crew "
@@ -65,7 +73,10 @@ def worker_prompt(key, record, data, has_plan=False):
         "then continue from the same step.",
         "",
         f"When ship-check is clean, run `{report} ship-check ready --note \"<one line: what is ready>\"`, "
-        "give a short summary (criteria, tests, checks, files) and stop.",
+        "give a short summary (criteria, tests, checks, QA evidence, files) and stop. Do not start qa-review "
+        "in the same run.",
+        f"When qa-review is done, run `{report} qa-review ready --note \"<one line: review app result>\"`, "
+        "present the evidence and stop.",
         "Never commit, push, open a PR, post comments or change Jira. Two exceptions: finishing the rebase or "
         "merge that update-branch started, and the start workflow's configured start move. Never push or "
         "force-push. The person ships with sidequest-ship.",

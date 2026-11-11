@@ -128,3 +128,5 @@ Workers start in the background (detached tmux pane or window, no Herdr focus), 
 in front; Space C opens the manager in a pane below the dashboard (40% of the height), or selects it.
 Space c on a ticket without a worktree offers "Create the worktree, then start a worker": the job runs
 WorkspaceWorkflow.prepare (no window, no Jira move), then sidequest crew, then reloads worktrees.
+2026-11-11: AI mode has a fifth pipeline column, QA-REVIEW (cells are 11 wide below 110 columns, so
+SHIP-CHECK keeps a gap). A ready ship-check shows four ✓ and qa-review ahead.

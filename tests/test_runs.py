@@ -75,5 +75,13 @@ class RunCommandTests(unittest.TestCase):
         self.assertIn("DEMO-2  qa-local  waiting on you  12m  Q1: Staging data?", text)
 
 
+class QaReviewStepTests(unittest.TestCase):
+    def test_qa_review_is_the_last_step(self):
+        sys.path.insert(0, str(SCRIPT.parents[1]))
+        from sidequest import runs
+        self.assertEqual(runs.STEPS[-1], "qa-review")
+        self.assertEqual(runs.STEPS[-2], "ship-check")
+
+
 if __name__ == "__main__":
     unittest.main()

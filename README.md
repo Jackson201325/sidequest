@@ -742,13 +742,16 @@ sidequest crew --status         # every worker's step and state, the ones waitin
 ```
 
 Each worker runs the bundled workflows in order: start (skipped when plan.md exists),
-implement, qa-local (skipped without UI changes) and ship-check. Ship-check first runs
+implement, qa-local and ship-check. Qa-local ends with the `sidequest-data qa-shot` screenshots and
+qa/report.md (skipped only without UI changes). Ship-check first runs
 `sidequest-data update-branch --keep-conflicts`: it fetches, then rebases a branch never pushed onto
 `workspace.base_ref` or merges the base into a pushed one (the `sidequest up` rules; never a push). The
 worker resolves conflicts so both changes survive, runs the checks and finishes the rebase or merge; a
 conflict that needs a product decision is aborted and asked. It stops when it needs you:
 a blocking question (logged with `sidequest-data questions`), a permission, or a check it
-cannot fix. When ship-check is clean it reports "ready for you" and stops. Workers never
+cannot fix. When ship-check is clean it reports "ready for you" and stops. After you ship (an open PR),
+Space `c` or `sidequest crew KEY` starts the last step, qa-review: the worker runs qa-review-app on the
+PR's review app and presents the evidence; it never updates the PR screenshots. Workers never
 commit, push, open PRs, post or change Jira, except the start workflow's configured start
 move. You ship with sidequest-ship. Answer a worker in its window, or ask the manager.
 
@@ -757,11 +760,11 @@ and your terminal stays where it is. The manager does take focus, because you op
 Workers report through `sidequest-data run KEY set STEP STATE`, stored as run.json in the
 ticket folder. Claude Code workers also get hooks: a finished turn or a permission request
 marks them "waiting on you". The card shows an `Agent` line. Press `6` for AI mode: every open ticket
-(and every worker outside your queue) as a pipeline row, start → implement → qa-local → ship-check, with
+(and every worker outside your queue) as a pipeline row, start → implement → qa-local → ship-check → qa-review, with
 the ones waiting on you first; the details show the selected ticket's worker, note and history. `1`–`5`
 return to the ticket lanes. In the dashboard, Space `c` starts the selected ticket's worker (Space `c`
 on a running one offers a restart) and Space `C` opens the manager; both run `sidequest crew`.
-A ticket needs its own worktree first (`sidequest start KEY`). A worker that is recorded as
+`sidequest crew` needs the ticket's own worktree (`sidequest start KEY`); Space `c` creates it. A worker that is recorded as
 working is not started twice; `--again` restarts it, `--dry-run` previews. Workers need tmux
 or Herdr; outside them, `sidequest crew` runs the manager in the current terminal.
 `crew.manager_command` (default `claude --model claude-opus-5-5`) and `crew.worker_command`

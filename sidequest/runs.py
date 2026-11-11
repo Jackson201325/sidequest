@@ -11,7 +11,7 @@ import json
 import os
 import tempfile
 
-STEPS = ("start", "implement", "qa-local", "ship-check")
+STEPS = ("start", "implement", "qa-local", "ship-check", "qa-review")
 STATES = ("queued", "working", "waiting", "ready", "failed")
 LABELS = {"queued": "queued", "working": "working", "waiting": "waiting on you",
           "ready": "ready for you", "failed": "failed"}
@@ -85,7 +85,7 @@ def glyph(state, frame):
 
 
 def track(step, state, frame):
-    """'✓ start  ✓ implement  ⠹ qa-local  · ship-check'"""
+    """'✓ start  ✓ implement  ⠹ qa-local  · ship-check  · qa-review'"""
     current = STEPS.index(step)
     return "  ".join(("✓" if i < current else glyph(state, frame) if i == current else "·") + " " + name
                      for i, name in enumerate(STEPS))

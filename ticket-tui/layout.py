@@ -266,7 +266,7 @@ def pr_glyph_offset(cols):
     return cols["key"] + cols["title"] + cols["stage"] + cols["turn"]
 
 
-PIPELINE_STAGES = ("START", "IMPLEMENT", "QA-LOCAL", "SHIP-CHECK")
+PIPELINE_STAGES = ("START", "IMPLEMENT", "QA-LOCAL", "SHIP-CHECK", "QA-REVIEW")
 
 
 def pipeline_cells(record, frame, width):
@@ -288,7 +288,7 @@ def pipeline_cells(record, frame, width):
 
 def pipeline_columns(width):
     """(key, cell, state) widths; the title takes what is left."""
-    cell = 12 if width >= 110 else 10
+    cell = 12 if width >= 110 else 11
     return 10, cell, 22
 
 

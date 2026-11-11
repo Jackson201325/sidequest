@@ -9,7 +9,7 @@ Writes only <tickets folder>/KEY/run.json (SIDEQUEST_TICKETS_DIR overrides the f
   sidequest-data run APP-123 set STEP STATE [--note TEXT]
   sidequest-data run APP-123 hook prompt|stop|notify     (Claude Code hooks; always exits 0)
 
-Steps: start, implement, qa-local, ship-check.
+Steps: start, implement, qa-local, ship-check, qa-review.
 States: queued, working, waiting (on you), ready (for you), failed.
 """
 import argparse
