@@ -80,7 +80,7 @@ class TerminalTests(unittest.TestCase):
                 until("Tickets 35% / details 65%")
                 send("-")
                 send("l")
-                until("▸ DEMO-901")   # Focus moves the ▸ marker; visible content need not be retransmitted.
+                until("┏━ DEMO-901")  # Focus changes the border; visible content need not be retransmitted.
                 send("v")
                 until("To move forward")
                 send("s")

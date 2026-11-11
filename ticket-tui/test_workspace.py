@@ -37,12 +37,11 @@ class WorkspaceTests(unittest.TestCase):
             with patch.object(store, "get", side_effect=AssertionError("redraw queried SQLite")), \
                     patch.object(store, "history", side_effect=AssertionError("redraw queried SQLite")):
                 app.draw()
-            self.assertIn("NEEDS YOU 1", app.screen.lines[2])               # group heading
+            self.assertIn("KEY", app.screen.lines[2])                       # table header
             first = app.screen.lines[3]
-            for expected in ("●", "DEMO-901", "✗ changes", "<1h"):
+            for expected in ("●", "DEMO-901", "In Progress", "you", "#901 ✓", "<1h"):
                 self.assertIn(expected, first)
-            self.assertTrue(any("Jira In Progress" in line for line in app.screen.lines))   # status in the details
-            self.assertIn("DEMO-901 · Validate bulk request quantities", app.screen.lines[1])   # details beside tickets
+            self.assertTrue(any("DEMO-901 · Validate bulk request quantities" in line for line in app.screen.lines[5:]))   # details below tickets
             self.assertTrue(any("turn: you" in line for line in app.screen.lines))      # summary card
             self.assertTrue(any("Today," in line for line in app.details(app.selected())))
             details = " ".join(app.details(app.selected()))

@@ -278,6 +278,10 @@ class DetailViews:
             self.runs_cache[key] = cached
         return cached[1]
 
+    def agent_line(self, ticket, plans):
+        record = self.run_record(ticket.key, plans)
+        return ["Agent " + runs.glyph(record["state"], self.frame) + " " + runs.summary(record, now())] if record else []
+
     def crew_records(self, plans):
         return [r for r in (self.run_record(p.parent.name, plans) for p in self.run_paths(plans)) if r]
 

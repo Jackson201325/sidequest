@@ -19,37 +19,14 @@ LANE_GLYPH = {"Needs me": "●", "Waiting": "○", "Clarify": "?", "Done": "✓"
 VIEW_GLYPH = {**LANE_GLYPH, "In Dev": "◆", "AI": "✦"}
 CI_GLYPH = {"green": "✓", "failing": "✗", "pending": "…", "mixed": "~"}
 
-# Colour tokens by meaning: token -> 8-colour name, or None for dim default text.
-# Draw code names tokens (or lanes, via LANE_TOKEN); tui.setup_colors maps them to curses.
-TOKENS = {"accent": "cyan", "you": "yellow", "unclear": "magenta", "waiting": None, "good": "green",
-          "bad": "red", "info": "blue", "agent": "magenta", "aging": "red"}
-LANE_TOKEN = {"Needs me": "you", "Waiting": "waiting", "Clarify": "unclear", "Done": "good",
-              "In Dev": "info", "AI": "agent"}
-
 # Focused panel: heavy border; other panel: light rounded border. Focus is visible by shape.
 HEAVY = "┏━┓┃┗┛"
 LIGHT = "╭─╮│╰╯"
 
 
-SIDE_BY_SIDE_WIDTH = 120
-SIDE_SHARE = (0.3, 0.6)
-
-
-def side_by_side(height, width):
-    return height >= 18 and width >= SIDE_BY_SIDE_WIDTH
-
-
-def panel_rects(height, width, focus="list", list_fraction=0.3, side_fraction=0.45):
-    """List/detail rectangles (y, x, height, width), preserving room to read details.
-
-    Wide terminals put the list on the left (side_fraction of the width, 30-60%) and one divider column
-    between them; the details rectangle also owns the closing rule above the footer, so it is one row taller.
-    """
+def panel_rects(height, width, focus="list", list_fraction=0.3):
+    """List/detail rectangles (y, x, height, width), preserving room to read details."""
     usable, panel_height = width - 1, height - 3
-    if side_by_side(height, width):
-        low, high = (round(usable * share) for share in SIDE_SHARE)
-        list_width = max(low, min(high, round(usable * side_fraction)))
-        return (1, 0, panel_height - 1, list_width), (1, list_width + 1, panel_height, usable - list_width - 1)
     if height >= 18:
         available = panel_height - 1  # One blank row separates stacked borders.
         list_height = max(5, min(available - 8, round(available * list_fraction)))
@@ -99,6 +76,26 @@ def pr_label(ticket):
     return f"#{pr.get('number', '?')} {CI_GLYPH.get(pr.get('ci'), '·')}{extra}"
 
 
+def columns(width, with_when=False):
+    """Column widths for the ticket table: KEY TITLE STATUS TURN PR WAIT [WHEN].
+
+    KEY and WAIT stay compact, STATUS/TURN/PR widen a little on roomy panels (so "example-org +1"
+    fits), and every remaining column goes to the title so the row fills the panel.
+    Narrower terminals drop Status, then Turn.
+    """
+    cols = {"glyph": 2, "key": 10, "stage": 14, "turn": 12, "pr": 9, "age": 7, "when": 6 if with_when else 0}
+    for drop in ("stage", "turn"):
+        if width - sum(cols.values()) >= 24:
+            break
+        cols[drop] = 0
+    roomy = {"stage": 22, "turn": 16, "pr": 11}
+    extra = sum(size - cols[k] for k, size in roomy.items() if cols[k])
+    if width - sum(cols.values()) - extra >= 60:
+        cols.update({k: size for k, size in roomy.items() if cols[k]})
+    cols["title"] = max(8, width - sum(cols.values()))
+    return cols
+
+
 def cell(text, size, right=False):
     if size <= 0:
         return ""
@@ -107,89 +104,20 @@ def cell(text, size, right=False):
     return (text.rjust(size - 1) + " ") if right else text.ljust(size)
 
 
-# List groups in display order; one-lane views show no headings.
-GROUPS = {"Needs me": "NEEDS YOU", "Clarify": "UNCLEAR", "Waiting": "WAITING ON OTHERS", "Done": "DONE"}
-GROUP_RANK = {lane: i for i, lane in enumerate(GROUPS)}
-GROUPED_VIEWS = ("All", "In Dev")
-# Crew worker state in the list's last column: (glyph, token). Still glyphs, so rows do not animate.
-AGENT_MARK = {"working": ("✦", "agent"), "queued": ("◌", "agent"), "waiting": ("⏸", "you"),
-              "ready": ("✓", "you"), "failed": ("✗", "bad")}
+def table_header(cols):
+    return "".join([cell("", cols["glyph"]), cell("KEY", cols["key"]), cell("TITLE", cols["title"]),
+                    cell("STATUS", cols["stage"]), cell("TURN", cols["turn"]), cell("PR", cols["pr"]),
+                    cell("WAIT", cols["age"], True), cell("WHEN", cols["when"], True)])
 
 
-def group_rows(tickets, grouped):
-    """Display lines: ("heading", text, lane) and ("ticket", index into tickets).
-
-    Tickets must already be in group order; a heading goes before each lane's first ticket.
-    """
-    lines, lane = [], None
-    for i, ticket in enumerate(tickets):
-        if grouped and ticket.lane != lane:
-            lane = ticket.lane
-            count = sum(t.lane == lane for t in tickets)
-            lines.append(("heading", f"{GROUPS.get(lane, lane.upper())} {count}", lane))
-        lines.append(("ticket", i))
-    return lines
-
-
-def list_offset(lines, index, offset, rows):
-    """First display line to show so ticket `index` is visible, with its heading when it opens a group."""
-    position = next((n for n, line in enumerate(lines) if line == ("ticket", index)), 0)
-    top = position - 1 if position and lines[position - 1][0] == "heading" else position
-    offset = min(offset, top)
-    return position - rows + 1 if position >= offset + rows else offset
-
-
-def inbox_columns(width, with_when=False):
-    """Column widths for a list row: glyph, key, title, tag (or when), wait, agent. Narrow rows drop the tag."""
-    cols = {"glyph": 2, "key": 10, "title": 0, "tag": 7 if with_when else 12, "age": 6, "agent": 2}
-    if width - sum(cols.values()) < 16:
-        cols["tag"] = 0
-    cols["title"] = max(8, width - sum(cols.values()))
-    return cols
-
-
-def row_tag(ticket):
-    """Short reason beside the title: the PR state on your tickets, the owner on theirs."""
-    if ticket.lane == "Waiting":
-        return turn_label(ticket), "waiting"
-    if not ticket.prs:
-        return "", ""
-    pr = ticket.prs[0]
-    decision = (pr.get("review_decision") or "").upper()
-    if decision == "CHANGES_REQUESTED":
-        return "✗ changes", "bad"
-    if pr.get("ci") == "failing":
-        return "✗ CI", "bad"
-    if decision == "APPROVED":
-        return "✓ approved", "good"
-    if pr.get("ci") == "pending":
-        return "… CI", "accent"
-    if pr.get("ci") == "green":
-        return "✓ CI", "good"
-    return f"#{pr.get('number', '?')}", "waiting"
-
-
-def inbox_row(ticket, cols, when="", agent="", stale_days=2):
-    """One list row as (text, style) parts that together fill sum(cols). Styles are tokens, lanes or
-    "key" / "title"; tui.py turns them into attributes."""
-    theirs = ticket.lane == "Waiting"
-    tag, tag_style = (when, "waiting") if when else row_tag(ticket)
-    mark, mark_style = AGENT_MARK.get(agent, ("", ""))
-    aging = ticket.lane != "Needs me" and ticket.age >= stale_days
-    return [(cell(LANE_GLYPH.get(ticket.lane, " "), cols["glyph"]), ticket.lane),
-            (cell(ticket.key, cols["key"]), "key"),
-            (cell(ticket.title, cols["title"]), "waiting" if theirs else "title"),
-            (cell(tag, cols["tag"]), tag_style),
-            (cell(ticket.wait_label, cols["age"], True), "aging" if aging else "waiting"),
-            (cell(mark, cols["agent"], True), mark_style)]
-
-
-def title_rule(width, title, focused, label=""):
-    """A pane's top line: '▸ Title ──── label ─' while it has the keys, two spaces instead of ▸ otherwise."""
-    head = ("▸ " if focused else "  ") + title + " "
-    tail = f" {label.strip()} ─" if label.strip() else ""
-    return (head + "─" * max(0, width - len(head) - len(tail)) + tail)[:width]
-
+def table_row(ticket, cols, when=""):
+    """(glyph, rest): key and title first, then the workflow fields."""
+    glyph = cell(LANE_GLYPH.get(ticket.lane, " "), cols["glyph"])
+    rest = "".join([cell(ticket.key, cols["key"]), cell(ticket.title, cols["title"]),
+                    cell(stage_label(ticket), cols["stage"]), cell(turn_label(ticket), cols["turn"]),
+                    cell(pr_label(ticket), cols["pr"]), cell(ticket.wait_label, cols["age"], True),
+                    cell(when, cols["when"], True)])
+    return glyph, rest
 
 def border(width, title, focused, top=True, label=""):
     """Top line (with an embedded title) or bottom line (with an optional right-hand label)."""
@@ -269,31 +197,6 @@ def card(ticket, clock, last_commit_at=None, environment="", stale_days=2, local
     return lines
 
 
-def agent_track(record, frame):
-    """'✓ start ━ ⠋ implement ━ · qa-local ━ · ship-check': done steps, the current state's glyph, steps ahead."""
-    current = runs.STEPS.index(record["step"])
-    marks = ["✓" if i < current or (i == current and record["state"] == "ready")
-             else runs.glyph(record["state"], frame) if i == current else "·" for i in range(len(runs.STEPS))]
-    return " ━ ".join(f"{mark} {step}" for mark, step in zip(marks, runs.STEPS))
-
-
-def inspector_rows(ticket, clock, last_commit_at=None, environment="", stale_days=2, local=(), hint="",
-                   record=None, frame=0, short=False):
-    """The details pane's summary as (text, style) rows: the card's facts, then NEXT, hints and the crew
-    worker. Styles: a lane name, "pr", "dim", "plain", "next" or "agent"; tui.py paints them."""
-    facts = card(ticket, clock, last_commit_at, environment, stale_days, local)
-    if ticket.action:
-        facts = facts[:-1]
-    rows = [(facts[0], ticket.lane)] + [(line, "pr" if line.startswith("PR ") else "dim") for line in facts[1:]]
-    tail = ([("NEXT → " + ticket.action, "next")] if ticket.action else []) + \
-           ([("→ " + hint, "plain")] if hint else [])
-    if short:
-        return rows[:1] + [row for row in tail if row[1] == "next"]
-    if record:
-        tail += [("Agent " + agent_track(record, frame), "agent"), ("      " + runs.summary(record, clock), "dim")]
-    return rows + ([("", "plain")] + tail if tail else [])
-
-
 EVENT_MARK = (("approved", "✓"), ("changes requested", "✗"), ("commit", "•"), ("comment", "✎"),
               ("updated", "↻"), ("dismissed", "−"), ("moved", "→"), ("assigned", "⇄"))
 DAY_RULE = "── "
@@ -356,6 +259,11 @@ def lane_tab(index, view, count, active, compact):
     if compact and not active and view != "All":
         return f" {index} {glyph}{count} "
     return f" {index} {glyph}{view} {count} "
+
+
+def pr_glyph_offset(cols):
+    """Column of the CI glyph inside a table row's `rest` part (after the lane glyph)."""
+    return cols["key"] + cols["title"] + cols["stage"] + cols["turn"]
 
 
 PIPELINE_STAGES = ("START", "IMPLEMENT", "QA-LOCAL", "SHIP-CHECK")

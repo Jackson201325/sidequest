@@ -2,11 +2,7 @@ import unittest
 from datetime import datetime, timedelta
 
 from core import TZ, Ticket
-from layout import HEAVY, LIGHT, border, card, inbox_columns, inbox_row, lane_tab, scroll_label, pr_label, relative, timeline, turn_label
-
-
-def row_text(ticket, width=90):
-    return "".join(text for text, _ in inbox_row(ticket, inbox_columns(width)))
+from layout import HEAVY, LIGHT, border, card, lane_tab, pr_glyph_offset, scroll_label, columns, pr_label, relative, table_header, table_row, timeline, turn_label
 
 
 class LayoutTests(unittest.TestCase):
@@ -40,13 +36,20 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(pr_label(Ticket("DEMO-5", prs=[{"number": 1, "ci": "green"}, {"number": 2}])), "#1 ✓ +1")
         self.assertEqual(pr_label(mine), "—")
 
-    def test_narrow_rows_drop_the_tag_and_keep_a_title(self):
-        cols = inbox_columns(34)
-        self.assertEqual(cols["tag"], 0)
-        self.assertGreaterEqual(cols["title"], 8)
-        ticket = Ticket("DEMO-123", "A very long ticket title that will not fit in the column", lane="Needs me")
-        self.assertIn("…", row_text(ticket, 60))
-        self.assertEqual(len(row_text(ticket, 60)), sum(inbox_columns(60).values()))
+    def test_columns_fit_and_narrow_widths_drop_stage_then_turn(self):
+        for width in (60, 72, 88, 120):
+            cols = columns(width)
+            self.assertLessEqual(sum(cols.values()), max(width, sum(cols.values()) - cols["title"] + 8))
+        self.assertGreater(columns(88)["stage"], 0)
+        self.assertEqual(columns(50)["stage"], 0)
+        ticket = Ticket("DEMO-123", "A very long ticket title that will not fit in the column", status="In Progress",
+                        court="me", lane="Needs me", age=3)
+        cols = columns(72)
+        glyph, rest = table_row(ticket, cols)
+        self.assertEqual(glyph, "● ")
+        self.assertEqual(len(glyph + rest), sum(cols.values()))
+        self.assertIn("…", rest)
+        self.assertEqual(len(table_header(cols)), sum(cols.values()))
 
     def test_focus_is_visible_by_border_shape(self):
         focused, other = border(20, "Tickets 3", True), border(20, "Tickets 3", False)
@@ -92,6 +95,34 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(lane_tab(5, "In Dev", 3, False, True), " 5 ◆ 3 ")
         self.assertEqual(lane_tab(5, "In Dev", 3, True, True), " 5 ◆ In Dev 3 ")
 
+    def test_ci_glyph_offset_points_at_the_glyph(self):
+        ticket = Ticket("DEMO-7", "Title", court="me", lane="Needs me", prs=[{"number": 2059, "ci": "failing"}])
+        cols = columns(90)
+        _, rest = table_row(ticket, cols)
+        cell = rest[pr_glyph_offset(cols):pr_glyph_offset(cols) + cols["pr"]]
+        self.assertEqual(cell.split(" ")[:2], ["#2059", "✗"])
+
+    def test_top_table_order_is_key_title_then_workflow(self):
+        header = table_header(columns(140))
+        labels = ("KEY", "TITLE", "STATUS", "TURN", "PR", "WAIT")
+        self.assertTrue(all(label in header for label in labels))
+        self.assertEqual([header.index(label) for label in labels], sorted(header.index(label) for label in labels))
+
+    def test_rows_fill_the_width_and_spare_room_goes_to_the_title(self):
+        for width, with_when in ((90, False), (140, False), (200, True), (300, False)):
+            cols = columns(width, with_when)
+            self.assertEqual(sum(cols.values()), width)
+        wide, mid = columns(300), columns(200)
+        self.assertEqual(wide["title"] - mid["title"], 100)          # only the title grows past "roomy"
+        self.assertEqual((wide["key"], wide["age"]), (10, 7))        # key and wait stay compact
+        self.assertGreaterEqual(wide["turn"], len("example-org +1") + 1)
+        self.assertGreaterEqual(wide["stage"], len("Ready for Code Review") + 1)
+
+    def test_status_column_shows_the_jira_status(self):
+        ticket = Ticket("DEMO-9", "Title", status="Ready for Dev", lane="Needs me")
+        _, rest = table_row(ticket, columns(140))
+        self.assertIn("Ready for Dev", rest)
+
     def test_wait_counts_only_weekday_office_hours_and_rolls_over(self):
         from core import Store, rank
         from datetime import timezone
@@ -113,7 +144,7 @@ class LayoutTests(unittest.TestCase):
                                 prs=[{"number": 42, "requested_reviewers": ["reviewer"], "ci": "green"}])
                 rank(ticket, store, start)
                 rank(ticket, store, end)
-                self.assertIn(label, row_text(ticket))
+                self.assertIn(label, "".join(table_row(ticket, columns(90))))
                 self.assertIn("observed wait " + label, card(ticket, end)[0])
                 self.assertEqual(ticket.lane, lane)
 
@@ -127,14 +158,14 @@ class LayoutTests(unittest.TestCase):
         rank(ticket, store, datetime(2026, 10, 26, 9, tzinfo=TZ))
         clock = datetime(2026, 10, 30, 16, tzinfo=TZ)
         rank(ticket, store, clock)
-        self.assertIn("4d 7h", row_text(ticket))
+        self.assertIn("4d 7h", "".join(table_row(ticket, columns(90))))
         self.assertEqual(preview([ticket], {}, clock)["blockers"], [])
         clock = clock.replace(hour=17)
         rank(ticket, store, clock)
         self.assertIn("waiting 5d business time", preview([ticket], {}, clock)["blockers"][0])
         ticket.prs[0]["review_decision"] = "CHANGES_REQUESTED"
         rank(ticket, store, clock)
-        self.assertIn("<1h", row_text(ticket))
+        self.assertIn("<1h", "".join(table_row(ticket, columns(90))))
         self.assertEqual(ticket.age, 0)
 
     def test_top_table_wait_clock_advances_in_business_days(self):
@@ -144,10 +175,11 @@ class LayoutTests(unittest.TestCase):
         try:
             ticket = Ticket("DEMO-42", "Validate totals", status="Code Review",
                             prs=[{"number": 42, "requested_reviewers": ["reviewer"], "ci": "green"}])
+            cols = columns(90)
             rank(ticket, store, datetime(2026, 10, 26, 10, tzinfo=TZ))
-            self.assertIn("<1h", row_text(ticket))
+            self.assertIn("<1h", "".join(table_row(ticket, cols)))
             rank(ticket, store, datetime(2026, 10, 28, 10, tzinfo=TZ))
-            self.assertIn("2d", row_text(ticket))
+            self.assertIn("2d", "".join(table_row(ticket, cols)))
         finally:
             store.close()
 
