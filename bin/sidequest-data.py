@@ -27,7 +27,8 @@ LOCAL = {'branch-name': 'sidequest-workspace.py', 'worktree': 'sidequest-worktre
          'pr-body-check': 'sidequest-pr-body-check.py', 'ship-check': 'sidequest-ship-check.py',
          'qa-shot': 'sidequest-qa-shot.py', 'review-app': 'sidequest-review-app.py',
          'pr-feedback': 'sidequest-feedback.py', 'skills': 'sidequest-skills.py',
-         'questions': 'sidequest-questions.py', 'app': 'sidequest-app.py'}
+         'questions': 'sidequest-questions.py', 'app': 'sidequest-app.py',
+         'run': 'sidequest-run.py', 'update-branch': 'sidequest-update-branch.py'}
 
 
 def main():

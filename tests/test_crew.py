@@ -1,0 +1,179 @@
+"""sidequest crew: one worker agent per ticket worktree, reported through run.json, and a manager agent."""
+import json
+import os
+import shlex
+import subprocess
+import sys
+import tempfile
+import unittest
+import unittest.mock
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from sidequest import crew, runs
+
+DATA = "/opt/sidequest/bin/sidequest-data"
+
+
+class WorkerPromptTests(unittest.TestCase):
+    def test_new_worker_runs_every_step_and_stops_before_shipping(self):
+        prompt = crew.worker_prompt("DEMO-9", None, DATA)
+        for step in ("start", "implement", "qa-local", "ship-check"):
+            self.assertIn(DATA + " run DEMO-9 set " + step + " working", prompt)
+        self.assertLess(prompt.index("set start working"), prompt.index("set implement working"))
+        self.assertIn(DATA + " skill implement", prompt)
+        self.assertIn(DATA + " questions DEMO-9 add", prompt)
+        self.assertIn("set ship-check ready", prompt)
+        self.assertIn("Never commit, push", prompt)
+        self.assertIn(DATA + " update-branch --keep-conflicts", prompt)
+        self.assertLess(prompt.index("update-branch"), prompt.index(DATA + " ship-check"))
+        self.assertIn("finishing the rebase or merge", prompt)
+
+    def test_resumed_worker_continues_from_the_recorded_step(self):
+        record = {"key": "DEMO-9", "step": "qa-local", "state": "waiting", "note": "Q1: Staging data?"}
+        prompt = crew.worker_prompt("DEMO-9", record, DATA)
+        self.assertIn("Continue from qa-local", prompt)
+        self.assertIn("Q1: Staging data?", prompt)
+
+    def test_claude_workers_get_hooks_that_report_waiting(self):
+        line = crew.worker_command("claude --model claude-sonnet-5-5", "DEMO-9", DATA)
+        argv = shlex.split(line)
+        self.assertEqual(argv[:3], ["claude", "--model", "claude-sonnet-5-5"])
+        hooks = json.loads(argv[argv.index("--settings") + 1])["hooks"]
+        self.assertEqual(hooks["Stop"][0]["hooks"][0]["command"], DATA + " run DEMO-9 hook stop")
+        self.assertEqual(hooks["UserPromptSubmit"][0]["hooks"][0]["command"], DATA + " run DEMO-9 hook prompt")
+        self.assertEqual(hooks["Notification"][0]["hooks"][0]["command"], DATA + " run DEMO-9 hook notify")
+        self.assertEqual(crew.worker_command("codex", "DEMO-9", DATA), "codex")
+
+
+class DispatchTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.tickets = Path(self.tmp.name)
+        self.launched = []
+        self.trees = {"DEMO-1": {"state": "worktree", "path": "/w/demo-1"},
+                      "DEMO-2": {"state": "none"},
+                      "DEMO-3": {"state": "main-checkout", "path": "/repo"}}
+
+    def dispatch(self, keys, again=False, dry_run=False):
+        return crew.dispatch(keys, self.trees.get, self.tickets,
+                             lambda key, path, prompt: self.launched.append((key, path, prompt)) or "started " + key,
+                             DATA, "2026-11-11T10:00:00+00:00", again=again, dry_run=dry_run)
+
+    def test_ticket_with_a_worktree_gets_a_worker_and_a_queued_record(self):
+        lines, failed = self.dispatch(["DEMO-1"])
+        self.assertFalse(failed)
+        self.assertEqual([(k, p) for k, p, _ in self.launched], [("DEMO-1", "/w/demo-1")])
+        self.assertEqual(lines, ["DEMO-1: worker started at start"])
+        record = runs.read(self.tickets / "DEMO-1" / "run.json")
+        self.assertEqual((record["step"], record["state"]), ("start", "queued"))
+
+    def test_ticket_with_a_plan_starts_at_implement(self):
+        (self.tickets / "DEMO-1").mkdir()
+        (self.tickets / "DEMO-1" / "plan.md").write_text("# Plan\n")
+        self.dispatch(["DEMO-1"])
+        self.assertEqual(runs.read(self.tickets / "DEMO-1" / "run.json")["step"], "implement")
+
+    def test_tickets_without_their_own_worktree_are_skipped_with_the_reason(self):
+        lines, failed = self.dispatch(["DEMO-2", "DEMO-3"])
+        self.assertTrue(failed)
+        self.assertEqual(self.launched, [])
+        self.assertIn("sidequest start DEMO-2", lines[0])
+        self.assertIn("main checkout", lines[1])
+
+    def test_a_running_worker_is_not_doubled_unless_asked(self):
+        runs.update(self.tickets / "DEMO-1" / "run.json", "DEMO-1", "implement", "working", "", "2026-11-11T09:00:00+00:00")
+        lines, failed = self.dispatch(["DEMO-1"])
+        self.assertTrue(failed)
+        self.assertIn("--again", lines[0])
+        self.assertEqual(self.launched, [])
+        self.dispatch(["DEMO-1"], again=True)
+        self.assertEqual(len(self.launched), 1)
+        self.assertIn("Continue from implement", self.launched[0][2])
+
+    def test_dry_run_prints_and_launches_nothing(self):
+        lines, failed = self.dispatch(["DEMO-1"], dry_run=True)
+        self.assertFalse(failed)
+        self.assertEqual(self.launched, [])
+        self.assertIn("would start DEMO-1 in /w/demo-1", lines[0])
+        self.assertFalse((self.tickets / "DEMO-1" / "run.json").exists())
+
+
+def load_cli():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("crew_cli", ROOT / "bin/sidequest-crew.py")
+    cli = importlib.util.module_from_spec(spec)
+    with unittest.mock.patch.object(sys, "argv", ["sidequest-crew.py"]):
+        spec.loader.exec_module(cli)
+    return cli
+
+
+class ManagerPaneTests(unittest.TestCase):
+    def open(self, terminal, environ):
+        cli = load_cli()
+        flow = type("Flow", (), {"terminal": terminal, "agent_command": ""})()
+        with tempfile.TemporaryDirectory() as folder, \
+                unittest.mock.patch.object(cli, "tickets_dir", lambda: Path(folder)), \
+                unittest.mock.patch("sys.stdout"):
+            return cli.open_manager(flow, False, environ), folder
+
+    def test_inside_tmux_the_manager_opens_below_the_callers_pane(self):
+        from sidequest.terminal import TmuxTerminal
+        calls = []
+
+        def run(args, timeout=45):
+            calls.append(args)
+            return "%9" if args[1] == "split-window" else ""
+        code, _ = self.open(TmuxTerminal(run, "sidequest", "/bin/sh"), {"TMUX_PANE": "%1"})
+        self.assertEqual(code, 0)
+        split = next(c for c in calls if c[1] == "split-window")
+        self.assertEqual(split[2:7], ["-v", "-l", "70%", "-t", "%1"])
+        self.assertIn("skill manage", split[-1])
+        self.assertFalse(any(c[1] == "new-window" for c in calls))
+
+    def test_inside_herdr_the_manager_opens_below_the_callers_pane(self):
+        seen = []
+
+        class Herdr:
+            def split_below(self, path, argv):
+                seen.append((path, argv))
+                return type("Result", (), {"message": "ok"})()
+        code, folder = self.open(Herdr(), {})
+        self.assertEqual(code, 0)
+        self.assertEqual(seen[0][0], folder)
+        self.assertIn("skill manage", seen[0][1][-1])
+
+
+class WorkerFocusTests(unittest.TestCase):
+    def test_crew_workers_start_without_taking_focus(self):
+        cli = load_cli()
+        calls = []
+
+        class Flow:
+            agent_command = ""
+
+            def agent(self, key, path, prompt, focus=True):
+                calls.append((key, focus))
+                return type("Result", (), {"message": "ok"})()
+        launch = cli.worker_launcher(Flow(), "claude", DATA)
+        launch("DEMO-1", "/w/demo-1", "prompt")
+        self.assertEqual(calls, [("DEMO-1", False)])
+
+
+class CrewCommandTests(unittest.TestCase):
+    def test_status_prints_the_overview_without_launching(self):
+        with tempfile.TemporaryDirectory() as folder:
+            runs.update(Path(folder) / "DEMO-4" / "run.json", "DEMO-4", "implement", "waiting", "Q1: Copy?",
+                        "2026-11-11T10:00:00+00:00")
+            env = dict(os.environ, SIDEQUEST_TICKETS_DIR=folder)
+            shown = subprocess.run([sys.executable, "-B", str(ROOT / "bin/sidequest"), "crew", "--status"],
+                                   text=True, capture_output=True, env=env)
+        self.assertEqual(shown.returncode, 0, shown.stderr)
+        self.assertIn("DEMO-4  implement  waiting on you", shown.stdout)
+        self.assertIn("Q1: Copy?", shown.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

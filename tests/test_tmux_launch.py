@@ -37,6 +37,67 @@ class FakeRun:
         return [c for c in self.calls if c != LIST_PANES]
 
 
+class WindowChoiceTests(unittest.TestCase):
+    def test_ticket_window_wins_over_a_newer_window_in_the_same_folder(self):
+        panes = ("example-project\t@12\tcrew-launch\t/wt/DEMO-1\n"
+                 "example-project\t@5\tDEMO-1\t/wt/DEMO-1\n")
+        self.assertEqual(tmux.find_window(panes, KEY, WORKTREE, SESSION), ("@5", "DEMO-1"))
+
+    def test_window_ids_compare_as_numbers(self):
+        panes = ("example-project\t@12\tShell\t/wt/DEMO-1\n"
+                 "example-project\t@5\tEditor\t/wt/DEMO-1\n")
+        self.assertEqual(tmux.find_window(panes, KEY, WORKTREE, SESSION), ("@5", "Editor"))
+
+
+class BackgroundLaunchTests(unittest.TestCase):
+    def start(self, panes):
+        run = FakeRun(panes)
+        message = tmux.start_agent(run, KEY, WORKTREE, ["claude", "do it"], True, SESSION, "Claude Code", focus=False)
+        return run.commands(), message
+
+    def test_unfocused_agent_splits_the_ticket_window_without_moving_the_person(self):
+        commands, message = self.start(PANES)
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0][:3], ["tmux", "split-window", "-d"])
+        self.assertIn("in the background", message)
+
+    def test_unfocused_agent_gets_a_detached_new_window(self):
+        commands, _ = self.start("example-project\t@3\tOther\t/elsewhere\n")
+        self.assertEqual(len(commands), 1)
+        self.assertEqual(commands[0][:3], ["tmux", "new-window", "-d"])
+        self.assertFalse(any(c[1] in ("select-window", "switch-client") for c in commands))
+
+
+class PaneBelowTests(unittest.TestCase):
+    def run_with(self, tagged):
+        calls = []
+
+        def run(args, timeout=45):
+            calls.append(args)
+            if args[:2] == ["tmux", "list-panes"]:
+                return tagged
+            if args[:2] == ["tmux", "split-window"]:
+                return "%9\n"
+            return ""
+        message = tmux.open_below(run, "%1", "/tickets", ["claude", "manage"], "crew")
+        return calls, message
+
+    def test_splits_the_callers_pane_with_a_pane_below_it_at_seventy_percent(self):
+        calls, message = self.run_with("%1\t@2\t\n")
+        split = next(c for c in calls if c[1] == "split-window")
+        self.assertEqual(split, ["tmux", "split-window", "-v", "-l", "70%", "-t", "%1", "-c", "/tickets",
+                                 "-P", "-F", "#{pane_id}", "claude manage"])
+        self.assertIn(["tmux", "set-option", "-p", "-t", "%9", "@sidequest_role", "crew"], calls)
+        self.assertIn("below", message)
+
+    def test_an_open_pane_with_the_role_is_selected_instead_of_split_again(self):
+        calls, message = self.run_with("%1\t@2\t\n%7\t@4\tcrew\n")
+        self.assertFalse(any(c[1] == "split-window" for c in calls))
+        self.assertIn(["tmux", "select-window", "-t", "@4"], calls)
+        self.assertIn(["tmux", "select-pane", "-t", "%7"], calls)
+        self.assertIn("Switched", message)
+
+
 class LauncherTests(unittest.TestCase):
 
     def test_agent_splits_the_existing_tw_window_and_switches_when_inside_tmux(self):

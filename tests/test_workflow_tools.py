@@ -46,7 +46,7 @@ class WorkflowToolTests(unittest.TestCase):
             installed = self.invoke(folder, 'skills', '--dest', str(dest), '--apply')
             self.assertEqual(installed.returncode, 0, installed.stderr)
             copies = sorted(dest.glob('sidequest-*/SKILL.md'))
-            self.assertEqual(len(copies), 8)
+            self.assertEqual(len(copies), 9)
             self.assertTrue(all('{{SIDEQUEST_' not in path.read_text() for path in copies))
             ship = (dest / 'sidequest-ship/SKILL.md').read_text()
             self.assertTrue(ship.startswith('---\nname: sidequest-ship\ndescription: '))

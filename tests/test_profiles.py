@@ -132,7 +132,7 @@ class ProfileTests(unittest.TestCase):
         self.assertNotIn('Project additions', beta.stdout)
         unknown = skill('beta', 'deploy')
         self.assertEqual(unknown.returncode, 2)
-        self.assertIn('feedback, implement, qa-local, qa-review-app, ship, start, triage, where', unknown.stderr)
+        self.assertIn('feedback, implement, manage, qa-local, qa-review-app, ship, start, triage, where', unknown.stderr)
 
         # A replace version wins over the generic skill and over additions, even through a link.
         team = self.home / 'team-ship.md'

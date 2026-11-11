@@ -60,6 +60,64 @@ class UpdateTests(unittest.TestCase):
         options.setdefault('busy', lambda path: '')
         return updates.update_all(self.repo, 'origin/main', **options)
 
+    def update_branch(self, path, *args):
+        import os
+        env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+        return subprocess.run([sys.executable, '-B', str(ROOT / 'bin/sidequest-data'), 'update-branch',
+                               '--base', 'origin/main', *args], cwd=path, capture_output=True, text=True, env=env)
+
+    def test_update_branch_fetches_then_rebases_a_branch_never_pushed(self):
+        path = self.worktree('feature/APP-11-a')
+        self.mate_commit('main', 'fresh.txt')
+        (path / 'APP-11-a.txt').write_text('unsaved\n')
+        ran = self.update_branch(path)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        self.assertIn('REBASED onto origin/main (+1); not pushed', ran.stdout)
+        self.assertTrue((path / 'fresh.txt').exists())
+        self.assertEqual((path / 'APP-11-a.txt').read_text(), 'unsaved\n')
+        self.assertEqual(git(path, 'ls-remote', 'origin', 'feature/APP-11-a'), '')
+
+    def test_update_branch_merges_the_base_into_a_pushed_branch_without_pushing(self):
+        path = self.worktree('feature/APP-12-b', push=True)
+        pushed = git(path, 'rev-parse', 'origin/feature/APP-12-b')
+        self.mate_commit('main', 'fresh.txt')
+        ran = self.update_branch(path)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        self.assertIn('MERGED origin/main (+1); not pushed', ran.stdout)
+        self.assertEqual(git(path, 'rev-list', '--count', '--merges', 'HEAD^..HEAD'), '1')
+        self.assertEqual(git(path, 'ls-remote', 'origin', 'feature/APP-12-b').split()[0], pushed)
+
+    def test_update_branch_leaves_a_conflict_open_only_when_asked(self):
+        path = self.worktree('feature/APP-13-c')
+        (path / 'shared.txt').write_text('mine\n')
+        git(path, 'commit', '-q', '-am', 'Mine')
+        self.mate_commit('main', 'shared.txt', 'theirs\n')
+        head = git(path, 'rev-parse', 'HEAD')
+        ran = self.update_branch(path)
+        self.assertEqual(ran.returncode, 1)
+        self.assertIn('shared.txt', ran.stdout + ran.stderr)
+        self.assertEqual(git(path, 'rev-parse', 'HEAD'), head)
+        self.assertEqual(git(path, 'status', '--porcelain'), '')
+        kept = self.update_branch(path, '--keep-conflicts')
+        self.assertEqual(kept.returncode, 3, kept.stderr)
+        self.assertIn('CONFLICT shared.txt', kept.stdout)
+        self.assertIn('git rebase --continue', kept.stdout)
+        self.assertTrue(updates._in_progress(path))
+
+    def test_update_branch_reports_up_to_date_and_refuses_a_diverged_branch(self):
+        path = self.worktree('feature/APP-14-d', push=True)
+        ran = self.update_branch(path)
+        self.assertEqual((ran.returncode, ran.stdout.strip()), (0, 'UP TO DATE with origin/main'))
+        self.mate_commit('feature/APP-14-d')
+        (path / 'local.txt').write_text('local\n')
+        git(path, 'add', '.')
+        git(path, 'commit', '-q', '-m', 'Local')
+        head = git(path, 'rev-parse', 'HEAD')
+        ran = self.update_branch(path)
+        self.assertEqual(ran.returncode, 2)
+        self.assertIn('diverged', ran.stdout + ran.stderr)
+        self.assertEqual(git(path, 'rev-parse', 'HEAD'), head)
+
     def test_a_pushed_branch_takes_its_origin_commits_and_keeps_uncommitted_work(self):
         path = self.worktree('feature/APP-1-x', push=True)
         self.mate_commit('feature/APP-1-x')

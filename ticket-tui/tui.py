@@ -20,18 +20,18 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sidequest.access import AccessFailure, dashboard_text, failure_for
 from sidequest import config
-from sidequest import app_booking, qa
+from sidequest import app_booking, crew, qa, runs, terminal_mode
 from sidequest import terminal
 from sidequest.application import build_workflow
 
-from core import Store, now, parse_time, rank, tickets_from
+from core import Store, Ticket, now, parse_time, rank, tickets_from
 from sidequest.environments import fetch_environments
 from sidequest.ticket_keys import branch_keys, is_key, linked_ticket
 from sidequest.worktrees import parse_worktrees
 from worklog import collect_worklog
 from workflow import stage_context
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
-from layout import (EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, menu_box, pr_glyph_offset,
+from layout import (EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, menu_box, pipeline_header, pipeline_row, pr_glyph_offset,
                     relative, scroll_label, table_header, table_row, panel_rects)
 import standup
 import branch_state
@@ -40,7 +40,7 @@ from detail_views import DetailViews, readable_date, source_age, wrap  # noqa: F
 
 WORKFLOW = Path(__file__).resolve().parents[1]
 ROOT = Path(config.workspace_repository() or WORKFLOW).expanduser().resolve()
-VIEWS = ["All", "Needs me", "Waiting", "Clarify", "In Dev"]
+VIEWS = ["All", "Needs me", "Waiting", "Clarify", "In Dev", "AI"]
 # Right-pane views: key, tab label, internal name.
 TABS = [("a", "Activity", "Activity"), ("p", "Plan", "Plan"), ("d", "Updates", "Updates"),
         ("c", "Questions", "Questions"), ("m", "Meetings", "Meetings"), ("v", "Overview", "Overview"),
@@ -50,12 +50,21 @@ TAB_KEYS = {key: name for key, _, name in TABS}
 PLANS = qa.tickets_dir()
 # Bottom bar. On narrow terminals descriptions shorten first, then MOVE is dropped, then DO.
 # (key, description, short description used when the terminal is narrow)
-FOOTER = [("MOVE", [("j/k", "tickets", ""), ("h/l", "pane", ""), ("1-5", "lane", ""), ("/", "search", "search")]),
+FOOTER = [("MOVE", [("j/k", "tickets", ""), ("h/l", "pane", ""), ("1-6", "lane", ""), ("/", "search", "search")]),
           ("DO", [("Space", "open menu", "menu"), ("w", "go to worktree", "work"), ("r", "refresh", "refresh"),
                   ("o", "sort", "sort"), ("+/-", "resize sections", "size")]),
           ("", [("?", "help", "help"), ("q", "quit", "quit")])]
 SPACE_MENU = [("Open", [("j", "Jira"), ("o", "PR"), ("w", "worktree"), ("s", "agent")]),
-              ("Work", [("n", "create/open local worktree")])]
+              ("Work", [("n", "create/open local worktree"), ("c", "crew worker"), ("C", "crew manager")])]
+CREW = WORKFLOW / 'bin' / 'sidequest-crew.py'
+
+
+def run_crew(args):
+    """Run `sidequest crew` (the same checks as the shell command); its last line is the result."""
+    done = subprocess.run([sys.executable, '-B', str(CREW), *args], capture_output=True, text=True,
+                          timeout=60, stdin=subprocess.DEVNULL)
+    lines = [line.strip() for line in (done.stdout + done.stderr).splitlines() if line.strip()]
+    return (lines[-1] if lines else 'sidequest crew exited with status ' + str(done.returncode))[:200]
 DETAIL_WORKERS = 4
 
 
@@ -397,6 +406,37 @@ class App:
         self.background('agent', 'Starting agent for ' + ticket.key,
                         lambda: workflow.agent(ticket.key, path, prompt), 'launch')
 
+    def crew_worker(self, ticket):
+        """Space c: confirm, then start (or restart) the ticket's crew worker in its worktree window."""
+        if self.demo:
+            self.message = "Demo: crew workers are disabled"
+            return
+        record = self.views.run_record(ticket.key, PLANS)
+        running = bool(record and record["state"] in ("working", "queued"))
+        step = crew.first_step(record, (PLANS / ticket.key / "plan.md").is_file())
+        first = (f"Restart the worker at {step} (recorded as {record['state']})" if running
+                 else f"Start a worker at {step}")
+        choice = self.choose(f"CREW WORKER FOR {ticket.key}", [first, "Cancel"],
+                             "Runs sidequest crew in the ticket's worktree window · Enter · Esc cancel")
+        if choice != 0:
+            self.message = "Crew worker cancelled"
+            return
+        args = [ticket.key] + (["--again"] if running else [])
+        self.background("crew", "Starting crew worker for " + ticket.key, lambda: run_crew(args))
+
+    def crew_manager(self):
+        """Space C: the manager in a pane below the dashboard inside tmux or Herdr, else in this terminal."""
+        if self.demo:
+            self.message = "Demo: the crew manager is disabled"
+            return
+        if terminal_mode.inside(os.environ):
+            self.background("crew", "Opening the crew manager", lambda: run_crew([]))
+        else:
+            folder = qa.tickets_dir()
+            folder.mkdir(parents=True, exist_ok=True)
+            self.foreground_target = {"argv": [sys.executable, "-B", str(CREW)], "cwd": str(folder),
+                                      "label": "Crew manager"}
+
     def start_work(self, ticket):
         if self.demo:
             self.message = 'Demo: creating worktrees is disabled'
@@ -505,11 +545,19 @@ class App:
             return False
         if view == "In Dev":
             return stage_context(ticket)["index"] == 1
-        return view == "All" or ticket.lane == view
+        return view in ("All", "AI") or ticket.lane == view
 
     def visible(self):
-        return [t for t in self.tickets if self.in_view(t, self.view)
-                and self.query.casefold() in f"{t.key} {t.title} {t.status} {t.action}".casefold()]
+        rows = [t for t in self.tickets if self.in_view(t, self.view)]
+        if self.view == "AI":
+            # Workers on tickets outside the queue still show; the person's turn comes first.
+            known = {t.key for t in rows}
+            rows += [Ticket(record["key"], title="(not in your queue)", lane="Clarify")
+                     for record in self.views.crew_records(PLANS) if record["key"] not in known]
+            order = {t.key: runs.ORDER.get((self.views.run_record(t.key, PLANS) or {}).get("state"), len(runs.ORDER))
+                     for t in rows}
+            rows.sort(key=lambda t: order[t.key])
+        return [t for t in rows if self.query.casefold() in f"{t.key} {t.title} {t.status} {t.action}".casefold()]
 
     def selected(self):
         rows = self.visible()
@@ -590,7 +638,8 @@ class App:
     def summary_card(self, ticket):
         state = self.views.branch_states.get(ticket.key) if ticket.worktree else None
         return card(ticket, now(), last_commit(ticket, self.evidence.worklog), self.environment(ticket),
-                    self.stale_days, local=[branch_state.summary(state)] if state else [],
+                    self.stale_days, local=([branch_state.summary(state)] if state else []) +
+                    self.views.agent_line(ticket, PLANS),
                     hint=branch_state.qa_hint(ticket, state))
 
     def notify(self, text):
@@ -665,8 +714,19 @@ class App:
         ages = lambda: (f"Jira {source_age((self.evidence.jira or self.evidence.fallback).get('generated_at'))} · "
                         f"GitHub {source_age(self.evidence.prs.get('generated_at'))} · "
                         f"git {source_age(self.evidence.worklog.get('generated_at'))}")
+        if self.view == "AI":
+            return self.views.agent_rows(ticket, PLANS)
         return self.views.rows(self.detail_tab, ticket, PLANS, "heroku" in self.jobs,
                                lambda: standup.view_lines(self.standup_data(), ages()))
+
+    def animating(self):
+        """True while an agent shown on screen is active, so its glyph keeps moving."""
+        if self.view == "AI":
+            records = [self.views.run_record(t.key, PLANS) for t in self.visible()]
+        else:
+            selected = self.selected()
+            records = [self.views.run_record(selected.key, PLANS)] if selected else []
+        return any(record and record["state"] in runs.ACTIVE for record in records)
 
     def details(self, ticket):
         return [row.text for row in self.detail_rows(ticket)]
@@ -683,7 +743,7 @@ class App:
         if preview_rect:
             top, _, panel_h, pw = preview_rect
             detail_width, detail_top = pw - 4, top + 3
-            if ticket and self.detail_tab != "Standup":
+            if ticket and self.detail_tab != "Standup" and self.view != "AI":
                 summary = self.summary_card(ticket)
                 summary = summary[:2] if panel_h < 16 else summary
                 detail_top += len(summary) + 1
@@ -697,10 +757,13 @@ class App:
     def view_key(self):
         """UI state a viewport depends on. Evidence changes clear the cache in drain() and rebuild()."""
         evidence, selected = self.evidence, self.selected()
+        self.views.frame = int(time.monotonic() * 8) if self.animating() else 0
         size = self.screen.getmaxyx() if getattr(self, "screen", None) else None
         return (size, self.focus_pane, self.list_fraction, self.view, self.query, self.detail_tab,
                 selected.key if selected else None, tuple(self.jobs), tuple(evidence.refresh_errors),
-                evidence.environment_error, self.standup_time, int(time.time() // 60))
+                evidence.environment_error, self.standup_time, int(time.time() // 60), self.views.frame,
+                self.views.run_version(self.views.run_paths(PLANS) if self.view == "AI" else
+                                       [PLANS / selected.key / "run.json"] if selected else []))
 
     def cached_viewport(self):
         """The viewport for the current state, reused while view_key() is unchanged."""
@@ -800,6 +863,31 @@ class App:
             self.put(row, x, side, attr)
             self.put(row, x + w - 1, side, attr)
 
+    def draw_pipeline(self, top, panel_h, list_w, rows, capacity, list_active, clock):
+        """AI mode list: one crew pipeline per ticket, the person's turn first."""
+        inner_w, frame = list_w - 2, self.views.frame
+        records = {t.key: self.views.run_record(t.key, PLANS) for t in rows}
+        active = [r for r in records.values() if r]
+        needs = sum(r["state"] in ("waiting", "failed", "ready") for r in active)
+        working = sum(r["state"] == "working" for r in active)
+        count = lambda n, word: f"{n} {word}" + ("" if n == 1 else "s")
+        title = (f"✦ AI pipeline · {count(len(rows), 'ticket')} · {count(len(active), 'worker')} · {needs} need you"
+                 f" · {working} working"
+                 + (f"  /{self.query}" if self.query else ""))
+        self.draw_box(top, 0, panel_h, list_w, title, list_active, scroll_label(self.offset, capacity, len(rows)))
+        self.put(top + 1, 1, "  " + pipeline_header(inner_w - 2), curses.A_DIM, inner_w)
+        tones = {"waiting": "Needs me", "failed": "Needs me", "ready": "accent", "working": "Waiting", "queued": "Waiting"}
+        for i, item in enumerate(rows[self.offset:self.offset + capacity], self.offset):
+            y = top + 2 + (i - self.offset)
+            record = records[item.key]
+            glyph, rest = pipeline_row(item, record, frame, inner_w - 2, clock)
+            sel = (curses.A_REVERSE if list_active else curses.A_UNDERLINE) if i == self.index else 0
+            tone = self.style(tones.get(record["state"])) if record else curses.A_DIM
+            self.put(y, 1, glyph, (sel or tone) | curses.A_BOLD, 1)
+            self.put(y, 2, " " + rest, sel | (0 if record else curses.A_DIM), inner_w - 1)
+        if not rows:
+            self.put(top + 3, 2, "No tickets. Start workers with: sidequest crew APP-1 APP-2", curses.A_DIM)
+
     def draw(self, overlay=None):
         """Paint the dashboard; overlay (a menu or prompt) is painted on top before the one refresh."""
         self.screen.erase()
@@ -843,9 +931,13 @@ class App:
             inner_w = list_w - 2
             with_when = self.sort_mode in DATE_SORTS
             cols = columns(inner_w, with_when)
-            self.put(top + 1, 1, table_header(cols), curses.A_DIM, inner_w)
             capacity = view.list_rows
-            self.draw_box(top, 0, panel_h, list_w, title, list_active, scroll_label(self.offset, capacity, len(rows)))
+            if self.view == "AI":
+                self.draw_pipeline(top, panel_h, list_w, rows, capacity, list_active, clock)
+                rows = []
+            else:
+                self.put(top + 1, 1, table_header(cols), curses.A_DIM, inner_w)
+                self.draw_box(top, 0, panel_h, list_w, title, list_active, scroll_label(self.offset, capacity, len(rows)))
             ci_x = 1 + cols["glyph"] + pr_glyph_offset(cols)
             for i, item in enumerate(rows[self.offset:self.offset + capacity], self.offset):
                 y = top + 2 + (i - self.offset)
@@ -860,11 +952,11 @@ class App:
                 if len(pr_cell) > 1 and pr_cell[1] in TONE:
                     self.put(y, ci_x + len(pr_cell[0]) + 1, pr_cell[1],
                              sel | bold | self.tone(pr_cell[1]), 1)
-            if not rows:
+            if not rows and self.view != "AI":
                 self.put(top + 3, 2, "No matching tickets. r: refresh  /: search  Esc: clear", curses.A_DIM)
         if preview_rect:
             top, px, panel_h, pw = preview_rect
-            title = f"{ticket.key} · {ticket.title}" if ticket else "No ticket"
+            title = (f"{ticket.key} · {ticket.title}" if ticket else "No ticket") + (" · agent" if self.view == "AI" else "")
             x, detail_width = px + 2, pw - 4
             def tab_strip(short):
                 parts = []
@@ -875,6 +967,8 @@ class App:
             tabs = tab_strip(False)
             if sum(len(t) for t, _ in tabs) > detail_width:
                 tabs = tab_strip(True)
+            if self.view == "AI":
+                tabs = [(" ✦ AI mode: this ticket's worker · 1-5 back to the ticket lanes ", accent)]
             self.put_parts(top + 1, x - 1, tabs, x + detail_width)
             summary, y0 = view.summary, top + 3
             for i, line in enumerate(summary):
@@ -974,6 +1068,9 @@ class App:
                         lambda: workflow.open(ticket.key, ticket.worktree), 'launch')
 
     def action(self, key):
+        if key == "C":
+            self.crew_manager()
+            return
         ticket = self.selected()
         if not ticket:
             return
@@ -987,6 +1084,8 @@ class App:
             self.launch_agent(ticket)
         elif key == "n":
             self.start_work(ticket)
+        elif key == "c":
+            self.crew_worker(ticket)
 
     def help(self):
         self.screen.erase()
@@ -997,6 +1096,7 @@ class App:
                  "  h / l, Enter  List / preview pane           gl / gL   Next / previous ticket needing you",
                  "  + / -         Grow / shrink ticket section   =       Reset 30/70 split (size is remembered)",
                  "  1..5          All / Needs me / Waiting / Clarify / In Dev",
+                 "  6             ✦ AI mode: every ticket's crew pipeline; details show its worker (sidequest crew)",
                  "  /             Filter while typing (Enter keeps)  Esc  Clear filter, back to list",
                  "",
                  "WAIT starts at the later of Jira status entry or first assignment to you.",
@@ -1014,6 +1114,7 @@ class App:
                  "OPEN  (press Space, then)",
                  "  j Jira   o PR   w worktree shell   s agent workflows / custom prompt",
                  "  n create/reuse the ticket worktree (fix/ for Bugs) and open it: its tmux window, else a shell",
+                 "  c start (or restart) the ticket's crew worker   C open the crew manager (sidequest crew)",
                  "",
                  "DATA",
                  "  r refresh Jira + GitHub via sidequest-data   e recheck Heroku   o / O choose / reverse sort",
@@ -1052,7 +1153,7 @@ class App:
                 self.rebuild()
                 last_ranked = time.monotonic()
             frame = int(time.monotonic() * 8)
-            if self.dirty or ((self.refreshing or self.jobs) and frame != last_spinner):
+            if self.dirty or ((self.refreshing or self.jobs or self.animating()) and frame != last_spinner):
                 self.draw()
                 self.dirty = False
                 last_spinner = frame
@@ -1077,7 +1178,7 @@ class App:
         """How long the loop waits for a key. Keys end the wait at once; a longer idle wait
         only delays background results, so wake often only while something is changing."""
         busy = self.refreshing or self.jobs or self.deferred_message or self.pending
-        return 50 if busy else 250
+        return 50 if busy else 125 if self.animating() else 250
 
     def blocking(self, show):
         """Run a prompt or menu with no key timeout; tests have no screen."""
@@ -1145,7 +1246,7 @@ class App:
                 self.resize_sections({"+": 1, "-": -1, "=": 0}[key])
             elif key in ("h", "l", "\n", "\r"):
                 self.focus_pane = "list" if key == "h" else "preview"
-            elif isinstance(key, str) and key in "12345":
+            elif isinstance(key, str) and len(key) == 1 and key in "123456":
                 self.view, self.index, self.preview_scroll = VIEWS[int(key) - 1], 0, 0
             elif key == "/":
                 self.blocking(self.search)

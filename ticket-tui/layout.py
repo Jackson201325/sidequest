@@ -5,13 +5,18 @@ also differs by shape, so meaning survives without colour (NO_COLOR, monochrome 
 """
 
 from core import parse_time
+from pathlib import Path
 import re
+import sys
 
 from workflow import STAGE_LABELS, next_owner, stage_context
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sidequest import runs
+
 # Lane glyphs: filled = your move, empty = waiting, ? = unclear.
 LANE_GLYPH = {"Needs me": "●", "Waiting": "○", "Clarify": "?", "Done": "✓"}
-VIEW_GLYPH = {**LANE_GLYPH, "In Dev": "◆"}
+VIEW_GLYPH = {**LANE_GLYPH, "In Dev": "◆", "AI": "✦"}
 CI_GLYPH = {"green": "✓", "failing": "✗", "pending": "…", "mixed": "~"}
 
 # Focused panel: heavy border; other panel: light rounded border. Focus is visible by shape.
@@ -259,3 +264,48 @@ def lane_tab(index, view, count, active, compact):
 def pr_glyph_offset(cols):
     """Column of the CI glyph inside a table row's `rest` part (after the lane glyph)."""
     return cols["key"] + cols["title"] + cols["stage"] + cols["turn"]
+
+
+PIPELINE_STAGES = ("START", "IMPLEMENT", "QA-LOCAL", "SHIP-CHECK")
+
+
+def pipeline_cells(record, frame, width):
+    """One cell per crew step: ✓━━ done, the current state's glyph (with a moving ▶ while working), · ahead."""
+    current = runs.STEPS.index(record["step"]) if record else None
+    cells = []
+    for index in range(len(runs.STEPS)):
+        if record is None or index > current:
+            cell = "·"
+        elif index < current or record["state"] == "ready":
+            cell = "✓" + "━" * (width - 2)
+        elif record["state"] == "working":
+            cell = runs.glyph("working", frame) + "━" * (frame % max(1, width - 3)) + "▶"
+        else:
+            cell = runs.glyph(record["state"], frame)
+        cells.append(cell[:width].ljust(width))
+    return cells
+
+
+def pipeline_columns(width):
+    """(key, cell, state) widths; the title takes what is left."""
+    cell = 12 if width >= 110 else 10
+    return 10, cell, 22
+
+
+def pipeline_header(width):
+    key, cell, state = pipeline_columns(width)
+    return (f"{'TICKET':<{key}}" + "".join(f"{name:<{cell}}" for name in PIPELINE_STAGES)
+            + f"{'AGENT':<{state}}TITLE")[:width]
+
+
+def pipeline_row(ticket, record, frame, width, clock):
+    """(glyph, rest) for one AI-mode row; the glyph is coloured by its state."""
+    key, cell, state_width = pipeline_columns(width)
+    if record:
+        glyph = runs.glyph(record["state"], frame)
+        state = f"{runs.LABELS[record['state']]} {runs.age(record.get('updated'), clock)}"
+    else:
+        glyph, state = " ", "no worker"
+    rest = (f"{ticket.key:<{key - 1}}" + "".join(pipeline_cells(record, frame, cell))
+            + f"{state:<{state_width}}{ticket.title}")
+    return glyph, rest[:max(0, width - 1)]

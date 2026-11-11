@@ -142,3 +142,57 @@ def update_all(repository, base='origin/main', merge_base=False, busy=None, dry_
     for item in behind_base:
         lines.append('behind   ' + item + '; sidequest up --update merges ' + base + ' in')
     return lines, problems
+
+
+def _conflicts(path):
+    return [line for line in _out(path, 'diff', '--name-only', '--diff-filter=U').splitlines() if line]
+
+
+def update_branch(path, base='origin/main', keep_conflicts=False):
+    """(exit code, lines) for the one branch checked out at path, by the same rules as update_all:
+    take new commits from its own origin branch (fast-forward only), then rebase a branch never pushed onto
+    the base, or merge the base into a pushed one. Never pushes. A conflict is aborted, unless keep_conflicts
+    leaves it open for someone to resolve (exit 3). Exit 2: refused, nothing changed; 1: failed and aborted."""
+    branch = _out(path, 'rev-parse', '--abbrev-ref', 'HEAD')
+    if not branch or branch == 'HEAD':
+        return 2, ['REFUSED no branch is checked out here']
+    if _in_progress(path):
+        return 2, ['REFUSED a merge or rebase is already in progress; finish or abort it first']
+    lines = []
+    upstream = _out(path, 'rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}')
+    if upstream and upstream != base:
+        behind, ahead = (int(n) for n in (_out(path, 'rev-list', '--left-right', '--count', upstream + '...HEAD')
+                                         or '0 0').split())
+        if behind and ahead:
+            return 2, [f'REFUSED {branch} diverged from {upstream} ({ahead} local / {behind} remote commits); '
+                       'sort it out by hand']
+        if behind:
+            ran = _git(path, 'merge', '--ff-only', '--autostash', upstream)
+            if ran.returncode:
+                return 1, ['FAILED could not fast-forward to ' + upstream + ': ' + _failure(ran.stdout + ran.stderr)]
+            lines.append(f'PULLED {behind} from {upstream}')
+    else:
+        upstream = ''
+    behind = int(_out(path, 'rev-list', '--count', 'HEAD..' + base) or 0)
+    if not behind:
+        return 0, lines + ['UP TO DATE with ' + base]
+    pushed = bool(upstream or _out(path, 'rev-parse', '-q', '--verify', 'refs/remotes/origin/' + branch))
+    if pushed:
+        ran, verb, resume, abort = _git(path, 'merge', '--no-edit', '--autostash', base), 'MERGED', \
+            'git add <files> && git commit --no-edit', 'git merge --abort'
+    else:
+        ran, verb, resume, abort = _git(path, 'rebase', '--autostash', base), 'REBASED', \
+            'git add <files> && git rebase --continue', 'git rebase --abort'
+    if ran.returncode:
+        files = _conflicts(path)
+        if keep_conflicts and files and _in_progress(path):
+            return 3, lines + ['CONFLICT ' + name for name in files] + [
+                f'Resolve each file, run the checks, then: {resume}', f'To give up and restore the branch: {abort}']
+        _git(path, *abort.split()[1:])
+        return 1, lines + [f'FAILED {verb.lower()[:-2]}e with {base} ({_failure(ran.stdout + ran.stderr)}); '
+                           'aborted, left as it was']
+    text = (f'MERGED {base} (+{behind}); not pushed' if pushed else f'REBASED onto {base} (+{behind}); not pushed')
+    lines.append(text)
+    if AUTOSTASH_CONFLICT in ran.stdout + ran.stderr:
+        lines.append("NOTE your uncommitted changes conflicted; they're safe in git stash")
+    return 0, lines
