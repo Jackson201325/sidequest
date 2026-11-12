@@ -75,12 +75,62 @@ class RunCommandTests(unittest.TestCase):
         self.assertIn("DEMO-2  qa-local  waiting on you  12m  Q1: Staging data?", text)
 
 
+class FinishedStepTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.tickets = Path(self.tmp.name) / "tickets"
+        self.repo = Path(self.tmp.name) / "repo"
+        self.repo.mkdir()
+        git = lambda *args: subprocess.run(["git", "-C", str(self.repo), *args], check=True, capture_output=True)
+        git("init", "-q")
+        (self.repo / "app.rb").write_text("one\n")
+        git("add", "app.rb")
+        git("-c", "user.name=t", "-c", "user.email=t@example.test", "commit", "-qm", "base")
+
+    def run_cmd(self, *args, cwd=None):
+        env = dict(os.environ, SIDEQUEST_TICKETS_DIR=str(self.tickets))
+        return subprocess.run([sys.executable, "-B", str(SCRIPT), "run", *args],
+                              text=True, capture_output=True, env=env, cwd=cwd or self.repo, input="")
+
+    def finished(self):
+        return json.loads(self.run_cmd("DEMO-9", "show", "--json").stdout).get("finished", {})
+
+    def test_a_step_counts_as_finished_on_the_code_it_left(self):
+        self.run_cmd("DEMO-9", "set", "implement", "working")
+        (self.repo / "app.rb").write_text("two\n")
+        self.run_cmd("DEMO-9", "set", "qa-local", "working")
+        self.assertEqual(self.finished()["implement"]["count"], 1)
+        self.assertNotIn("qa-local", self.finished())
+        self.assertEqual(self.run_cmd("DEMO-9", "ran", "implement").returncode, 0)
+        self.assertNotEqual(self.run_cmd("DEMO-9", "ran", "qa-local").returncode, 0)
+        (self.repo / "new.rb").write_text("three\n")
+        changed = self.run_cmd("DEMO-9", "ran", "implement")
+        self.assertNotEqual(changed.returncode, 0)
+        self.assertIn("changed", changed.stdout)
+
+    def test_each_ready_ship_check_adds_one_run_and_hooks_add_none(self):
+        for _ in range(2):
+            self.run_cmd("DEMO-9", "set", "ship-check", "working")
+            self.run_cmd("DEMO-9", "hook", "stop")
+            self.run_cmd("DEMO-9", "hook", "prompt")
+            self.run_cmd("DEMO-9", "set", "ship-check", "ready")
+        self.assertEqual(self.finished()["ship-check"]["count"], 2)
+        shown = self.run_cmd("DEMO-9", "show").stdout
+        self.assertIn("Finished: ship-check ×2", shown)
+
+    def test_outside_a_git_checkout_nothing_is_counted(self):
+        self.run_cmd("DEMO-9", "set", "implement", "working", cwd=self.tmp.name)
+        self.run_cmd("DEMO-9", "set", "qa-local", "working", cwd=self.tmp.name)
+        self.assertEqual(self.finished(), {})
+
+
 class QaReviewStepTests(unittest.TestCase):
     def test_qa_review_is_the_last_step(self):
         sys.path.insert(0, str(SCRIPT.parents[1]))
         from sidequest import runs
         self.assertEqual(runs.STEPS[-1], "qa-review")
-        self.assertEqual(runs.STEPS[-2], "ship-check")
+        self.assertEqual(runs.STEPS[-3:-1], ("ship-check", "challenge"))
 
 
 if __name__ == "__main__":

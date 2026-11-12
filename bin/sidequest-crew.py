@@ -5,7 +5,9 @@
                                     one (40% of its height) in tmux or Herdr, else in this terminal
   sidequest crew APP-1 APP-2        start a worker (crew.worker_command) in each ticket's worktree
                                     window; it runs start, implement, qa-local and ship-check and
-                                    stops when it needs you or is ready to ship
+                                    stops when it needs you or is ready; after a ready ship-check it
+                                    starts the challenger (crew.challenge_command, default Opus),
+                                    which assumes the work is wrong and checks it before you ship
   sidequest crew --status           every worker's step and state, the ones waiting on you first
 
 Workers report through `sidequest-data run`; the dashboard shows it on the card and in AI mode (6).
@@ -128,9 +130,11 @@ def main():
               file=sys.stderr)
         return 2
     launch = worker_launcher(flow, config.get('crew', 'worker_command') or crew.DEFAULT_WORKER, DATA)
+    challenger = worker_launcher(flow, config.get('crew', 'challenge_command') or crew.DEFAULT_CHALLENGER, DATA)
     try:
         lines, skipped = crew.dispatch(keys, find_worktree, tickets_dir(), launch, DATA,
-                                       clock.isoformat(timespec='seconds'), args.again, args.dry_run)
+                                       clock.isoformat(timespec='seconds'), args.again, args.dry_run,
+                                       challenger=challenger)
     except RuntimeError as exc:
         print('sidequest crew: ' + str(exc), file=sys.stderr)
         return 1

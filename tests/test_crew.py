@@ -36,8 +36,20 @@ class WorkerPromptTests(unittest.TestCase):
         self.assertIn(DATA + " qa-shot DEMO-9", qa)
         self.assertIn("qa/report.md", qa)
 
-    def test_a_ready_ship_check_continues_at_qa_review_on_the_review_app(self):
+    def test_a_ready_ship_check_goes_to_a_challenger_that_assumes_the_work_is_wrong(self):
         record = {"key": "DEMO-9", "step": "ship-check", "state": "ready", "note": "Ready to ship"}
+        self.assertEqual(crew.first_step(record, True), "challenge")
+        prompt = crew.worker_prompt("DEMO-9", record, DATA)
+        self.assertIn("Assume every part of its work is wrong", prompt)
+        self.assertIn("wrong", prompt)
+        self.assertIn(DATA + " run DEMO-9 set challenge working", prompt)
+        self.assertIn(DATA + " run DEMO-9 set challenge ready", prompt)
+        self.assertIn("challenge.md", prompt)
+        self.assertIn("Never commit, push", prompt)
+        self.assertNotIn("skill qa-review-app", prompt)
+
+    def test_a_ready_challenge_continues_at_qa_review_on_the_review_app(self):
+        record = {"key": "DEMO-9", "step": "challenge", "state": "ready", "note": "2 fixed"}
         self.assertEqual(crew.first_step(record, True), "qa-review")
         prompt = crew.worker_prompt("DEMO-9", record, DATA)
         self.assertIn("Continue from qa-review", prompt)
@@ -45,13 +57,18 @@ class WorkerPromptTests(unittest.TestCase):
         self.assertIn(DATA + " skill qa-review-app", prompt)
         self.assertIn(DATA + " review-app DEMO-9 --json", prompt)
         self.assertIn("qa-review waiting", prompt)
-        self.assertEqual(crew.first_step(dict(record, state="working"), True), "ship-check")
+        self.assertEqual(crew.first_step(dict(record, state="working"), True), "challenge")
 
     def test_resumed_worker_continues_from_the_recorded_step(self):
         record = {"key": "DEMO-9", "step": "qa-local", "state": "waiting", "note": "Q1: Staging data?"}
         prompt = crew.worker_prompt("DEMO-9", record, DATA)
         self.assertIn("Continue from qa-local", prompt)
         self.assertIn("Q1: Staging data?", prompt)
+        self.assertIn(DATA + " review-app DEMO-9 --json", prompt.split("Continue from")[0].split("already has a run")[1])
+
+    def test_workers_skip_a_step_that_already_finished_on_the_same_code(self):
+        prompt = crew.worker_prompt("DEMO-9", None, DATA)
+        self.assertIn(DATA + " run DEMO-9 ran <step>", prompt)
 
     def test_claude_workers_get_hooks_that_report_waiting(self):
         line = crew.worker_command("claude --model claude-sonnet-5-5", "DEMO-9", DATA)
@@ -92,6 +109,16 @@ class DispatchTests(unittest.TestCase):
         (self.tickets / "DEMO-1" / "plan.md").write_text("# Plan\n")
         self.dispatch(["DEMO-1"])
         self.assertEqual(runs.read(self.tickets / "DEMO-1" / "run.json")["step"], "implement")
+
+    def test_the_challenge_step_starts_with_the_challenger_command(self):
+        runs.update(self.tickets / "DEMO-1" / "run.json", "DEMO-1", "ship-check", "ready", "", "2026-11-11T09:00:00+00:00")
+        challenged = []
+        lines, _ = crew.dispatch(["DEMO-1"], self.trees.get, self.tickets,
+                                 lambda key, path, prompt: self.launched.append(key), DATA,
+                                 "2026-11-11T10:00:00+00:00",
+                                 challenger=lambda key, path, prompt: challenged.append(key))
+        self.assertEqual((self.launched, challenged), ([], ["DEMO-1"]))
+        self.assertEqual(lines, ["DEMO-1: challenger started at challenge"])
 
     def test_tickets_without_their_own_worktree_are_skipped_with_the_reason(self):
         lines, failed = self.dispatch(["DEMO-2", "DEMO-3"])

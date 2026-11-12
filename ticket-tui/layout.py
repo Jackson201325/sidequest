@@ -266,7 +266,7 @@ def pr_glyph_offset(cols):
     return cols["key"] + cols["title"] + cols["stage"] + cols["turn"]
 
 
-PIPELINE_STAGES = ("START", "IMPLEMENT", "QA-LOCAL", "SHIP-CHECK", "QA-REVIEW")
+PIPELINE_STAGES = ("START", "IMPLEMENT", "QA-LOCAL", "SHIP-CHECK", "CHALLENGE", "QA-REVIEW")
 
 
 def pipeline_cells(record, frame, width):
@@ -301,6 +301,7 @@ def pipeline_header(width):
 def pipeline_row(ticket, record, frame, width, clock):
     """(glyph, rest) for one AI-mode row; the glyph is coloured by its state."""
     key, cell, state_width = pipeline_columns(width)
+    record = runs.after_ship(record) if ticket.prs else record
     if record:
         glyph = runs.glyph(record["state"], frame)
         state = f"{runs.LABELS[record['state']]} {runs.age(record.get('updated'), clock)}"

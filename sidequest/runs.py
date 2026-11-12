@@ -11,7 +11,7 @@ import json
 import os
 import tempfile
 
-STEPS = ("start", "implement", "qa-local", "ship-check", "qa-review")
+STEPS = ("start", "implement", "qa-local", "ship-check", "challenge", "qa-review")
 STATES = ("queued", "working", "waiting", "ready", "failed")
 LABELS = {"queued": "queued", "working": "working", "waiting": "waiting on you",
           "ready": "ready for you", "failed": "failed"}
@@ -48,12 +48,27 @@ def _write(path, record):
     os.replace(temporary, path)
 
 
-def update(path, key, step, state, note, at):
+def finished_step(record, step, state):
+    """The step this update finishes: the same step set ready, or the earlier step the worker moves on from."""
+    if state == "ready":
+        return step
+    earlier = record.get("step")
+    if earlier in STEPS and STEPS.index(step) > STEPS.index(earlier) and record.get("state") != "failed":
+        return earlier
+    return None
+
+
+def update(path, key, step, state, note, at, version=None):
+    """version fingerprints the worktree's code; with it, a finished step is counted under "finished"."""
     if step not in STEPS:
         raise ValueError("Unknown step " + repr(step) + "; known: " + ", ".join(STEPS))
     if state not in STATES:
         raise ValueError("Unknown state " + repr(state) + "; known: " + ", ".join(STATES))
     record = read(path) or {"key": key.upper(), "history": []}
+    done = finished_step(record, step, state) if version else None
+    if done:
+        finished = record.setdefault("finished", {})
+        finished[done] = {"count": finished.get(done, {}).get("count", 0) + 1, "version": version, "at": at}
     entry = {"at": at, "step": step, "state": state, "note": clean(note)}
     record.update(key=key.upper(), step=step, state=state, note=entry["note"], updated=at)
     record["history"] = (record.get("history") or [])[-(HISTORY - 1):] + [entry]
@@ -110,6 +125,31 @@ def summary(record, clock):
     """'implement · waiting on you · 12m · Q1: Copy?'"""
     parts = [record["step"], LABELS[record["state"]], age(record.get("updated"), clock)]
     return " · ".join(parts + ([record["note"]] if record.get("note") else []))
+
+
+def finished_counts(record):
+    """'implement ×1, ship-check ×5' in step order, or '' before any step finished."""
+    finished = record.get("finished") or {}
+    return ", ".join(f"{step} ×{finished[step]['count']}" for step in STEPS if step in finished)
+
+
+def ran(record, step, version):
+    """(already finished on this code, message) for `sidequest-data run KEY ran STEP`."""
+    done = (record or {}).get("finished", {}).get(step)
+    if not done:
+        return False, f"{step} has not finished yet; run it"
+    times = f"{done['count']} time{'s' if done['count'] != 1 else ''}"
+    if version and done.get("version") == version:
+        return True, f"{step} already finished {times}, last on this same code ({done['at']}); skip it"
+    return False, f"{step} finished {times}, but the code changed since {done['at']}; run it again"
+
+
+def after_ship(record):
+    """With an open PR the person has shipped: every step before qa-review is done."""
+    if not record or STEPS.index(record["step"]) >= STEPS.index("qa-review"):
+        return record
+    state = record["state"] if record["state"] in ("working", "queued") else "waiting"
+    return dict(record, step="qa-review", state=state)
 
 
 def all_records(folder):

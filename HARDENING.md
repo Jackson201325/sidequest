@@ -601,3 +601,12 @@ ticket-tui/test_crew_tab.py failed first. Space c now creates the worktree with 
 ticket-tui/test_crew_tab.py failed first. A ready ship-check restarts at qa-review; the worker checks
 `review-app KEY --json` and waits when no PR or review app exists, and never updates PR screenshots or
 asks for passwords in chat. Qa-local must end with qa-shot screenshots and qa/report.md.
+2026-11-11: TRD-816 stayed at ship-check after it shipped: hooks after "ready" kept the step, and nothing
+set qa-review. ticket-tui/test_crew_tab.py failed first; AI mode now shows a ticket with an open PR at
+qa-review, and a resumed worker continues there when review-app shows an open PR.
+2026-11-11: Finished-step counts. tests/test_runs.py failed first. `run set` from a worktree counts the step
+it finishes with a code fingerprint (read-only Git; none outside Git); `run KEY ran STEP` exits 0 on the
+same code, and workers and the challenger skip a step that already finished there.
+2026-11-11: Challenge step before shipping. tests/test_crew.py failed first. A ready ship-check starts a
+challenger (crew.challenge_command, default Opus) that assumes the work is wrong, checks each claim,
+fixes in-scope defects with a failing test, writes challenge.md and never commits, pushes or posts.

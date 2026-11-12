@@ -45,12 +45,12 @@ class CrewTests(unittest.TestCase):
         self.assertEqual(frames('waiting'), {'●', '○'})
         self.assertEqual((frames('ready'), frames('failed')), ({'✓'}, {'✗'}))
         self.assertEqual(runs.track('qa-local', 'working', 0),
-                         '✓ start  ✓ implement  ' + runs.glyph('working', 0) + ' qa-local  · ship-check  · qa-review')
+                         '✓ start  ✓ implement  ' + runs.glyph('working', 0) + ' qa-local  · ship-check  · challenge  · qa-review')
 
     def test_pipeline_row_shows_done_stages_and_a_moving_arrow_on_the_working_one(self):
         record = {'key': 'DEMO-1', 'step': 'implement', 'state': 'working', 'note': '', 'updated': ''}
         first = layout.pipeline_cells(record, 0, 12)
-        self.assertEqual(len(first), 5)
+        self.assertEqual(len(first), 6)
         self.assertTrue(first[0].startswith('✓━'))
         self.assertTrue(first[1].startswith(runs.glyph('working', 0)))
         self.assertIn('▶', first[1])
@@ -60,10 +60,20 @@ class CrewTests(unittest.TestCase):
         ready = dict(record, step='ship-check', state='ready')
         cells = layout.pipeline_cells(ready, 0, 12)
         self.assertTrue(all(cell.startswith('✓') for cell in cells[:4]))
-        self.assertEqual(cells[4].strip(), '·')
+        self.assertEqual([c.strip() for c in cells[4:]], ['·', '·'])
         reviewed = dict(record, step='qa-review', state='ready')
         self.assertTrue(all(cell.startswith('✓') for cell in layout.pipeline_cells(reviewed, 0, 12)))
-        self.assertEqual([c.strip() for c in layout.pipeline_cells(None, 0, 12)], ['·'] * 5)
+        self.assertEqual([c.strip() for c in layout.pipeline_cells(None, 0, 12)], ['·'] * 6)
+
+    def test_an_open_pr_moves_the_pipeline_past_ship_check(self):
+        record = {'key': self.ticket.key, 'step': 'ship-check', 'state': 'waiting', 'note': '', 'updated': ''}
+        self.ticket.prs = [{'number': 12}]
+        _, rest = layout.pipeline_row(self.ticket, record, 0, 160, None)
+        self.assertEqual(rest.count('✓'), 5)
+        self.assertIn('●', rest)
+        self.ticket.prs = []
+        _, rest = layout.pipeline_row(self.ticket, record, 0, 160, None)
+        self.assertEqual(rest.count('✓'), 3)
 
     def test_ai_mode_lists_every_ticket_as_a_pipeline_the_persons_turn_first(self):
         keys = [t.key for t in self.app.tickets if t.lane != 'Done']

@@ -167,8 +167,13 @@ keyboard navigation at the approved TUI interface.
 `sidequest crew` (bin/sidequest-crew.py, sidequest/crew.py) starts the manager (crew.manager_command)
 and one worker per ticket worktree (crew.worker_command) through WorkspaceWorkflow.agent, so tmux and
 Herdr placement stay in the terminal adapters. Workers chain the bundled skills and stop at human gates.
-Steps are runs.STEPS: start, implement, qa-local, ship-check, qa-review. A ready ship-check makes
-crew.first_step return qa-review, which needs the PR the person opens with sidequest-ship.
+Steps are runs.STEPS: start, implement, qa-local, ship-check, challenge, qa-review. A ready ship-check
+makes crew.first_step return challenge, which dispatch starts with the challenger launcher
+(crew.challenge_command, default Opus) and crew.challenge_prompt. A ready challenge returns qa-review,
+which needs the PR the person opens with sidequest-ship. runs.update counts a finished step under
+"finished" with the code fingerprint bin/sidequest-run.py computes (HEAD, `git diff HEAD`, untracked
+files; read-only Git); hooks never count. runs.after_ship moves the AI-mode row to qa-review when the
+ticket has an open PR.
 sidequest/runs.py owns run.json (written only by `sidequest-data run`); Claude Code workers get
 UserPromptSubmit/Stop/Notification hooks through `--settings`, and a hook always exits 0 and never
 overrides a state the worker reported. The dashboard reads run.json for the card and AI mode (6).

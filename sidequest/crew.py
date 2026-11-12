@@ -9,6 +9,7 @@ from sidequest import runs
 
 DEFAULT_MANAGER = "claude --model claude-opus-5-5"
 DEFAULT_WORKER = "claude --model claude-sonnet-5-5"
+DEFAULT_CHALLENGER = "claude --model claude-opus-5-5"
 
 
 def hook_settings(key, data):
@@ -30,18 +31,50 @@ def worker_command(command, key, data):
 
 def first_step(record, has_plan):
     if record and record.get("step") in runs.STEPS:
-        if record["step"] == "ship-check" and record.get("state") == "ready":
-            return "qa-review"  # The person ships in between; the review app needs the open PR.
+        if record.get("state") == "ready" and record["step"] in ("ship-check", "challenge"):
+            return runs.STEPS[runs.STEPS.index(record["step"]) + 1]
         return record["step"]
     return "implement" if has_plan else "start"
 
 
+def challenge_prompt(key, record, data):
+    """The challenger (a stronger model) reviews the worker's finished ship-check before the person ships."""
+    report = f"{data} run {key} set"
+    note = f" The worker's note: {record['note']}." if record and record.get("note") else ""
+    return "\n".join([
+        f"You are the Sidequest crew challenger for {key}. Work only in this worktree.{note}",
+        "Another agent implemented this ticket and says it is ready to ship. Assume every part of its work "
+        "is wrong until you prove it right: the criteria it claims, the code, the tests and the QA evidence.",
+        f"1. Run `{data} run {key} ran challenge`. Exit 0 means you already challenged this same code: "
+        "say so and stop.",
+        f"2. Run `{report} challenge working`.",
+        f"3. Read the Jira ticket (`{data} ticket {key} --json`), plan.md, the questions and the plan's Updates. "
+        "Write each acceptance criterion again in your own words. Do not trust the worker's summary.",
+        "4. Read the full branch diff against its base and the uncommitted changes. For each criterion, find "
+        "the code and the test that prove it. Look for missed cases, wrong assumptions, dead code, scope "
+        "creep, security and data risks, and tests that pass without checking the behaviour.",
+        f"5. Run the focused tests and `{data} ship-check`. Try to break the change with the cases you found.",
+        "6. Fix each defect that is inside the ticket's scope, with a test that failed before the fix. Ask "
+        "before a fix that changes product behaviour or the plan.",
+        f"7. Write the ticket folder's challenge.md: each claim you checked, proved or wrong, the evidence, "
+        "and what you fixed.",
+        f"Then run `{report} challenge ready --note \"<n> wrong, <m> fixed, <k> open\"`, give a short summary "
+        "and stop. Open items that need the person: report waiting with them instead.",
+        f"Questions and permissions: run `{report} challenge waiting --note \"<what you need>\"`, then ask.",
+        "Never commit, push, open a PR, post comments or change Jira. The person ships with sidequest-ship.",
+    ])
+
+
 def worker_prompt(key, record, data, has_plan=False):
     step = first_step(record, has_plan)
+    if step == "challenge":
+        return challenge_prompt(key, record, data)
     report = f"{data} run {key} set"
     lines = [
         f"You are the Sidequest crew worker for {key}. Work only in this worktree.",
-        "Run these steps in order. Each step is a Sidequest workflow:",
+        "Run these steps in order. Each step is a Sidequest workflow. Before each step, run "
+        f"`{data} run {key} ran <step>`: exit 0 means the step already finished on this same code, so skip it "
+        "and say so; otherwise run it.",
         f"1. start: run `{report} start working`, then `{data} skill start` and follow it. "
         "Skip this step when the ticket's plan.md exists.",
         f"2. implement: run `{report} implement working`, then `{data} skill implement` and follow it.",
@@ -55,7 +88,8 @@ def worker_prompt(key, record, data, has_plan=False):
         f"then `{report} ship-check waiting --note \"Conflict in <files>: <the decision>\"` and ask. Exit 1 or 2: "
         f"report it as waiting with its message. Then run `{data} ship-check` and review its report and the full "
         "branch diff against the plan. Fix what is in scope and run the checks again. Do not run the ship workflow.",
-        f"5. qa-review: only after the person shipped (an open PR). Run `{report} qa-review working`, then "
+        "5. challenge: a separate challenger agent reviews your work. Never run it yourself.",
+        f"6. qa-review: only after the person shipped (an open PR). Run `{report} qa-review working`, then "
         f"`{data} review-app {key} --json`. With no open PR or no review app yet, run `{report} qa-review "
         "waiting --note \"Ship first: open the PR with sidequest-ship\"` and stop. Otherwise run "
         f"`{data} skill qa-review-app` and follow it. When the review login is not set, report waiting with "
@@ -85,14 +119,17 @@ def worker_prompt(key, record, data, has_plan=False):
         note = f" Its note: {record['note']}." if record.get("note") else ""
         lines += ["", f"This ticket already has a run: step {record['step']}, state {record['state']}.{note} "
                   f"Read `{data} run {key} show`, the plan's Updates, the questions and `git status` first. "
+                  f"When `{data} review-app {key} --json` shows an open PR, the person already shipped: "
+                  "continue from qa-review. "
                   f"Continue from {step}."]
     else:
         lines += ["", f"Begin at {step}."]
     return "\n".join(lines)
 
 
-def dispatch(keys, find_worktree, tickets, launch, data, at, again=False, dry_run=False):
-    """Start a worker for each ticket that has its own worktree. Returns (lines, any skipped)."""
+def dispatch(keys, find_worktree, tickets, launch, data, at, again=False, dry_run=False, challenger=None):
+    """Start a worker for each ticket that has its own worktree. Returns (lines, any skipped).
+    challenger(key, path, prompt) starts the challenge step; without it, launch does."""
     lines, skipped = [], False
     for key in keys:
         found = find_worktree(key) or {"state": "none"}
@@ -119,9 +156,11 @@ def dispatch(keys, find_worktree, tickets, launch, data, at, again=False, dry_ru
         if dry_run:
             lines.append(f"would start {key} in {found['path']} at {first_step(record, has_plan)}")
             continue
-        launch(key, found["path"], prompt)
-        runs.update(path, key, first_step(record, has_plan), "queued", "Dispatched by sidequest crew", at)
-        lines.append(f"{key}: worker started at {first_step(record, has_plan)}")
+        step = first_step(record, has_plan)
+        agent = "challenger" if step == "challenge" and challenger else "worker"
+        (challenger if agent == "challenger" else launch)(key, found["path"], prompt)
+        runs.update(path, key, step, "queued", "Dispatched by sidequest crew", at)
+        lines.append(f"{key}: {agent} started at {step}")
     return lines, skipped
 
 

@@ -130,3 +130,5 @@ Space c on a ticket without a worktree offers "Create the worktree, then start a
 WorkspaceWorkflow.prepare (no window, no Jira move), then sidequest crew, then reloads worktrees.
 2026-11-11: AI mode has a fifth pipeline column, QA-REVIEW (cells are 11 wide below 110 columns, so
 SHIP-CHECK keeps a gap). A ready ship-check shows four ✓ and qa-review ahead.
+2026-11-11: A sixth column, CHALLENGE, sits between SHIP-CHECK and QA-REVIEW. A ticket with an open PR
+shows its row at QA-REVIEW (runs.after_ship), whatever step run.json last recorded.

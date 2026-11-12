@@ -749,19 +749,26 @@ qa/report.md (skipped only without UI changes). Ship-check first runs
 worker resolves conflicts so both changes survive, runs the checks and finishes the rebase or merge; a
 conflict that needs a product decision is aborted and asked. It stops when it needs you:
 a blocking question (logged with `sidequest-data questions`), a permission, or a check it
-cannot fix. When ship-check is clean it reports "ready for you" and stops. After you ship (an open PR),
-Space `c` or `sidequest crew KEY` starts the last step, qa-review: the worker runs qa-review-app on the
-PR's review app and presents the evidence; it never updates the PR screenshots. Workers never
+cannot fix. When ship-check is clean it reports "ready for you" and stops. Space `c` or
+`sidequest crew KEY` then starts the challenge step with a challenger (`crew.challenge_command`, default
+Opus): it assumes the worker's work is wrong until it proves each claim against the ticket, the diff and
+the tests, fixes in-scope defects with a failing test first, writes challenge.md in the ticket folder and
+reports "N wrong, M fixed, K open". Ship after it. With an open PR, Space `c` starts the last step,
+qa-review: the worker runs qa-review-app on the PR's review app and presents the evidence; it never
+updates the PR screenshots. Workers never
 commit, push, open PRs, post or change Jira, except the start workflow's configured start
 move. You ship with sidequest-ship. Answer a worker in its window, or ask the manager.
 
 Workers start in the background: their pane opens in the ticket's window (or a new detached window),
 and your terminal stays where it is. The manager does take focus, because you open it to talk to it.
 Workers report through `sidequest-data run KEY set STEP STATE`, stored as run.json in the
-ticket folder. Claude Code workers also get hooks: a finished turn or a permission request
+ticket folder. A step counts as finished when it is set ready or the worker moves on; run.json keeps each
+step's count and a fingerprint of the code (commit, uncommitted diff, untracked files).
+`sidequest-data run KEY ran STEP` exits 0 when STEP already finished on the same code, and workers skip
+that step; `run KEY show` prints the counts. Claude Code workers also get hooks: a finished turn or a permission request
 marks them "waiting on you". The card shows an `Agent` line. Press `6` for AI mode: every open ticket
-(and every worker outside your queue) as a pipeline row, start → implement → qa-local → ship-check → qa-review, with
-the ones waiting on you first; the details show the selected ticket's worker, note and history. `1`–`5`
+(and every worker outside your queue) as a pipeline row, start → implement → qa-local → ship-check → challenge → qa-review, with
+the ones waiting on you first. A ticket with an open PR shows every step before qa-review as done. The details show the selected ticket's worker, note and history. `1`–`5`
 return to the ticket lanes. In the dashboard, Space `c` starts the selected ticket's worker (Space `c`
 on a running one offers a restart) and Space `C` opens the manager; both run `sidequest crew`.
 `sidequest crew` needs the ticket's own worktree (`sidequest start KEY`); Space `c` creates it. A worker that is recorded as
