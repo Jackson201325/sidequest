@@ -10,7 +10,7 @@ from sidequest.collector import collect_prs
 
 parser = argparse.ArgumentParser(prog='sidequest-data pr-feedback')
 parser.add_argument('number', type=int, nargs='?')
-parser.add_argument('--json', action='store_true')
+parser.add_argument('--json', action='store_true', help='no effect; the output is always JSON')
 parser.add_argument('--activity', action='store_true')
 args = parser.parse_args()
 try:

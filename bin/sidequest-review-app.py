@@ -25,12 +25,12 @@ def main():
     a = ap.parse_args()
     key = (a.key or "").upper()
     if key.isdigit():
-        projects = config.get("jira", "projects", [])
-        if len(projects) != 1:
-            print("review-app: give the full ticket key, e.g. APP-%s (jira.projects names %s)"
-                  % (key, "no single project" if projects else "no project"), file=sys.stderr)
+        from sidequest.start import full_key
+        try:
+            key = full_key(key, config.get("jira", "projects", []))
+        except ValueError as exc:
+            print("review-app: " + str(exc), file=sys.stderr)
             return 2
-        key = projects[0].upper() + "-" + key
     if not key and not a.pr:
         branch = subprocess.run(["git", "branch", "--show-current"], text=True, capture_output=True).stdout.strip()
         key = branch_ticket(branch, config.get("jira", "projects", [])) or ""

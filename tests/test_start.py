@@ -43,12 +43,17 @@ class StartTests(unittest.TestCase):
         git(self.repo, 'push', '-q', 'origin', 'main')
         self.workspace = GitWorkspace(self.repo, self.home / 'trees', base_ref='origin/main')
 
-    def test_a_number_takes_the_first_project_and_a_bad_key_is_refused(self):
-        self.assertEqual(start.full_key('800', ['APP', 'OPS']), 'APP-800')
+    def test_a_number_takes_the_only_project_and_a_bad_key_is_refused(self):
+        self.assertEqual(start.full_key('800', ['APP']), 'APP-800')
         self.assertEqual(start.full_key('ops-12', ['APP']), 'OPS-12')
         for bad, projects in (('800', []), ('not a key', ['APP'])):
             with self.subTest(bad=bad), self.assertRaises(ValueError):
                 start.full_key(bad, projects)
+
+    def test_a_number_is_refused_when_several_projects_could_own_it(self):
+        with self.assertRaisesRegex(ValueError, r'several projects \(APP, OPS\); give the full ticket key, such as APP-800'):
+            start.full_key('800', ['APP', 'OPS'])
+        self.assertIn('full_key(', (ROOT / 'bin/sidequest-review-app.py').read_text())
 
     def test_the_ticket_moves_then_gets_its_worktree_and_a_second_start_reuses_it(self):
         jira = FakeJira()

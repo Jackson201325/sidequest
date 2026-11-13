@@ -598,7 +598,8 @@ macOS Keychain (or your environment)      secret values only
 ~/.local/{share,state}/sidequest/projects/NAME/   data, snapshots and the app booking (written by Sidequest)
 ```
 
-1. `sidequest-data project init NAME --repo PATH` writes the profile from `config.example.json`,
+1. `sidequest-data project init NAME --repo PATH` writes the profile from `config.example.json`
+   (without `identity`, `crew` and `meeting`, which belong in the shared `config.json`),
    with the repository, worktrees folder, tmux session and credential references filled in.
 2. Fill in the sections you use; an empty value keeps that part off.
 3. Store each secret you need with the `security add-generic-password …` command that init printed.
@@ -732,8 +733,9 @@ terminal (unless `--yes`) remove nothing.
 moves the ticket to `jira.start_status` (`jira.start_from` statuses move; `jira.start_ask` statuses
 need `-y`; `--no-move` leaves Jira alone), creates or reuses its worktree (`--prefix
 fix|feature|hotfix|chore` for a new branch), runs `sidequest up -n --no-attach` so its window
-exists, selects that window and prints `DIR <worktree>`. A bare number takes the first of
-`jira.projects` (`sidequest start 123` → `APP-123`). A refused move is noted; the worktree is still
+exists, selects that window and prints `DIR <worktree>`. A bare number works when
+`jira.projects` names exactly one project (`sidequest start 123` → `APP-123`); with several projects,
+`start`, `crew`, `meeting` and `review-app` ask for the full key. A refused move is noted; the worktree is still
 made.
 
 ### Agent crew (`sidequest crew`)

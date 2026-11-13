@@ -160,6 +160,11 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(settings['workspace']['repository'], str(self.home / 'gamma-repo'))
         self.assertEqual(settings['credentials']['jira'], 'keychain:sidequest-gamma-jira')
         self.assertNotIn('identity', settings, 'identity stays in the shared file')
+        example = json.loads((ROOT / 'config.example.json').read_text())
+        for section in ('crew', 'meeting'):
+            from sidequest import config as loaded
+            self.assertEqual(set(example[section]), set(loaded.KEYS[section]), 'the example lists every ' + section + ' setting')
+            self.assertNotIn(section, settings, 'an empty ' + section + ' value in a profile would hide the shared one')
         self.assertTrue((profile / 'skills').is_dir())
         self.assertIn('security add-generic-password -s sidequest-gamma-jira', made.stdout)
         self.assertIn('project check', made.stdout)
@@ -187,6 +192,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
         self.assertIn('OK       Jira token: found (env:ALPHA_JIRA)', good.stdout)
         self.assertIn('OK       repository:', good.stdout)
+        self.assertIn('MISSING  workspace.worktrees_dir', good.stdout)
         self.assertIn('OK       GitHub sign-in', good.stdout)
         self.assertIn('OK       tests: make test', good.stdout)
         self.assertIn('OK       review-app login: found (env:ALPHA_REVIEW)', good.stdout)

@@ -28,7 +28,8 @@ def init(name, repository):
     if not repository.is_dir():
         raise ValueError('No folder at ' + str(repository) + '; pass the project\'s main checkout with --repo')
     settings = json.loads((ROOT / 'config.example.json').read_text())
-    settings.pop('identity', None)
+    for shared in ('identity', 'crew', 'meeting'):  # an empty value in a profile would hide the shared one
+        settings.pop(shared, None)
     settings['workspace'].update(repository=str(repository), worktrees_dir=str(repository.parent), tmux_session=name)
     settings['credentials'] = {key: 'keychain:sidequest-' + name + '-' + key for key in credentials.NAMES}
     (folder / 'skills').mkdir(parents=True, exist_ok=True)
@@ -79,6 +80,9 @@ def check():
         row('OK', 'repository: ' + repository)
     else:
         row('FAIL', 'repository: no Git checkout at ' + repository)
+    if repository and not config.get('workspace', 'worktrees_dir'):
+        row('MISSING', 'workspace.worktrees_dir: worktrees go beside the repository, and a command inside one of '
+                       'them does not select this project')
     author = config.get('identity', 'git_author')
     row('OK' if author else 'MISSING', 'identity.git_author' + (': ' + author if author else ' (your commits in the standup)'))
 

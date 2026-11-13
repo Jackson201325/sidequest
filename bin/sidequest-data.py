@@ -46,12 +46,14 @@ def main():
     for command in ('collect', 'snapshot'):
         sub = commands.add_parser(command)
         sub.add_argument('--out', type=Path, default=DEFAULT_OUT)
-        sub.add_argument('--json', action='store_true')
+        sub.add_argument('--json', action='store_true', help='no effect; the output is always JSON')
         sub.add_argument('--quiet', action='store_true')
-        sub.add_argument('--max-age', type=int, default=0)
+        sub.add_argument('--max-age', type=int, default=0,
+                         help='reuse a snapshot that is newer than this many seconds' if command == 'collect'
+                         else 'no effect; only collect uses it')
     ticket = commands.add_parser('ticket')
     ticket.add_argument('key')
-    ticket.add_argument('--json', action='store_true')
+    ticket.add_argument('--json', action='store_true', help='no effect; the output is always JSON')
     ticket.add_argument('--activity', action='store_true')
     ticket.add_argument('--attachments', metavar='DIR', nargs='?', const='',
                         help="download every attachment (default: the ticket folder's attachments/)")

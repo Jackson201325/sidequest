@@ -4,7 +4,7 @@
 Does what Space n does in the dashboard. Moves KEY to jira.start_status (jira.start_from statuses
 move; jira.start_ask statuses need --yes; --no-move leaves Jira alone), creates or reuses its
 worktree, runs `sidequest up --offline --no-attach` so the window exists, selects that window and
-prints "DIR <worktree>". A bare number takes the first of jira.projects (800 -> APP-800).
+prints "DIR <worktree>". A bare number needs exactly one project in jira.projects (800 -> APP-800).
 Exit 0: done; 1: the worktree or the window failed; 2: usage or settings.
 """
 import argparse

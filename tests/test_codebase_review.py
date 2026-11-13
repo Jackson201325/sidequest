@@ -440,6 +440,15 @@ class SmallBugTests(unittest.TestCase):
                 self.assertNotIn('Traceback', done.stderr)
                 self.assertEqual(len(done.stderr.strip().splitlines()), 1, done.stderr)
 
+    def test_help_says_which_flags_are_kept_only_for_old_callers(self):
+        import re
+        for args, flag in ((['collect'], '--json'), (['snapshot'], '--json'), (['snapshot'], '--max-age MAX_AGE'),
+                           (['ticket'], '--json'), (['pr-feedback'], '--json'), (['ship-check'], '--no-fetch')):
+            with self.subTest(args=args, flag=flag):
+                done = self.run_bin('sidequest-data', *args, '--help')
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertRegex(done.stdout, re.escape(flag) + r'\s+[^\n]*no effect')
+
     def test_help_names_the_subcommands_and_projects_has_help(self):
         done = self.run_bin('sidequest', '--help')
         self.assertEqual(done.returncode, 0, done.stderr)
