@@ -7,7 +7,7 @@ from unittest.mock import patch
 from core import Store
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest import runs
+from sidequest import crew, runs
 import layout
 import tui
 
@@ -297,6 +297,20 @@ class CrewTests(unittest.TestCase):
         self.assertTrue(action['argv'][-1].endswith('sidequest-crew.py'), action)
         self.assertIn(('c', 'crew worker'), [k for _, keys in tui.SPACE_MENU for k in keys])
         self.assertIn(('C', 'crew manager'), [k for _, keys in tui.SPACE_MENU for k in keys])
+
+    def test_space_shift_c_offers_the_last_manager_chat_or_a_new_one(self):
+        self.app.demo = False
+        folder = tui.qa.tickets_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / crew.MANAGER_SESSION).write_text('{"session_id": "id-1"}')
+        self.addCleanup((folder / crew.MANAGER_SESSION).unlink)
+        calls, choose = self.space('C', choice=0)
+        self.assertEqual(calls, [['--continue']])
+        self.assertIn('Continue the last manager chat', choose.call_args[0][1][0])
+        self.assertEqual(self.space('C', choice=1)[0], [['--new']])
+        self.assertEqual(self.space('C', choice=2)[0], [])
+        calls, _ = self.space('C', choice=1, environ={})
+        self.assertEqual(self.app.foreground_target['argv'][-1], '--new')
 
     def test_space_shift_m_asks_ticket_or_general_then_opens_the_meeting_pane(self):
         self.app.demo = False

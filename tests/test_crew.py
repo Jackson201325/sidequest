@@ -245,7 +245,6 @@ class AfterStopTests(unittest.TestCase):
         self.assertEqual((code, calls[0][0], calls[0][1]["again"] if "again" in calls[0][1] else None), (0, ["DEMO-1"], None))
 
 
-
 class ManagerPaneTests(unittest.TestCase):
     def open(self, terminal, environ):
         cli = load_cli()
@@ -268,6 +267,55 @@ class ManagerPaneTests(unittest.TestCase):
         self.assertEqual(split[2:7], ["-v", "-l", "40%", "-t", "%1"])
         self.assertIn("skill manage", split[-1])
         self.assertFalse(any(c[1] == "new-window" for c in calls))
+
+    def test_a_new_claude_manager_gets_a_session_id_that_continue_resumes(self):
+        from sidequest.terminal import TmuxTerminal
+        cli = load_cli()
+        splits, tagged = [], [""]
+
+        def run(args, timeout=45):
+            if args[1] == "list-panes":
+                return tagged[0]
+            if args[1] == "split-window":
+                splits.append(args[-1])
+                return "%9"
+            return ""
+        flow = type("Flow", (), {"terminal": TmuxTerminal(run, "sq", "/bin/sh"), "agent_command": ""})()
+        with tempfile.TemporaryDirectory() as folder, \
+                unittest.mock.patch.object(cli, "tickets_dir", lambda: Path(folder)), \
+                unittest.mock.patch.object(cli.config, "get", lambda *a, **k: "claude --model m"), \
+                unittest.mock.patch.object(cli.config, "PROJECT", ""), unittest.mock.patch("sys.stdout"):
+            cli.open_manager(flow, False, {"TMUX_PANE": "%1"}, resume=False)
+            first = crew.last_manager_session(Path(folder))
+            self.assertIn("--session-id " + first, splits[0])
+            cli.open_manager(flow, False, {"TMUX_PANE": "%1"}, resume=True)
+            self.assertIn("--resume " + first, splits[1])
+            self.assertEqual(crew.last_manager_session(Path(folder)), first)
+            tagged[0] = "%9\t@2\tcrew\n"
+            cli.open_manager(flow, False, {"TMUX_PANE": "%1"}, resume=False)
+            self.assertEqual((len(splits), crew.last_manager_session(Path(folder))), (2, first))
+
+    def test_the_terminal_is_asked_only_when_a_last_chat_exists_and_no_flag_decides(self):
+        cli = load_cli()
+        with tempfile.TemporaryDirectory() as name, \
+                unittest.mock.patch.object(cli, "tickets_dir", lambda: Path(name)):
+            self.assertFalse(cli.ask_resume(None, ask=lambda q: self.fail(q), interactive=True))
+            (Path(name) / crew.MANAGER_SESSION).write_text('{"session_id": "id-1"}')
+            self.assertTrue(cli.ask_resume(None, ask=lambda q: "", interactive=True))
+            self.assertFalse(cli.ask_resume(None, ask=lambda q: "n", interactive=True))
+            self.assertFalse(cli.ask_resume(None, ask=lambda q: self.fail(q), interactive=False))
+            self.assertTrue(cli.ask_resume(True, ask=lambda q: self.fail(q), interactive=True))
+
+    def test_manager_argv_continues_only_a_saved_claude_session(self):
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            argv, saved = crew.manager_argv("claude", "go", folder, resume=True, new_id=lambda: "id-1")
+            self.assertEqual((argv, saved), (["claude", "--session-id", "id-1", "go"], "id-1"))
+            (folder / crew.MANAGER_SESSION).write_text('{"session_id": "id-1"}')
+            argv, saved = crew.manager_argv("env A=1 claude", "go", folder, resume=True)
+            self.assertEqual((argv[:4], saved), (["env", "A=1", "claude", "--resume"], None))
+            self.assertEqual(argv[4], "id-1")
+            self.assertEqual(crew.manager_argv("codex", "go", folder, resume=True), (["codex", "go"], None))
 
     def test_inside_herdr_the_manager_opens_below_the_callers_pane(self):
         seen = []

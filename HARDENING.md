@@ -651,6 +651,11 @@ SIDEQUEST_TICKETS_DIR and SIDEQUEST_TICKET; Ctrl-C reaches only the command. Whe
 the newest section of each meetings.md changed since the start. Recording and transcription stay outside
 Sidequest: the companion keeps its non-standard-library dependencies and company identity in the personal
 workflow. Herdr gets no pane yet; there it runs in place. Live tmux and a real companion were not exercised.
+2026-11-13: Each crew manager start was a new chat; the last one could not be opened again.
+tests/test_crew.py and ticket-tui/test_crew_tab.py failed first. A new Claude Code manager gets a
+--session-id saved in the tickets folder's crew-manager.json (runtime storage, never the repository), only
+after a new pane starts; selecting an open pane keeps the saved id. `crew --continue` runs --resume with that
+id, `--new` starts a new chat, and a terminal is asked when neither flag is set. Other agents always start new.
 2026-11-13: The TURN column showed the person's own first name next to "you" for a
 ticket assigned to them but waiting on a requested reviewer. ticket-tui/test_workflow.py failed first.
 workflow.ownership() no longer names the Jira assignee when Jira assigns the ticket to the person; it names

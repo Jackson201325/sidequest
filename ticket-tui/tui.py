@@ -478,12 +478,20 @@ class App:
         if self.demo:
             self.message = "Demo: the crew manager is disabled"
             return
+        folder = qa.tickets_dir()
+        args = []
+        if crew.last_manager_session(folder):
+            choice = self.choose("CREW MANAGER", ["Continue the last manager chat", "Start a new manager chat",
+                                                  "Cancel"], "An open manager pane is selected instead · Enter · Esc cancel")
+            if choice not in (0, 1):
+                self.message = "Crew manager cancelled"
+                return
+            args = ["--continue" if choice == 0 else "--new"]
         if terminal_mode.inside(os.environ):
-            self.background("crew", "Opening the crew manager", lambda: run_crew([]))
+            self.background("crew", "Opening the crew manager", lambda: run_crew(args))
         else:
-            folder = qa.tickets_dir()
             folder.mkdir(parents=True, exist_ok=True)
-            self.foreground_target = {"argv": [sys.executable, "-B", str(CREW)], "cwd": str(folder),
+            self.foreground_target = {"argv": [sys.executable, "-B", str(CREW), *args], "cwd": str(folder),
                                       "label": "Crew manager"}
 
     def meeting(self):

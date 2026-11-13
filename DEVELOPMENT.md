@@ -171,7 +171,9 @@ since the start. With a KEY, meeting.context writes the ticket's plan, questions
 temporary file (SIDEQUEST_TICKET_CONTEXT), removed afterwards. The command also gets SIDEQUEST_WORKTREES_DIR
 and the project's JIRA_URL, JIRA_EMAIL and JIRA_API_TOKEN (credentials.secret). Space M asks ticket or
 general meeting, then runs it through run_meeting in a background job, or hands this terminal over.
-`sidequest crew` (bin/sidequest-crew.py, sidequest/crew.py) starts the manager (crew.manager_command)
+`sidequest crew` (bin/sidequest-crew.py, sidequest/crew.py) starts the manager (crew.manager_command;
+crew.manager_argv gives Claude Code a --session-id saved in the tickets folder's crew-manager.json only when
+a new manager starts, and --continue resumes it with --resume)
 and one worker per ticket worktree (crew.worker_command) through WorkspaceWorkflow.agent, so tmux and
 Herdr placement stay in the terminal adapters. In tmux, worker_launcher passes a role
 (crew-worker:KEY or crew-challenger:KEY) to tmux.start_agent, which tags the new pane with

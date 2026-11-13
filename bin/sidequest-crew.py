@@ -2,7 +2,10 @@
 """sidequest crew: a manager agent for every ticket, and one worker agent per ticket worktree.
 
   sidequest crew                    open the manager (crew.manager_command) in a pane below this
-                                    one (40% of its height) in tmux or Herdr, else in this terminal
+                                    one (40% of its height) in tmux or Herdr, else in this terminal;
+                                    an open manager pane is selected instead
+  sidequest crew --continue         continue the last manager chat (Claude Code); --new starts a
+                                    new one; with neither, a terminal is asked when a last chat exists
   sidequest crew APP-1 APP-2        start a worker (crew.worker_command) in each ticket's worktree
                                     window; it runs start, implement, qa-local and ship-check and
                                     stops when it needs you or is ready; after a ready ship-check it
@@ -89,7 +92,6 @@ def read_quietly(key):
         return None
 
 
-
 def find_worktree(key):
     from sidequest.worktrees import lookup
     repository = config.workspace_repository()
@@ -142,24 +144,48 @@ def pane_alive(flow):
     return lambda key, agent: tmux.role_pane(terminal.run, terminal.session, f'crew-{agent}:{key}') is not None
 
 
+def ask_resume(chosen, ask=input, interactive=None):
+    """--continue or --new decide; else a terminal is asked when a last manager chat exists."""
+    if chosen is not None:
+        return chosen
+    if not (sys.stdin.isatty() if interactive is None else interactive):
+        return False
+    if not crew.last_manager_session(tickets_dir()):
+        return False
+    try:
+        answer = ask('Continue the last crew manager chat? [Y/n] ').strip().lower()
+    except EOFError:
+        return False
+    return answer in ('', 'y', 'yes')
 
-def open_manager(flow, in_shell, environ=os.environ):
+
+def open_manager(flow, in_shell, environ=os.environ, resume=False):
     """The manager opens in a pane below the caller's pane (40% of its height) inside tmux or Herdr;
-    a tmux pane that is already open is selected instead."""
+    a tmux pane that is already open is selected instead. With resume, Claude Code continues the
+    last manager chat; a new chat's session id is saved only when a new manager starts."""
     from sidequest import tmux
-    from sidequest.terminal import TmuxTerminal, agent_argv, run_request
+    from sidequest.terminal import TmuxTerminal, run_request
     folder = tickets_dir()
     folder.mkdir(parents=True, exist_ok=True)
     command = config.get('crew', 'manager_command') or crew.DEFAULT_MANAGER
     if config.PROJECT:
         command = 'env SIDEQUEST_PROJECT=' + shlex.quote(config.PROJECT) + ' ' + command
-    flow.agent_command = command
-    argv = agent_argv(crew.manager_prompt(DATA, SIDEQUEST), command)
+    argv, new_session = crew.manager_argv(command, crew.manager_prompt(DATA, SIDEQUEST), folder, resume)
+    flow.agent_command = shlex.join(argv[:-1])
+
+    def started():
+        if new_session:
+            crew.save_manager_session(folder, new_session)
     if isinstance(flow.terminal, TmuxTerminal) and environ.get('TMUX_PANE'):
-        print(tmux.open_below(flow.terminal.run, environ['TMUX_PANE'], str(folder), argv, 'crew'))
+        message = tmux.open_below(flow.terminal.run, environ['TMUX_PANE'], str(folder), argv, 'crew')
+        if not message.startswith('Switched'):
+            started()
+        print(message)
         return 0
     if hasattr(flow.terminal, 'split_below'):
-        print(flow.terminal.split_below(str(folder), argv).message)
+        message = flow.terminal.split_below(str(folder), argv).message
+        started()
+        print(message)
         return 0
     session = getattr(flow.terminal, 'session', None)
     if session:
@@ -169,7 +195,8 @@ def open_manager(flow, in_shell, environ=os.environ):
                 flow.terminal.run(['tmux', 'select-window', '-t', parts[1]], timeout=5)
                 print('Switched to the ' + MANAGER_WINDOW + ' window')
                 return 0
-    result = flow.agent(MANAGER_WINDOW, str(folder), crew.manager_prompt(DATA, SIDEQUEST))
+    result = flow.agent(MANAGER_WINDOW, str(folder), argv[-1])
+    started()
     if in_shell and result.foreground:
         return run_request(result.foreground)
     print(result.message)
@@ -186,6 +213,10 @@ def main():
     parser.add_argument('--dry-run', action='store_true', help='show what would start; launch nothing')
     parser.add_argument('--after-stop', action='store_true',
                         help="worker Stop hook: start the challenger only after a ready ship-check; always exits 0")
+    chat = parser.add_mutually_exclusive_group()
+    chat.add_argument('--continue', dest='resume', action='store_true', default=None,
+                      help='manager only: continue the last manager chat (Claude Code)')
+    chat.add_argument('--new', dest='resume', action='store_false', help='manager only: start a new manager chat')
     args = parser.parse_args()
     clock = datetime.now(timezone.utc)
     if args.status:
@@ -203,7 +234,7 @@ def main():
         return 0 if args.after_stop else 2
     if not keys:
         try:
-            return open_manager(flow, in_shell)
+            return open_manager(flow, in_shell, resume=ask_resume(args.resume))
         except RuntimeError as exc:
             print('sidequest crew: ' + str(exc), file=sys.stderr)
             return 1

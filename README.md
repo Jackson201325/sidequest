@@ -545,7 +545,7 @@ environment reads and external programs. It only reads the source.
 | Space `n` | Create/reuse a local ticket worktree and open a shell there |
 | Space `s` | Run a bundled workflow or custom prompt with the configured agent |
 | Space `c` | Start (or restart) the selected ticket's crew worker, after a confirm box; a ticket without a worktree gets one first; after Jira skips it (another assignee or a review/QA status), the next Space `c` offers "Start anyway" (`--again`) |
-| Space `C` | Open the crew manager in a pane below the dashboard (40% of its height) in tmux/Herdr, else this terminal |
+| Space `C` | Open the crew manager in a pane below the dashboard (40% of its height) in tmux/Herdr, else this terminal; after a first manager chat it asks: continue the last chat or start a new one |
 | Space `M` | Choose a ticket meeting (loads the selected ticket's notes) or a general meeting; `meeting.command` runs in a tmux pane below the dashboard, else this terminal; see `sidequest meeting` |
 | `y` | Copy standup with macOS pbcopy; --standup prints it on any platform |
 | `?`, `q` | Help, quit |
@@ -739,6 +739,7 @@ A manager agent watches every ticket; one worker agent per ticket worktree does 
 
 ```sh
 sidequest crew                  # open the manager (Opus) in a pane below this one; talk to it there
+sidequest crew --continue       # continue the last manager chat; --new starts a new one
 sidequest crew APP-1 APP-2      # start a worker (Sonnet) in each ticket's worktree window, in the background
 sidequest crew --status         # every worker's step and state, the ones waiting on you first
 ```

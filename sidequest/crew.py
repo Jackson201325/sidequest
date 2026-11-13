@@ -3,6 +3,7 @@ and a manager agent that watches every ticket. Workers report through run.json (
 No Git, Jira or terminal policy lives here; callers pass the launcher and worktree lookup."""
 import json
 import shlex
+import uuid
 from pathlib import Path
 
 from sidequest import runs
@@ -37,7 +38,6 @@ def worker_command(command, key, data, sidequest=None):
 def challenge_due(record):
     """A ready ship-check goes to the challenger without the person."""
     return bool(record) and record.get("step") == "ship-check" and record.get("state") == "ready"
-
 
 
 def first_step(record, has_plan):
@@ -196,6 +196,36 @@ def dispatch(keys, find_worktree, tickets, launch, data, at, again=False, dry_ru
         lines.append((f"{key}: the {agent} pane was gone; " if gone else f"{key}: ")
                      + (f"prompt sent to the open {agent} pane at {step}" if reused else f"{agent} started at {step}"))
     return lines, skipped
+
+
+MANAGER_SESSION = "crew-manager.json"
+RESUME_PROMPT = "I am back. Read the whole state again and give me a new report."
+
+
+def last_manager_session(folder):
+    """The Claude session id of the last manager chat opened in folder, or None."""
+    try:
+        session = json.loads((Path(folder) / MANAGER_SESSION).read_text()).get("session_id")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return session if isinstance(session, str) and session else None
+
+
+def manager_argv(command, prompt, folder, resume=False, new_id=uuid.uuid4):
+    """The manager's argv and the new session id to save (None when nothing new). Claude Code
+    continues the saved chat when resume is set; any other agent, or no saved chat, starts new."""
+    argv = shlex.split(command)
+    if not any(Path(arg).name == "claude" for arg in argv):
+        return argv + [prompt], None
+    last = last_manager_session(folder)
+    if resume and last:
+        return argv + ["--resume", last, RESUME_PROMPT], None
+    session = str(new_id())
+    return argv + ["--session-id", session, prompt], session
+
+
+def save_manager_session(folder, session):
+    (Path(folder) / MANAGER_SESSION).write_text(json.dumps({"session_id": session}) + "\n")
 
 
 def manager_prompt(data, sidequest):
