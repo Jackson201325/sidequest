@@ -170,15 +170,21 @@ Herdr placement stay in the terminal adapters. In tmux, worker_launcher passes a
 (crew-worker:KEY or crew-challenger:KEY) to tmux.start_agent, which tags the new pane with
 @sidequest_role and later pastes the prompt into that live pane instead of splitting again. Workers chain the bundled skills and stop at human gates.
 Steps are runs.STEPS: start, implement, qa-local, ship-check, challenge, qa-review. A ready ship-check
-makes crew.first_step return challenge, which dispatch starts with the challenger launcher
+(crew.challenge_due) makes crew.first_step return challenge; the worker's second Stop hook,
+`sidequest crew KEY --after-stop`, dispatches it at once with the challenger launcher
 (crew.challenge_command, default Opus) and crew.challenge_prompt. A ready challenge returns qa-review,
 which needs the PR the person opens with sidequest-ship. runs.update counts a finished step under
 "finished" with the code fingerprint bin/sidequest-run.py computes (HEAD, `git diff HEAD`, untracked
 files; read-only Git); hooks never count. runs.after_ship moves the AI-mode row to qa-review when the
 ticket has an open PR.
 sidequest/runs.py owns run.json (written only by `sidequest-data run`); Claude Code workers get
-UserPromptSubmit/Stop/Notification hooks through `--settings`, and a hook always exits 0 and never
-overrides a state the worker reported. The dashboard reads run.json for the card and AI mode (6).
+UserPromptSubmit/Stop/Notification/PostToolUse hooks through `--settings`, and a hook always exits 0 and
+never overrides a state the worker reported. PostToolUse ("hook tool") only clears the waiting state a
+permission Notification set, because a tool that runs after it means the person allowed it. The worker
+prompt tells the worker that a workflow's Finish reply is not a stop, so start and implement flow into
+the next step without the person. dispatch takes alive(key, agent) (tmux.role_pane in tmux, else
+None): a working or queued record whose pane is gone starts again; it writes queued before the launch.
+The dashboard reads run.json for the card and AI mode (6).
 The manager opens in a pane below the caller's pane (tmux.open_below, HerdrTerminal.split_below)
 at 40% of its height; tmux tags it with the @sidequest_role pane option, so a second open selects it.
 `sidequest-data update-branch` (sidequest/updates.py update_branch) updates one worktree's branch by

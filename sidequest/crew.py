@@ -12,21 +12,32 @@ DEFAULT_WORKER = "claude --model claude-sonnet-5-5"
 DEFAULT_CHALLENGER = "claude --model claude-opus-5-5"
 
 
-def hook_settings(key, data):
+def hook_settings(key, data, sidequest=None):
     """Claude Code settings: each prompt marks the worker working; a finished turn or a permission
-    request marks it waiting, unless the worker reported ready or failed itself."""
+    request marks it waiting, unless the worker reported ready or failed itself; a tool that runs after
+    a permission request marks it working again. With sidequest, a stop after a ready ship-check
+    starts the challenger (`sidequest crew KEY --after-stop`)."""
     def entry(event):
         return [{"hooks": [{"type": "command", "command": f"{data} run {key} hook {event}"}]}]
-    return json.dumps({"hooks": {"UserPromptSubmit": entry("prompt"), "Stop": entry("stop"),
-                                 "Notification": entry("notify")}})
+    stop = entry("stop")
+    if sidequest:
+        stop[0]["hooks"].append({"type": "command", "command": f"{sidequest} crew {key} --after-stop"})
+    return json.dumps({"hooks": {"UserPromptSubmit": entry("prompt"), "Stop": stop,
+                                 "Notification": entry("notify"), "PostToolUse": entry("tool")}})
 
 
-def worker_command(command, key, data):
+def worker_command(command, key, data, sidequest=None):
     """The worker's command line; Claude Code also gets the reporting hooks."""
     argv = shlex.split(command)
     if argv and Path(argv[0]).name == "claude":
-        return command + " --settings " + shlex.quote(hook_settings(key, data))
+        return command + " --settings " + shlex.quote(hook_settings(key, data, sidequest))
     return command
+
+
+def challenge_due(record):
+    """A ready ship-check goes to the challenger without the person."""
+    return bool(record) and record.get("step") == "ship-check" and record.get("state") == "ready"
+
 
 
 def first_step(record, has_plan):
@@ -75,6 +86,8 @@ def worker_prompt(key, record, data, has_plan=False):
         "Run these steps in order. Each step is a Sidequest workflow. Before each step, run "
         f"`{data} run {key} ran <step>`: exit 0 means the step already finished on this same code, so skip it "
         "and say so; otherwise run it.",
+        "A workflow's Finish reply is not a stop: write its summary, then go on to the next step in the same "
+        "turn. Ignore a workflow's offer to ask whether to continue. Stop only in the cases listed below.",
         f"1. start: run `{report} start working`, then `{data} skill start` and follow it. "
         "Skip this step when the ticket's plan.md exists.",
         f"2. implement: run `{report} implement working`, then `{data} skill implement` and follow it.",
@@ -132,11 +145,12 @@ AGAIN_HINT = "use --again to start it anyway"
 
 
 def dispatch(keys, find_worktree, tickets, launch, data, at, again=False, dry_run=False, waiting=None,
-             challenger=None):
+             challenger=None, alive=None):
     """Start a worker for each ticket that has its own worktree. Returns (lines, any skipped).
     waiting(key) gives a reason the ticket is with someone else (review, QA, another assignee), or None.
     challenger(key, path, prompt) starts the challenge step; without it, launch does. A launcher returns
-    True when it sent the prompt to an agent that was already open."""
+    True when it sent the prompt to an agent that was already open. alive(key, agent) says whether the
+    agent's pane is open (None: unknown); a working or queued record whose pane is gone starts again."""
     lines, skipped = [], False
     for key in keys:
         found = find_worktree(key) or {"state": "none"}
@@ -153,7 +167,10 @@ def dispatch(keys, find_worktree, tickets, launch, data, at, again=False, dry_ru
             lines.append(f"skip {key}: {exc}")
             skipped = True
             continue
+        gone = False
         if record and record["state"] in ("working", "queued") and not again:
+            gone = alive is not None and alive(key, "challenger" if record["step"] == "challenge" else "worker") is False
+        if record and record["state"] in ("working", "queued") and not again and not gone:
             lines.append(f"skip {key}: a worker is already {record['state']} at {record['step']}; "
                          "use --again if it stopped")
             skipped = True
@@ -170,10 +187,14 @@ def dispatch(keys, find_worktree, tickets, launch, data, at, again=False, dry_ru
             continue
         step = first_step(record, has_plan)
         agent = "challenger" if step == "challenge" and challenger else "worker"
-        reused = (challenger if agent == "challenger" else launch)(key, found["path"], prompt) is True
         runs.update(path, key, step, "queued", "Dispatched by sidequest crew", at)
-        lines.append(f"{key}: prompt sent to the open {agent} pane at {step}" if reused
-                     else f"{key}: {agent} started at {step}")
+        try:
+            reused = (challenger if agent == "challenger" else launch)(key, found["path"], prompt) is True
+        except RuntimeError as exc:
+            runs.update(path, key, step, "failed", f"Could not start the {agent}: {exc}", at)
+            raise
+        lines.append((f"{key}: the {agent} pane was gone; " if gone else f"{key}: ")
+                     + (f"prompt sent to the open {agent} pane at {step}" if reused else f"{agent} started at {step}"))
     return lines, skipped
 
 

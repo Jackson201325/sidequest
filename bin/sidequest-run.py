@@ -8,7 +8,7 @@ Writes only <tickets folder>/KEY/run.json (SIDEQUEST_TICKETS_DIR overrides the f
   sidequest-data run APP-123 show [--json]
   sidequest-data run APP-123 set STEP STATE [--note TEXT]
   sidequest-data run APP-123 ran STEP                  exit 0: STEP already finished on this same code
-  sidequest-data run APP-123 hook prompt|stop|notify     (Claude Code hooks; always exits 0)
+  sidequest-data run APP-123 hook prompt|stop|notify|tool  (Claude Code hooks; always exits 0)
 
 Steps: start, implement, qa-local, ship-check, challenge, qa-review.
 States: queued, working, waiting (on you), ready (for you), failed.

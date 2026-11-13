@@ -52,6 +52,23 @@ class RunCommandTests(unittest.TestCase):
         self.run_cmd("DEMO-9", "hook", "notify")
         self.assertEqual(self.show()["state"], "waiting")
 
+    def test_a_tool_that_runs_after_a_permission_prompt_marks_the_worker_working_again(self):
+        self.run_cmd("DEMO-9", "set", "implement", "working")
+        self.run_cmd("DEMO-9", "hook", "notify")
+        self.run_cmd("DEMO-9", "hook", "tool", stdin='{"hook_event_name": "PostToolUse"}')
+        record = self.show()
+        self.assertEqual((record["state"], record["note"]), ("working", ""))
+        self.run_cmd("DEMO-9", "set", "implement", "waiting", "--note", "Q1: Which copy?")
+        self.run_cmd("DEMO-9", "hook", "tool")
+        self.assertEqual((self.show()["state"], self.show()["note"]), ("waiting", "Q1: Which copy?"))
+        self.run_cmd("DEMO-9", "set", "implement", "working")
+        self.run_cmd("DEMO-9", "hook", "stop")
+        self.run_cmd("DEMO-9", "hook", "tool")
+        self.assertEqual(self.show()["state"], "waiting")
+        history = len(self.show()["history"])
+        self.run_cmd("DEMO-9", "hook", "tool")
+        self.assertEqual(len(self.show()["history"]), history)
+
     def test_hooks_keep_a_state_the_worker_reported_itself(self):
         self.run_cmd("DEMO-9", "set", "ship-check", "ready", "--note", "Diff clean; ready to ship")
         self.run_cmd("DEMO-9", "hook", "stop")
@@ -60,7 +77,7 @@ class RunCommandTests(unittest.TestCase):
         self.assertEqual((record["state"], record["note"]), ("ready", "Diff clean; ready to ship"))
 
     def test_hook_without_a_run_writes_nothing_and_never_fails(self):
-        for event in ("prompt", "stop", "notify", "bogus"):
+        for event in ("prompt", "stop", "notify", "tool", "bogus"):
             self.assertEqual(self.run_cmd("DEMO-9", "hook", event).returncode, 0)
         self.assertFalse((self.tickets / "DEMO-9").exists())
 

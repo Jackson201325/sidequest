@@ -9,6 +9,10 @@
                                     starts the challenger (crew.challenge_command, default Opus),
                                     which assumes the work is wrong and checks it before you ship
   sidequest crew --status           every worker's step and state, the ones waiting on you first
+  sidequest crew APP-1 --after-stop the worker's Stop hook: starts the challenger only when ship-check
+                                    is ready; always exits 0
+
+A worker or challenger recorded as working or queued whose tmux pane is gone starts again without --again.
 
 In tmux a ticket keeps one worker pane and one challenger pane; a later request for that ticket is
 pasted into the open pane's agent session instead of a new split ("prompt sent to the open worker pane").
@@ -78,6 +82,14 @@ def jira_statuses(keys):
     return {key: t.get('status') for key, t in jira_tickets(keys).items() if t and t.get('status')}
 
 
+def read_quietly(key):
+    try:
+        return runs.read(tickets_dir() / key / 'run.json')
+    except (OSError, ValueError):
+        return None
+
+
+
 def find_worktree(key):
     from sidequest.worktrees import lookup
     repository = config.workspace_repository()
@@ -108,7 +120,7 @@ def worker_launcher(flow, worker, data, agent='worker'):
     from sidequest.terminal import TmuxTerminal, agent_argv, agent_display_name
 
     def launch(key, path, prompt):
-        flow.agent_command = crew.worker_command(worker, key, data)
+        flow.agent_command = crew.worker_command(worker, key, data, SIDEQUEST)
         terminal = getattr(flow, 'terminal', None)
         if isinstance(terminal, TmuxTerminal):
             argv, role = agent_argv(prompt, flow.agent_command), f'crew-{agent}:{key}'
@@ -118,6 +130,17 @@ def worker_launcher(flow, worker, data, agent='worker'):
             return reused
         return flow.agent(key, path, prompt, focus=False).message
     return launch
+
+
+def pane_alive(flow):
+    """alive(key, agent) for dispatch: tmux knows whether a crew pane is open; other terminals do not."""
+    from sidequest import tmux
+    from sidequest.terminal import TmuxTerminal
+    terminal = getattr(flow, 'terminal', None)
+    if not isinstance(terminal, TmuxTerminal):
+        return None
+    return lambda key, agent: tmux.role_pane(terminal.run, terminal.session, f'crew-{agent}:{key}') is not None
+
 
 
 def open_manager(flow, in_shell, environ=os.environ):
@@ -161,6 +184,8 @@ def main():
     parser.add_argument('--again', action='store_true',
                         help='start a worker even when one is recorded as running, or the ticket is with someone else')
     parser.add_argument('--dry-run', action='store_true', help='show what would start; launch nothing')
+    parser.add_argument('--after-stop', action='store_true',
+                        help="worker Stop hook: start the challenger only after a ready ship-check; always exits 0")
     args = parser.parse_args()
     clock = datetime.now(timezone.utc)
     if args.status:
@@ -170,10 +195,12 @@ def main():
     from sidequest.start import full_key
     try:
         keys = [full_key(key, config.get('jira', 'projects', [])) for key in args.keys]
+        if args.after_stop and not (keys and all(crew.challenge_due(read_quietly(key)) for key in keys)):
+            return 0
         flow, in_shell = (None, False) if args.dry_run else workflow()
     except (RuntimeError, ValueError) as exc:
         print('sidequest crew: ' + str(exc), file=sys.stderr)
-        return 2
+        return 0 if args.after_stop else 2
     if not keys:
         try:
             return open_manager(flow, in_shell)
@@ -183,7 +210,7 @@ def main():
     if in_shell:
         print('sidequest crew: workers need their own windows; run this inside tmux or Herdr (sidequest up)',
               file=sys.stderr)
-        return 2
+        return 0 if args.after_stop else 2
     launch = worker_launcher(flow, config.get('crew', 'worker_command') or crew.DEFAULT_WORKER, DATA)
     challenger = worker_launcher(flow, config.get('crew', 'challenge_command') or crew.DEFAULT_CHALLENGER, DATA,
                                  'challenger')
@@ -193,12 +220,12 @@ def main():
         lines, skipped = crew.dispatch(keys, find_worktree, tickets_dir(), launch, DATA,
                                        clock.isoformat(timespec='seconds'), args.again, args.dry_run,
                                        waiting=lambda key: waiting_reason(found.get(key), skip),
-                                       challenger=challenger)
+                                       challenger=challenger, alive=pane_alive(flow))
     except RuntimeError as exc:
         print('sidequest crew: ' + str(exc), file=sys.stderr)
-        return 1
+        return 0 if args.after_stop else 1
     print('\n'.join(lines))
-    return 1 if skipped else 0
+    return 1 if skipped and not args.after_stop else 0
 
 
 if __name__ == '__main__':

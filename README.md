@@ -749,8 +749,8 @@ qa/report.md (skipped only without UI changes). Ship-check first runs
 worker resolves conflicts so both changes survive, runs the checks and finishes the rebase or merge; a
 conflict that needs a product decision is aborted and asked. It stops when it needs you:
 a blocking question (logged with `sidequest-data questions`), a permission, or a check it
-cannot fix. When ship-check is clean it reports "ready for you" and stops. Space `c` or
-`sidequest crew KEY` then starts the challenge step with a challenger (`crew.challenge_command`, default
+cannot fix. A workflow's own "Finish" reply does not stop it. When ship-check is clean it reports "ready
+for you" and stops; its Stop hook (`sidequest crew KEY --after-stop`) then starts the challenge step with a challenger (`crew.challenge_command`, default
 Opus): it assumes the worker's work is wrong until it proves each claim against the ticket, the diff and
 the tests, fixes in-scope defects with a failing test first, writes challenge.md in the ticket folder and
 reports "N wrong, M fixed, K open". Ship after it. With an open PR, Space `c` starts the last step,
@@ -772,7 +772,8 @@ the ones waiting on you first. A ticket with an open PR shows every step before 
 return to the ticket lanes. In the dashboard, Space `c` starts the selected ticket's worker (Space `c`
 on a running one offers a restart) and Space `C` opens the manager; both run `sidequest crew`.
 `sidequest crew` needs the ticket's own worktree (`sidequest start KEY`); Space `c` creates it. It reads each ticket from Jira first and skips one that is assigned to someone else, is in a `crew.skip_statuses` status (default: every review, QA, approved and done status in the Flow view's status map, plus Blocked) or could not be read from Jira; an unassigned ticket starts. `--again` starts it anyway. The Jira lookups run in parallel. `--status` shows each ticket's Jira status. A worker that is recorded as
-working is not started twice; `--again` restarts it, `--dry-run` previews. In tmux each ticket keeps one
+working is not started twice while its tmux pane is open; when the pane is gone it starts again without
+`--again`. `--again` restarts it, `--dry-run` previews. In tmux each ticket keeps one
 worker pane and one challenger pane: when that pane is still open, `sidequest crew KEY` pastes the new
 prompt into its agent session instead of splitting another pane, and prints "prompt sent to the open
 worker pane" instead of "worker started". Workers need tmux

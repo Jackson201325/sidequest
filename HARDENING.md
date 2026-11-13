@@ -571,8 +571,8 @@ unknown steps and states are refused without a write. Hooks always exit 0, write
 keep ready, failed and waiting states the worker set. Dispatch skips tickets without their own worktree
 (including the main checkout) and does not start a second worker while one is recorded as working or queued.
 Worker prompts forbid commits, pushes, PRs, comments and Jira changes, including the start workflow's start move.
-Limits: workers' stop points rely on the prompt and the skills; a worker that dies without a hook stays
-"working" until `--again`. Live Claude Code hooks and tmux/Herdr launches are not exercised offline.
+Limits: workers' stop points rely on the prompt and the skills; outside tmux, a worker that dies without a
+hook stays "working" until `--again`. Live Claude Code hooks and tmux/Herdr launches are not exercised offline.
 
 2026-11-11: tmux window choice. A live crew run split the worker into a newer launcher window in the same folder,
 because find_window compared window ids as text (@12 before @5). tests/test_tmux_launch.py failed first. A window in
@@ -648,3 +648,13 @@ failed first. The tmux launcher returns True when a pane with its role was open,
 ticket assigned to them but waiting on a requested reviewer. ticket-tui/test_workflow.py failed first.
 workflow.ownership() no longer names the Jira assignee when Jira assigns the ticket to the person; it names
 the requested reviewers, else "?".
+2026-11-13: Crew pipelines stalled until the person told the crew to move. Causes: the start and implement
+skills end with a "Finish" reply that ended the worker's turn (Stop hook: waiting); a ready ship-check waited
+for a new `sidequest crew KEY` before the challenger started; an allowed permission prompt left the record
+waiting; a closed worker pane left it working, and dispatch refused it without --again. Fixes: the worker
+prompt says a Finish reply is not a stop; Claude workers get a second Stop hook, `sidequest crew KEY
+--after-stop`, which reads run.json first and starts the challenger only for a ready ship-check (the usual
+Jira skip check stays) and always exits 0; a PostToolUse hook ("hook tool") clears only the waiting state a
+permission Notification set; in tmux, dispatch restarts a working or queued record whose tagged pane is gone.
+Dispatch now writes queued before the launch, so the worker's own working report is not overwritten, and
+records failed when the launch raises. tests/test_crew.py and tests/test_runs.py failed first.

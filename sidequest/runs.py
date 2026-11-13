@@ -78,12 +78,15 @@ def update(path, key, step, state, note, at, version=None):
 
 def hook(path, event, at):
     """Apply a Claude Code hook event. A turn that ends while working means the worker waits for the
-    person; a state the worker reported itself (ready, failed, waiting) is kept. No record: no change."""
+    person; a state the worker reported itself (ready, failed, waiting) is kept. A tool that runs after a
+    permission request means the person allowed it, so the worker works again. No record: no change."""
     record = read(path)
     if not record:
         return None
     state = record["state"]
     if event == "prompt" and state != "working":
+        return update(path, record["key"], record["step"], "working", "", at)
+    if event == "tool" and state == "waiting" and record.get("note") == HOOK_NOTES["notify"]:
         return update(path, record["key"], record["step"], "working", "", at)
     if event in HOOK_NOTES and state in ("working", "queued"):
         return update(path, record["key"], record["step"], "waiting", HOOK_NOTES[event], at)

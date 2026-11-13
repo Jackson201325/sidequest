@@ -32,6 +32,12 @@ class WorkerPromptTests(unittest.TestCase):
         self.assertIn("Skip the start workflow's Jira move", prompt)
         self.assertNotIn("configured start move", prompt)
 
+    def test_a_workflows_finish_reply_does_not_end_the_workers_turn(self):
+        for record in (None, {"step": "implement", "state": "waiting", "note": ""}):
+            prompt = crew.worker_prompt("DEMO-9", record, DATA)
+            self.assertIn("A workflow's Finish reply is not a stop", prompt)
+            self.assertIn("go on to the next step in the same turn", prompt)
+
     def test_qa_local_ends_with_screenshots_and_a_report(self):
         prompt = crew.worker_prompt("DEMO-9", None, DATA)
         qa = prompt[prompt.index("3. qa-local"):prompt.index("4. ship-check")]
@@ -80,7 +86,18 @@ class WorkerPromptTests(unittest.TestCase):
         self.assertEqual(hooks["Stop"][0]["hooks"][0]["command"], DATA + " run DEMO-9 hook stop")
         self.assertEqual(hooks["UserPromptSubmit"][0]["hooks"][0]["command"], DATA + " run DEMO-9 hook prompt")
         self.assertEqual(hooks["Notification"][0]["hooks"][0]["command"], DATA + " run DEMO-9 hook notify")
+        self.assertEqual(hooks["PostToolUse"][0]["hooks"][0]["command"], DATA + " run DEMO-9 hook tool")
         self.assertEqual(crew.worker_command("codex", "DEMO-9", DATA), "codex")
+
+    def test_a_ready_ship_check_starts_the_challenger_when_the_worker_stops(self):
+        line = crew.worker_command("claude", "DEMO-9", DATA, "/opt/sidequest/bin/sidequest")
+        hooks = json.loads(shlex.split(line)[shlex.split(line).index("--settings") + 1])["hooks"]
+        self.assertEqual([h["command"] for h in hooks["Stop"][0]["hooks"]],
+                         [DATA + " run DEMO-9 hook stop", "/opt/sidequest/bin/sidequest crew DEMO-9 --after-stop"])
+        self.assertTrue(crew.challenge_due({"step": "ship-check", "state": "ready"}))
+        for step, state in (("ship-check", "working"), ("challenge", "ready"), ("implement", "ready")):
+            self.assertFalse(crew.challenge_due({"step": step, "state": state}))
+        self.assertFalse(crew.challenge_due(None))
 
 
 class DispatchTests(unittest.TestCase):
@@ -144,6 +161,37 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(len(self.launched), 1)
         self.assertIn("Continue from implement", self.launched[0][2])
 
+    def test_a_worker_whose_pane_is_gone_is_started_again_without_again(self):
+        runs.update(self.tickets / "DEMO-1" / "run.json", "DEMO-1", "implement", "working", "", "2026-11-11T09:00:00+00:00")
+        launch = lambda key, path, prompt: self.launched.append(key)
+        lines, failed = crew.dispatch(["DEMO-1"], self.trees.get, self.tickets, launch, DATA, "2026-11-11T10:00:00+00:00",
+                                      alive=lambda key, agent: True)
+        self.assertTrue(failed)
+        lines, failed = crew.dispatch(["DEMO-1"], self.trees.get, self.tickets, launch, DATA, "2026-11-11T10:00:00+00:00",
+                                      alive=lambda key, agent: None)
+        self.assertTrue(failed)
+        self.assertEqual(self.launched, [])
+        seen = []
+        lines, failed = crew.dispatch(["DEMO-1"], self.trees.get, self.tickets, launch, DATA, "2026-11-11T10:00:00+00:00",
+                                      alive=lambda key, agent: seen.append((key, agent)) or False)
+        self.assertFalse(failed)
+        self.assertEqual((self.launched, seen), (["DEMO-1"], [("DEMO-1", "worker")]))
+        self.assertEqual(lines, ["DEMO-1: the worker pane was gone; worker started at implement"])
+
+    def test_the_record_is_queued_before_launch_and_failed_when_launch_fails(self):
+        path = self.tickets / "DEMO-1" / "run.json"
+        states = []
+        crew.dispatch(["DEMO-1"], self.trees.get, self.tickets, lambda key, p, prompt: states.append(runs.read(path)["state"]),
+                      DATA, "2026-11-11T10:00:00+00:00")
+        self.assertEqual(states, ["queued"])
+
+        def broken(key, p, prompt):
+            raise RuntimeError("tmux is not running")
+        with self.assertRaises(RuntimeError):
+            crew.dispatch(["DEMO-1"], self.trees.get, self.tickets, broken, DATA, "2026-11-11T10:00:00+00:00", again=True)
+        record = runs.read(path)
+        self.assertEqual((record["state"], record["note"]), ("failed", "Could not start the worker: tmux is not running"))
+
     def test_a_ticket_with_someone_else_is_skipped_unless_asked(self):
         lines, failed = crew.dispatch(["DEMO-1"], self.trees.get, self.tickets,
                                       lambda key, path, prompt: self.launched.append(key), DATA,
@@ -170,6 +218,32 @@ def load_cli():
     with unittest.mock.patch.object(sys, "argv", ["sidequest-crew.py"]):
         spec.loader.exec_module(cli)
     return cli
+
+
+class AfterStopTests(unittest.TestCase):
+    def run_main(self, record_state):
+        cli = load_cli()
+        tickets = Path(tempfile.mkdtemp())
+        self.addCleanup(__import__("shutil").rmtree, tickets)
+        if record_state:
+            runs.update(tickets / "DEMO-1" / "run.json", "DEMO-1", *record_state, "", "2026-11-11T09:00:00+00:00")
+        calls = []
+        with unittest.mock.patch.object(sys, "argv", ["sidequest-crew.py", "DEMO-1", "--after-stop"]), \
+                unittest.mock.patch.object(cli, "tickets_dir", lambda: tickets), \
+                unittest.mock.patch.object(cli, "jira_tickets", lambda keys: {}), \
+                unittest.mock.patch.object(cli, "workflow", lambda: (object(), False)), \
+                unittest.mock.patch.object(cli, "worker_launcher", lambda *a, **kw: None), \
+                unittest.mock.patch.object(cli.crew, "dispatch",
+                                           lambda keys, *a, **kw: calls.append((keys, kw)) or (["skip DEMO-1: x"], True)):
+            code = cli.main()
+        return code, calls
+
+    def test_after_stop_starts_the_challenger_only_for_a_ready_ship_check_and_always_exits_0(self):
+        for state in (None, ("implement", "working"), ("ship-check", "waiting"), ("challenge", "ready")):
+            self.assertEqual(self.run_main(state), (0, []), state)
+        code, calls = self.run_main(("ship-check", "ready"))
+        self.assertEqual((code, calls[0][0], calls[0][1]["again"] if "again" in calls[0][1] else None), (0, ["DEMO-1"], None))
+
 
 
 class ManagerPaneTests(unittest.TestCase):
