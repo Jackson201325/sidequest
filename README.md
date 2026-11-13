@@ -541,7 +541,7 @@ environment reads and external programs. It only reads the source.
 | `h/l`, Enter, Esc | List or preview pane; Esc clears the filter and returns to the list |
 | `gl`/`gL` | Next or previous ticket that needs you |
 | `1`–`5` | All, Needs me, Waiting, Clarify, In Dev (implementation or rework, from the Jira status) |
-| `6` | ✦ AI mode: every ticket's crew pipeline (Blocked tickets are hidden); the details show the selected ticket's worker and history. Below 100 columns a row names only the current step, its state and the reason |
+| `6` | ✦ AI mode: every ticket's crew pipeline (Blocked tickets are hidden); the details show the selected ticket's worker and history. A row shows the agent state, its age in an AGE column, the title, then, in its own column under `→ REASON`, the first clause of the reason when the worker waits or failed; the details show the whole note. Below 100 columns a row names only the current step, its state, the title and the reason |
 | `/` | Search; the list filters while you type and shows the match count. Enter keeps it, Esc restores the previous search |
 | `a/p/d/c/m/v/s/f/u` | Activity, Plan, Updates, Questions, Meetings, Overview, Work log, Flow, Standup |
 | `o/O` | Choose or reverse a sort (a box over the dashboard; ✓ marks the current sort); the selected ticket stays selected |

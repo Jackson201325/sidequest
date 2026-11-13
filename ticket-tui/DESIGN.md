@@ -172,3 +172,15 @@ y copies the standup in a background job, so pbcopy never blocks input.
 2026-11-13: The help scrolls with j/k and Ctrl-d/u when it is longer than the terminal; the bottom row says
 so and shows "more ↓". Below 100 columns (layout.PIPELINE_NARROW) an AI-mode row is `KEY  step · state age
 → reason · title`; the six pipeline cells need the wider form. The glyph still shows the state.
+2026-11-13: An AI-mode row shows `<title>  → <reason>` (TITLE → REASON) instead of `→ <reason> · <title>`.
+Long run.json notes hid the title. The row shows only the first clause of the reason (up to `. `, `; ` or
+` — `), at most layout.ROW_REASON characters; the hook notes become "ended its turn" and "asks for
+permission or input" (layout.ROW_NOTES). The title keeps at least layout.ROW_TITLE characters; when the
+row has no room for both, it shows only the reason. A ready row shows no reason: its AGENT label says
+ready and its note is a summary. The details panel still shows the whole note.
+2026-11-13: The reason is a column: every row's → sits under `→ REASON` (layout.tail_columns). The title
+column takes three fifths of the free width, or layout.ROW_TITLE on a tight row; a row too tight for that
+shows only the reason. The AGENT cell always ends with two spaces (layout.agent_cell): a long owner name
+is cut with … and the age stays, so `with <owner> 43h` never runs into the title.
+2026-11-13: The age has its own AGE column after AGENT, right-aligned so 2d and 43h end together
+(layout.AGE). AGENT is 18 wide (STEP · AGENT 28 below 100 columns); a longer label is cut with ….

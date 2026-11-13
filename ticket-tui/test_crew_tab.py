@@ -1,5 +1,6 @@
 """AI mode (6) and the card's Agent line read each ticket's run.json; the dashboard never writes it."""
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -77,19 +78,83 @@ class CrewTests(unittest.TestCase):
         _, rest = layout.pipeline_row(self.ticket, record, 0, 160, None)
         self.assertEqual(rest.count('✓'), 3)
 
+    def test_a_long_note_keeps_the_title_and_shows_only_its_first_clause(self):
+        self.ticket.prs, self.ticket.court = [], 'me'
+        self.ticket.title = 'Change the checkout copy for annual plans on the pricing page'
+        note = 'rspec failed in billing/invoice_spec.rb after the rounding change; see the log for the stack trace'
+        record = {'key': self.ticket.key, 'step': 'implement', 'state': 'failed', 'note': note, 'updated': ''}
+        for width in (76, 140, 200):
+            _, rest = layout.pipeline_row(self.ticket, record, 0, width, None)
+            with self.subTest(width=width):
+                self.assertLessEqual(len(rest), width - 1)
+                self.assertIn('Change the', rest)
+                self.assertRegex(rest, r'  → rspec f\S*.*…$')
+                self.assertNotIn('stack trace', rest)
+                self.assertLess(rest.index('Change the'), rest.index('→'))
+        _, rest = layout.pipeline_row(self.ticket, record, 0, 120, None)
+        self.assertRegex(rest, r'→ rspec f\S*…$')
+        _, rest = layout.pipeline_row(self.ticket, dict(record, note=runs.HOOK_NOTES['stop'], state='waiting'), 0, 200, None)
+        self.assertTrue(rest.endswith('→ ended its turn'))
+        _, rest = layout.pipeline_row(self.ticket, dict(record, step='qa-review', state='ready'), 0, 200, None)
+        self.assertNotIn('→', rest)
+        self.assertTrue(rest.rstrip().endswith('pricing page'))
+
+    def test_the_agent_column_always_ends_before_the_title_and_the_reasons_line_up(self):
+        from datetime import datetime, timezone
+        from core import Ticket
+        clock = datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
+        long_owner = Ticket('APP-1', title='Fix slow order searches', court='them',
+                            assignee='Sergio David Perdomo Rivera', assigned_me=False)
+        record = {'key': 'APP-1', 'step': 'qa-review', 'state': 'ready', 'note': '',
+                  'updated': '2026-11-13T10:00:00+00:00'}
+        for width in (76, 200):
+            header = layout.pipeline_header(width)
+            _, rest = layout.pipeline_row(long_owner, record, 0, width, clock)
+            with self.subTest(width=width):
+                self.assertEqual(rest.index('Fix slow'), header.index('TITLE'))
+                self.assertTrue(rest[:rest.index('Fix slow')].endswith(' 2h  '))
+        mine = [Ticket('APP-2', title='Create Calendar & Tasks', court='me'),
+                Ticket('APP-3', title='Build In-House Support Ticketing System to Replace Zendesk', court='me')]
+        waiting = dict(record, step='implement', state='waiting', note='Q1: build in-house or adopt open source?')
+        for width, ticket in ((w, t) for w in (90, 140, 200) for t in mine):
+            header = layout.pipeline_header(width)
+            _, rest = layout.pipeline_row(ticket, waiting, 0, width, clock)
+            with self.subTest(width=width, ticket=ticket.key):
+                self.assertEqual(rest.index('→'), header.index('→'))
+                self.assertEqual(rest.index(ticket.title[:10]), header.index('TITLE'))
+
+    def test_the_age_has_its_own_column_after_the_agent(self):
+        from datetime import datetime, timezone
+        from core import Ticket
+        clock = datetime(2026, 11, 13, 12, tzinfo=timezone.utc)
+        rows = [(Ticket('APP-1', title='Totals', court='them', assignee='Sergio David Perdomo Rivera',
+                        assigned_me=False), 'ready', '2026-11-13T10:00:00+00:00', '2h'),
+                (Ticket('APP-2', title='Totals', court='me'), 'waiting', '2026-11-11T09:00:00+00:00', '2d'),
+                (Ticket('APP-3', title='Totals', court='me'), 'failed', '2026-11-11T17:00:00+00:00', '43h')]
+        for width in (90, 200):
+            header = layout.pipeline_header(width)
+            age_end = header.index(' AGE ') + len(' AGE')
+            for ticket, state, updated, age in rows:
+                record = {'key': ticket.key, 'step': 'qa-review', 'state': state, 'note': 'x', 'updated': updated}
+                _, rest = layout.pipeline_row(ticket, record, 0, width, clock)
+                with self.subTest(width=width, ticket=ticket.key):
+                    self.assertEqual(rest[age_end - len(age) - 1:age_end], ' ' + age)
+                    self.assertEqual(rest[age_end:age_end + 2], '  ')
+                    self.assertNotIn(age, rest[:age_end - len(age) - 1].split()[-1:])
+
     def test_a_stopped_pipeline_row_says_why_it_stopped(self):
         self.ticket.prs, self.ticket.court = [], 'me'
         record = {'key': self.ticket.key, 'step': 'implement', 'state': 'waiting', 'note': 'Q2: Which copy?',
                   'updated': ''}
         _, rest = layout.pipeline_row(self.ticket, record, 0, 200, None)
-        self.assertIn('→ Q2: Which copy? · ' + self.ticket.title, rest)
+        self.assertRegex(rest, re.escape(self.ticket.title) + r' +→ Q2: Which copy\?$')
         _, rest = layout.pipeline_row(self.ticket, dict(record, state='failed', note=''), 0, 200, None)
-        self.assertIn('→ failed without a note; open the worker (w)', rest)
+        self.assertIn('→ failed without a note', rest)
         _, rest = layout.pipeline_row(self.ticket, dict(record, state='working'), 0, 200, None)
         self.assertNotIn('→', rest)
         self.ticket.prs = [{'number': 12}]
         _, rest = layout.pipeline_row(self.ticket, record, 0, 200, None)
-        self.assertIn('→ PR open; qa-review has not run', rest)
+        self.assertIn('→ PR open', rest)
         self.assertNotIn('Which copy', rest)
         self.assertIn('REASON', layout.pipeline_header(200))
 

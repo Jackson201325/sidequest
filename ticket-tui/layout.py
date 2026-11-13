@@ -300,19 +300,42 @@ def pipeline_cells(record, frame, width):
 def pipeline_columns(width):
     """(key, cell, state) widths; the title takes what is left."""
     cell = 12 if width >= 110 else 11
-    return 10, cell, 22
+    return 10, cell, 18
 
 
 PIPELINE_NARROW = 100  # below this width a row names only the current step
-PIPELINE_STEP = 32
+PIPELINE_STEP = 28
+AGE = 6  # right-aligned age (up to 4 characters) and two spaces
+ROW_REASON = 32
+ROW_TITLE = 16
+ROW_NOTES = {runs.HOOK_NOTES["stop"]: "ended its turn", runs.HOOK_NOTES["notify"]: "asks for permission or input"}
+
+
+def tail_columns(width):
+    """(head, title) widths of an AI-mode row; title is None when the row is too narrow for a reason column."""
+    key, cell, state = pipeline_columns(width)
+    head = key - 1 + AGE + (PIPELINE_STEP if width < PIPELINE_NARROW else len(PIPELINE_STAGES) * cell + state)
+    room = max(0, width - 1) - head
+    if room < ROW_TITLE + 8:
+        return head, None
+    if room < ROW_TITLE + 2 + ROW_REASON:
+        return head, ROW_TITLE
+    return head, room - 2 - max(ROW_REASON, room * 2 // 5)
 
 
 def pipeline_header(width):
     key, cell, state = pipeline_columns(width)
+    _, title = tail_columns(width)
+    tail = f"{'TITLE':<{title + 2}}→ REASON" if title else "TITLE  → REASON"
     if width < PIPELINE_NARROW:
-        return (f"{'TICKET':<{key - 1}}{'STEP · AGENT':<{PIPELINE_STEP}}REASON · TITLE")[:width]
+        return (f"{'TICKET':<{key - 1}}{'STEP · AGENT':<{PIPELINE_STEP}}{'AGE':>{AGE - 2}}  " + tail)[:width]
     return (f"{'TICKET':<{key - 1}}" + "".join(f"{name:<{cell}}" for name in PIPELINE_STAGES)
-            + f"{'AGENT':<{state}}REASON · TITLE")[:width]
+            + f"{'AGENT':<{state}}{'AGE':>{AGE - 2}}  " + tail)[:width]
+
+
+def agent_cell(label, age, width):
+    """The label in width columns (cut with … to leave two spaces), then the age right-aligned in AGE."""
+    return f"{snippet(label, width - 2):<{width}}{age:>{AGE - 2}}  "
 
 
 def handed_off(ticket, record):
@@ -362,22 +385,39 @@ def stop_reason(record, shipped=False, theirs=False):
     return note or f"{shown['state']} without a note; open the worker (w)"
 
 
+def short_reason(reason, limit=ROW_REASON):
+    """The first clause of a stop reason, short enough for a list row; the details show it whole."""
+    text = ROW_NOTES.get(reason, reason)
+    text = re.split(r"(?<=[^.])[.;] | — ", text, maxsplit=1)[0]
+    return snippet(text, limit)
+
+
+def row_tail(title, reason, room, title_width):
+    """Title first, then the short reason in a column after title_width, so every row's → lines up.
+    No title_width: the row is too narrow for both, so it shows the reason."""
+    if not reason:
+        return title
+    if not title_width:
+        return "→ " + short_reason(reason, max(1, room - 2))
+    return f"{snippet(title, title_width):<{title_width + 2}}→ " + short_reason(reason, room - title_width - 4)
+
+
 def pipeline_row(ticket, record, frame, width, clock):
     """(glyph, rest) for one AI-mode row; the glyph is coloured by its state."""
     key, cell, state_width = pipeline_columns(width)
     after = runs.after_ship(record) if record and ticket.prs else record
     reason = stop_reason(record, bool(ticket.prs), bool(handed_off(ticket, after)))
+    if after and after["state"] == "ready":
+        reason = None
     label = crew_label(ticket, after) if after else ""
     record = quiet(ticket, after)
-    if record:
-        glyph = runs.glyph(record["state"], frame)
-        state = f"{label} {runs.age(record.get('updated'), clock)}"
-    else:
-        glyph, state = " ", "no worker"
-    tail = (f"→ {reason} · " if reason else "") + ticket.title
+    glyph = runs.glyph(record["state"], frame) if record else " "
+    age = runs.age(record.get("updated"), clock) if record else ""
     if width < PIPELINE_NARROW:
-        step = f"{after['step']} · {state}" if after else state
-        return glyph, (f"{ticket.key:<{key - 1}}{step[:PIPELINE_STEP - 1]:<{PIPELINE_STEP}}" + tail)[:max(0, width - 1)]
-    rest = (f"{ticket.key:<{key - 1}}" + "".join(pipeline_cells(record, frame, cell))
-            + f"{state:<{state_width}}" + tail)
-    return glyph, rest[:max(0, width - 1)]
+        step = f"{after['step']} · {label}" if after else "no worker"
+        head = f"{ticket.key:<{key - 1}}" + agent_cell(step, age, PIPELINE_STEP)
+    else:
+        head = (f"{ticket.key:<{key - 1}}" + "".join(pipeline_cells(record, frame, cell))
+                + agent_cell(label if record else "no worker", age, state_width))
+    room = max(0, width - 1)
+    return glyph, (head + row_tail(ticket.title, reason, room - len(head), tail_columns(width)[1]))[:room]

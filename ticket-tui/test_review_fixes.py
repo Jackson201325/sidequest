@@ -192,7 +192,7 @@ class DashboardAuditTests(unittest.TestCase):
         self.assertIn("→ PR 12 is ready", rest)
         ticket.court = "me"
         _, rest = layout.pipeline_row(ticket, record, 0, 200, None)
-        self.assertIn("→ " + runs.HOOK_NOTES["stop"], rest)
+        self.assertIn("→ ended its turn", rest)
 
     def test_the_card_and_details_of_a_handed_off_ticket_do_not_say_it_either(self):
         from sidequest import runs
@@ -300,10 +300,10 @@ class DashboardAuditTests(unittest.TestCase):
         header = layout.pipeline_header(76)
         self.assertEqual(glyph, "✗")
         self.assertIn("implement · failed", rest)
-        self.assertIn("→ rspec failed · Totals page", rest)
+        self.assertRegex(rest, r"Totals page +→ rspec failed$")
         self.assertNotIn("━", rest)
         self.assertNotIn("SHIP-CHECK", header)
-        self.assertEqual(header.index("REASON"), rest.index("→"))
+        self.assertEqual(header.index("TITLE"), rest.index("Totals page"))
         self.assertEqual(header.index("STEP"), rest.index("implement"))
         _, rest = layout.pipeline_row(ticket, None, 0, 76, None)
         self.assertIn("no worker", rest)
