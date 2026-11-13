@@ -99,9 +99,9 @@ def ownership(ticket):
         return "Needs clarification", "Next owner is not established"
     if ticket.court == "done":
         return "No next owner", "Ticket is complete in Jira"
-    if ticket.assignee not in ("Unknown", "Unassigned", ""):
+    if ticket.assignee not in ("Unknown", "Unassigned", "") and ticket.assigned_me is not True:
         return ticket.assignee, "Jira assignee; next ownership inferred"
-    if stage_context(ticket)["index"] == 2:
+    if ticket.assigned_me is True or stage_context(ticket)["index"] == 2:
         reviewers = sorted({r for p in ticket.prs for r in p.get("requested_reviewers", [])})
         if reviewers:
             return ", ".join(reviewers), "GitHub reviewer request"

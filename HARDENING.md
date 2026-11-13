@@ -644,3 +644,7 @@ A dead or closed pane gets a new split. Herdr still opens a new pane each time.
 2026-11-13: A crew request that reused the open pane still printed "worker started". tests/test_crew.py
 failed first. The tmux launcher returns True when a pane with its role was open, and dispatch prints
 "prompt sent to the open worker pane at <step>".
+2026-11-13: The TURN column showed the person's own first name next to "you" for a
+ticket assigned to them but waiting on a requested reviewer. ticket-tui/test_workflow.py failed first.
+workflow.ownership() no longer names the Jira assignee when Jira assigns the ticket to the person; it names
+the requested reviewers, else "?".

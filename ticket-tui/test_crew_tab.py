@@ -81,6 +81,7 @@ class CrewTests(unittest.TestCase):
         self.record(self.ticket.key, 'ship-check', 'ready', 'Clean')
         record = runs.read(self.path)
         self.ticket.court, self.ticket.assignee, self.ticket.prs = 'them', 'Eddie Sitt', []
+        self.ticket.assigned_me = False
         self.assertEqual(layout.crew_label(self.ticket, record), 'with Eddie Sitt')
         agent = [line for line in self.app.summary_card(self.ticket) if line.startswith('Agent ')][0]
         self.assertIn('ship-check · with Eddie Sitt · ', agent)
@@ -94,6 +95,7 @@ class CrewTests(unittest.TestCase):
     def test_a_waiting_worker_is_not_your_turn_when_jira_or_the_pr_says_someone_else_has_it(self):
         record = {'key': self.ticket.key, 'step': 'qa-review', 'state': 'waiting', 'note': '', 'updated': ''}
         self.ticket.court, self.ticket.assignee, self.ticket.status = 'them', 'Eddie Sitt', 'In Code Review'
+        self.ticket.assigned_me = False
         self.assertEqual(layout.crew_label(self.ticket, record), 'with Eddie Sitt')
         self.ticket.court = 'unknown'
         self.assertEqual(layout.crew_label(self.ticket, record), 'Jira: In Code Review')

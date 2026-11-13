@@ -29,6 +29,17 @@ class WorkflowTests(unittest.TestCase):
         finally:
             store.close()
 
+    def test_waiting_ticket_assigned_to_me_names_the_reviewer_not_my_own_name(self):
+        store = Store(":memory:")
+        try:
+            ticket = Ticket("DEMO-43", status="In Dev", assignee="Pat Example", assigned_me=True,
+                            prs=[{"requested_reviewers": ["reviewer-login"]}])
+            rank(ticket, store)
+            self.assertEqual(ticket.court, "them")
+            self.assertEqual(next_owner(ticket), "reviewer-login")
+        finally:
+            store.close()
+
     def test_workflow_names_current_step_and_owner_without_dot_legend(self):
         ticket = Ticket("DEMO-42", status="In QA", court="them", assignee="QA reviewer")
         self.assertEqual(workflow_strip(ticket), ["YOU ARE HERE: QA testing (step 4 of 6)"])
