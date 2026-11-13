@@ -21,7 +21,8 @@ take(sys.argv)
 try:
     from sidequest import config, start, terminal_mode
 except ValueError as exc:
-    raise SystemExit('sidequest start: ' + str(exc))
+    print('sidequest start: ' + str(exc), file=sys.stderr)
+    raise SystemExit(2)
 from sidequest.workspace import GitWorkspace
 
 SIDEQUEST = str(Path(__file__).resolve().with_name('sidequest'))

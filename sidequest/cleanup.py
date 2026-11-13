@@ -109,6 +109,12 @@ def clean(repository, merged_prs, cwd, busy, live_pr, confirm, close_window, dry
             detail = [line for line in removed.stderr.splitlines() if line.strip()]
             lines.append(_row('failed', name, 'git worktree remove: ' + (detail[-1] if detail else 'failed')))
             continue
-        _git(repository, 'branch', '-D', branch)
+        deleted = _git(repository, 'branch', '-D', branch)
+        if deleted.returncode:
+            problems += 1
+            detail = [line for line in deleted.stderr.splitlines() if line.strip()]
+            lines.append(_row('removed', name, merged_text + '; worktree removed; local branch kept (git branch -D: '
+                              + (detail[-1] if detail else 'failed') + ')'))
+            continue
         lines.append(_row('removed', name, merged_text + '; worktree and local branch removed'))
     return lines, problems

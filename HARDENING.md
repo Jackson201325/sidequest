@@ -677,3 +677,14 @@ Jira skip check stays) and always exits 0; a PostToolUse hook ("hook tool") clea
 permission Notification set; in tmux, dispatch restarts a working or queued record whose tagged pane is gone.
 Dispatch now writes queued before the launch, so the worker's own working report is not overwritten, and
 records failed when the launch raises. tests/test_crew.py and tests/test_runs.py failed first.
+2026-11-13: Whole-app review, six fixes. tests/test_env_config.py, ticket-tui/test_review_fixes.py and
+ticket-tui/test_shell_mode.py failed first. (1) The documented SIDEQUEST_HEROKU_TOKEN stopped every command
+with "is not a Sidequest setting"; it is now in config.NOT_SETTINGS. (2) runs.after_ship moved a failed
+worker to "qa-review · waiting" when the ticket had an open PR, which hid the failure; a failed step now stays
+where it failed. (3) `sidequest --demo` listed workers from the real tickets folder in AI mode; main() now
+gives the demo an empty temporary tickets folder. (4) Space M outside tmux used the tickets folder as its
+working directory without creating it. (5) Space n lost the Jira move result when the workspace result had its
+own message or failed; that message now repeats the Jira result. (6) A busy background job was named by the
+new request ("Opening the crew manager already in progress" while a worker started); it is named by the job
+that runs. Not fixed: `sidequest crew --dry-run` without keys still raises AttributeError (open_manager gets
+no workflow). Live tmux, Jira and Heroku were not exercised.

@@ -210,7 +210,8 @@ def main():
     parser.add_argument('--status', action='store_true', help='print every worker and exit')
     parser.add_argument('--again', action='store_true',
                         help='start a worker even when one is recorded as running, or the ticket is with someone else')
-    parser.add_argument('--dry-run', action='store_true', help='show what would start; launch nothing')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='show what would start (workers, or the manager without keys); launch nothing')
     parser.add_argument('--after-stop', action='store_true',
                         help="worker Stop hook: start the challenger only after a ready ship-check; always exits 0")
     chat = parser.add_mutually_exclusive_group()
@@ -233,6 +234,9 @@ def main():
         print('sidequest crew: ' + str(exc), file=sys.stderr)
         return 0 if args.after_stop else 2
     if not keys:
+        if args.dry_run:
+            print('would open the crew manager: ' + (config.get('crew', 'manager_command') or crew.DEFAULT_MANAGER))
+            return 0
         try:
             return open_manager(flow, in_shell, resume=ask_resume(args.resume))
         except RuntimeError as exc:

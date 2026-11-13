@@ -215,6 +215,16 @@ class TerminalSelectionSpecs(unittest.TestCase):
             result = flow.terminal.launch('APP-21', folder, foreground=True)
             self.assertEqual(result.foreground['argv'], ['/bin/zsh', '-i'])
 
+    def test_launch_scripts_go_to_the_state_folder_the_rest_of_sidequest_uses(self):
+        home = {'HOME': '/home/dev'}
+        for extra, expected in (({'SIDEQUEST_STATE_DIR': '/custom/state'}, '/custom/state/launches'),
+                                ({'XDG_STATE_HOME': '/xdg', 'SIDEQUEST_PROJECT': 'acme'}, '/xdg/sidequest/projects/acme/launches'),
+                                ({'SIDEQUEST_PROJECT': 'acme'}, '/home/dev/.local/state/sidequest/projects/acme/launches'),
+                                ({}, '/home/dev/.local/state/sidequest/launches')):
+            with self.subTest(extra=extra):
+                flow = build_workflow({}, dict(CONTEXT, **home, **extra))
+                self.assertEqual(str(flow.terminal.launches_dir), expected)
+
     def test_herdr_explains_missing_zsh_before_launching_or_changing_git(self):
         with patch('shutil.which', return_value=None):
             with self.assertRaisesRegex(RuntimeError, 'Herdr requires zsh'):

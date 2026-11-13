@@ -17,7 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 try:
     from sidequest import overview, terminal_mode
 except ValueError as exc:
-    raise SystemExit('sidequest projects: ' + str(exc))
+    print('sidequest projects: ' + str(exc), file=sys.stderr)
+    raise SystemExit(2)
 
 BIN = Path(__file__).resolve().parent
 TITLE = 'Sidequest projects'
@@ -92,6 +93,9 @@ def launch(row, chosen):
 
 
 def main():
+    if set(sys.argv[1:]) & {'-h', '--help'}:
+        print(__doc__.strip())
+        return 0
     rows = overview.project_rows()
     if not rows:
         print('No projects yet. Adopt one: sidequest-data project init NAME --repo PATH')

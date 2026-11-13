@@ -98,6 +98,219 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(events[0][0], "message")
         self.assertIn("Loading dated work history failed unexpectedly", events[0][1])
 
+    def test_a_busy_job_is_named_by_what_runs_not_by_what_was_asked(self):
+        app = self.app()
+        app.jobs["crew"] = ("Starting the DEMO-1 crew worker", time.monotonic())
+        app.background("crew", "Opening the crew manager", lambda: "never runs")
+        self.assertEqual(app.message, "Starting the DEMO-1 crew worker already in progress")
+
+
+class DashboardAuditTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+
+    def test_space_m_outside_tmux_creates_the_tickets_folder_it_runs_in(self):
+        store = Store(":memory:")
+        self.addCleanup(store.close)
+        app = tui.App(store, self.root, demo=True)
+        app.demo = False
+        tickets = self.root / "state" / "tickets"
+        with patch.object(tui.qa, "tickets_dir", return_value=tickets), patch.object(tui.App, "choose", return_value=1), \
+                patch.dict("os.environ", {}, clear=True):
+            app.meeting()
+        self.assertEqual(app.foreground_target["cwd"], str(tickets))
+        self.assertTrue(tickets.is_dir())
+
+    def test_demo_never_lists_workers_from_the_real_tickets_folder(self):
+        from sidequest import runs
+        runs.update(self.root / "REAL-77" / "run.json", "REAL-77", "implement", "waiting", "private note",
+                    "2026-11-11T10:00:00+00:00")
+        seen = []
+
+        def wrapper(loop):
+            app = loop.__self__
+            app.view = "AI"
+            seen.extend(ticket.key for ticket in app.visible())
+        argv = ["sidequest", "--demo", "--snapshots", str(self.root / "s"), "--data-dir", str(self.root / "d")]
+        with patch.object(tui, "PLANS", self.root), patch.object(sys, "argv", argv), \
+                patch.object(tui.curses, "wrapper", wrapper):
+            tui.main()
+        self.assertTrue(seen)
+        self.assertNotIn("REAL-77", seen)
+
+    def test_an_open_pr_does_not_hide_a_failed_worker(self):
+        import layout
+        from sidequest import runs
+        record = {"key": "APP-1", "step": "implement", "state": "failed", "note": "rspec failed", "updated": ""}
+        self.assertEqual(runs.after_ship(record), record)
+        ticket = Ticket("APP-1", title="Totals", prs=[{"number": 12}], court="me")
+        glyph, rest = layout.pipeline_row(ticket, record, 0, 200, None)
+        self.assertEqual(glyph, "✗")
+        self.assertIn("→ rspec failed", rest)
+        self.assertNotIn("PR open", rest)
+        waiting = runs.after_ship(dict(record, state="waiting"))
+        self.assertEqual((waiting["step"], waiting["state"]), ("qa-review", "waiting"))
+
+    def test_a_handed_off_row_does_not_say_the_worker_waits_for_you(self):
+        import layout
+        from sidequest import runs
+        ticket = Ticket("APP-1", title="Totals", court="them", assignee="Eddie Sitt", assigned_me=False)
+        record = {"key": "APP-1", "step": "ship-check", "state": "waiting", "note": runs.HOOK_NOTES["stop"],
+                  "updated": ""}
+        for note in (runs.HOOK_NOTES["stop"], runs.HOOK_NOTES["notify"], ""):
+            _, rest = layout.pipeline_row(ticket, dict(record, note=note), 0, 200, None)
+            with self.subTest(note=note):
+                self.assertIn("with Eddie Sitt", rest)
+                self.assertNotIn("→", rest)
+        _, rest = layout.pipeline_row(ticket, dict(record, note="PR 12 is ready"), 0, 200, None)
+        self.assertIn("→ PR 12 is ready", rest)
+        ticket.court = "me"
+        _, rest = layout.pipeline_row(ticket, record, 0, 200, None)
+        self.assertIn("→ " + runs.HOOK_NOTES["stop"], rest)
+
+    def test_the_card_and_details_of_a_handed_off_ticket_do_not_say_it_either(self):
+        from sidequest import runs
+        store = Store(":memory:")
+        self.addCleanup(store.close)
+        app = tui.App(store, self.root, demo=True)
+        ticket = app.selected()
+        ticket.court, ticket.assignee, ticket.assigned_me, ticket.prs = "them", "Eddie Sitt", False, []
+        runs.update(self.root / ticket.key / "run.json", ticket.key, "ship-check", "waiting", "", "2026-11-11T10:00:00+00:00")
+        runs.hook(self.root / ticket.key / "run.json", "prompt", "2026-11-11T10:01:00+00:00")
+        runs.hook(self.root / ticket.key / "run.json", "stop", "2026-11-11T10:02:00+00:00")
+        with patch.object(tui, "PLANS", self.root):
+            card = [line for line in app.summary_card(ticket) if line.startswith("Agent ")][0]
+            details = " ".join(row.text for row in app.views.agent_rows(ticket, self.root))
+        self.assertIn("with Eddie Sitt", card)
+        self.assertNotIn("waits for you", card)
+        self.assertNotIn("waits for you", details.split("HISTORY")[0])
+
+    def ai_app(self):
+        """A dashboard on the sample tickets whose ticket folders are self.root."""
+        store = Store(":memory:")
+        self.addCleanup(store.close)
+        app = tui.App(store, self.root, demo=True)
+        plans = patch.object(tui, "PLANS", self.root)
+        plans.start()
+        self.addCleanup(plans.stop)
+        return app
+
+    def worker(self, key, step="implement", state="failed", note="rspec failed"):
+        from sidequest import runs
+        runs.update(self.root / key / "run.json", key, step, state, note, "2026-11-11T10:00:00+00:00")
+
+    def test_the_pipeline_header_sits_over_the_pipeline_cells(self):
+        import layout
+        record = {"key": "APP-1", "step": "implement", "state": "working", "note": "", "updated": ""}
+        for width in (100, 160):
+            _, rest = layout.pipeline_row(Ticket("APP-1", title="Totals"), record, 0, width, None)
+            with self.subTest(width=width):
+                self.assertEqual(layout.pipeline_header(width).index(layout.PIPELINE_STAGES[0]), rest.index("✓"))
+
+    def test_tab_keys_do_nothing_in_ai_mode_where_no_tab_shows(self):
+        app = self.ai_app()
+        app.view, app.detail_tab, app.focus_pane = "AI", "Activity", "list"
+        app.press("p")
+        self.assertEqual((app.detail_tab, app.focus_pane), ("Activity", "list"))
+        app.view = "All"
+        app.press("p")
+        self.assertEqual((app.detail_tab, app.focus_pane), ("Plan", "preview"))
+
+    def test_a_sort_keeps_the_selected_ticket(self):
+        app = self.ai_app()
+        app.index = len(app.visible()) - 1
+        key = app.selected().key
+        for mode in tui.SORT_MODES:
+            app.set_sort(mode)
+            with self.subTest(mode=mode):
+                self.assertEqual(app.selected().key, key)
+
+    def test_an_automatic_reload_does_not_replace_the_status_line_when_it_is_busy(self):
+        from sidequest import config
+        app = self.ai_app()
+        app.demo = False
+        app.message = "Refresh incomplete: Jira token expired"
+        for name in ("worklog", "worktrees", "branch_state"):
+            app.jobs[name] = ("Loading", time.monotonic())
+        with patch.object(config, "workspace_repository", return_value=str(self.root)):
+            app.refresh_worklog()
+            app.load_worktrees()
+            app.refresh_branch_state()
+        self.assertEqual(app.message, "Refresh incomplete: Jira token expired")
+
+    def test_an_automatic_reload_asked_for_while_its_job_runs_runs_when_the_job_ends(self):
+        from sidequest import config
+        app = self.ai_app()
+        app.demo = False
+        loads = []
+        app.jobs["worklog"] = ("Loading dated work history", time.monotonic())
+        with patch.object(config, "workspace_repository", return_value=str(self.root)), \
+                patch.object(tui, "collect_worklog", lambda *args: loads.append(1) or {}):
+            app.refresh_worklog()
+            app.refresh_worklog()
+            self.assertEqual(loads, [])
+            app.events.put(("job_done", "worklog"))
+            deadline = time.monotonic() + 2
+            app.drain()
+            while app.jobs and time.monotonic() < deadline:
+                app.drain()
+        self.assertEqual(loads, [1])
+        self.assertNotIn("worklog", app.jobs)
+
+    def test_the_standup_is_copied_off_the_ui_thread(self):
+        import threading
+        app = self.ai_app()
+        seen = []
+
+        def pbcopy(argv, **kwargs):
+            seen.append((argv, threading.current_thread(), kwargs.get("input")))
+        with patch.object(tui.subprocess, "run", pbcopy):
+            app.copy_standup()
+            deadline = time.monotonic() + 2
+            while app.jobs and time.monotonic() < deadline:
+                app.drain()
+            app.drain()
+        self.assertEqual(seen[0][0], ["pbcopy"])
+        self.assertTrue(seen[0][2])
+        self.assertIsNot(seen[0][1], threading.main_thread())
+        self.assertEqual(app.message, "Standup copied to the clipboard")
+        with patch.object(tui.subprocess, "run", side_effect=OSError("no pbcopy")):
+            app.copy_standup()
+            deadline = time.monotonic() + 2
+            while app.jobs and time.monotonic() < deadline:
+                app.drain()
+            app.drain()
+        self.assertIn("pbcopy unavailable", app.message)
+
+    def test_the_skip_reason_is_stored_on_the_ui_thread(self):
+        import threading
+        from sidequest import crew
+        app = self.ai_app()
+        app.demo = False
+        ticket = app.selected()
+        ticket.worktree = str(self.root)
+        threads = []
+
+        class Recorder(dict):
+            def __setitem__(self, key, value):
+                threads.append(threading.current_thread())
+                super().__setitem__(key, value)
+        app.crew_skipped = Recorder()
+        answer = f"skip {ticket.key}: Jira status is In QA; " + crew.AGAIN_HINT
+        with patch.object(tui.App, "choose", return_value=0), patch.object(tui, "run_crew", lambda args: answer), \
+                patch.dict("os.environ", {"TMUX": "/tmp/tmux,1,0"}):
+            app.crew_worker(ticket)
+            deadline = time.monotonic() + 2
+            while app.jobs and time.monotonic() < deadline:
+                app.drain()
+            app.drain()
+        self.assertEqual(dict(app.crew_skipped), {ticket.key: "Jira status is In QA"})
+        self.assertEqual(threads, [threading.main_thread()])
+        self.assertIn("press Space c again", (app.message or "") + (app.deferred_message or ""))
+
 
 class WorktreeTests(unittest.TestCase):
     def test_backup_branches_and_lowercase_keys(self):

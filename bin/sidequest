@@ -40,7 +40,7 @@ if sys.argv[1:2] == ['projects'] or sys.argv[1:] in ([], ['up']):
         picker = False
     if picker:
         command = app.parents[1] / 'bin' / 'sidequest-projects.py'
-        sys.argv = [str(command)]
+        sys.argv = [str(command), *(sys.argv[2:] if sys.argv[1:2] == ['projects'] else [])]
         runpy.run_path(str(command), run_name='__main__')
         raise SystemExit(0)
 if sys.argv[1:2] in (['up'], ['start'], ['map'], ['crew'], ['meeting']):

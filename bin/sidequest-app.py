@@ -27,7 +27,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sidequest.project_flag import take
 
 take(sys.argv)
-from sidequest import app_booking, config
+try:
+    from sidequest import app_booking, config
+except ValueError as exc:
+    print('sqapp: ' + str(exc), file=sys.stderr)
+    raise SystemExit(2)
 
 BUSY = 75
 

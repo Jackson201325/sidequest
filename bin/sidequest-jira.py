@@ -226,6 +226,7 @@ def download_attachments(key, folder):
                 break
             except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
                 error = 'download failed: %s' % (getattr(exc, 'code', None) or exc.__class__.__name__)
+                Path(str(path) + '.part').unlink(missing_ok=True)
         rows.append(dict(row, error=error) if error else row)
     return rows
 

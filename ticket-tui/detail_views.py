@@ -285,8 +285,9 @@ class DetailViews:
         clock = now()
         shown = runs.after_ship(record) if ticket.prs else record
         parts = [shown["step"], crew_label(ticket, shown), runs.age(record.get("updated"), clock)]
+        note = stop_reason(record, theirs=True) if handed_off(ticket, shown) else record.get("note")
         return ["Agent " + runs.glyph(shown_record(ticket, record)["state"], self.frame) + " " + " · ".join(
-            parts + ([record["note"]] if record.get("note") else []))]
+            parts + ([note] if note else []))]
 
     def crew_records(self, plans):
         return [r for r in (self.run_record(p.parent.name, plans) for p in self.run_paths(plans)) if r]
@@ -305,7 +306,8 @@ class DetailViews:
                 Row(f"{record['step']} · {crew_label(ticket, record)} · {runs.age(record.get('updated'), clock)}",
                     "current" if record["state"] in ("waiting", "failed", "ready")
                     and not handed_off(ticket, record) else "plain")]
-        reason = stop_reason(record) or record.get("note")
+        theirs = bool(handed_off(ticket, record))
+        reason = stop_reason(record, theirs=theirs) or (None if theirs else record.get("note"))
         if reason:
             rows.append(Row("→ " + reason))
         rows += plain("", questions_line,

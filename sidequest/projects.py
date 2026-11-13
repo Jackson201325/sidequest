@@ -123,7 +123,8 @@ def check():
 
 COMMANDS = (('checks', 'test'), ('checks', 'lint'), ('app', 'switch_command'), ('app', 'current_command'),
             ('app', 'running_command'), ('workspace', 'report_command'), ('workspace', 'agent_command'),
-            ('workspace', 'browser'))
+            ('workspace', 'browser'), ('crew', 'manager_command'), ('crew', 'worker_command'),
+            ('crew', 'challenge_command'), ('meeting', 'command'))
 PATHS = (('qa', 'browser'),)
 AGENTS = (('claude', '.claude/skills'), ('codex', '.agents/skills'))
 
@@ -142,7 +143,7 @@ def _program(command):
 
 def wiring(home=None):
     """(lines, failed): every command, window, hook, skill and secret reference this project plugs in."""
-    from sidequest import skills
+    from sidequest import crew, skills
     home = Path(home or Path.home())
     if not config.PROJECT:
         return ['FAIL     no project selected: run this inside a project folder or pass --project NAME (known: ' +
@@ -163,7 +164,10 @@ def wiring(home=None):
             command(section + '.' + key, value)
         else:
             row('OFF', section + '.' + key + {'agent_command': ' (default: claude)',
-                                             'browser': ' (default: the system browser)'}.get(key, ''))
+                                             'browser': ' (default: the system browser)',
+                                             'manager_command': ' (default: ' + crew.DEFAULT_MANAGER + ')',
+                                             'worker_command': ' (default: ' + crew.DEFAULT_WORKER + ')',
+                                             'challenge_command': ' (default: ' + crew.DEFAULT_CHALLENGER + ')'}.get(key, ''))
     for section, key in PATHS:
         value = config.get(section, key)
         if value:

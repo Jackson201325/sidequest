@@ -11,9 +11,11 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
@@ -85,6 +87,14 @@ def run_meeting(args):
 
 
 DETAIL_WORKERS = 4
+SUBCOMMANDS = """Subcommands (each has --help):
+  sidequest up         build or update the project's session and worktrees
+  sidequest start KEY  start one ticket: worktree, window and the optional Jira move
+  sidequest crew       the crew manager, or workers with KEY...
+  sidequest meeting    run meeting.command, for a ticket with KEY
+  sidequest map        the code map for development
+  sidequest projects   every project profile, with quick actions
+Helpers for agents and scripts: sidequest-data --help"""
 
 
 # Space s: run the configured agent in the ticket's worktree, using bundled prompts.
@@ -244,6 +254,7 @@ class App:
         self.refresh_status = ""
         self.refresh_started = 0
         self.jobs = {}
+        self.again = {}  # automatic reloads asked for while their job ran
         self.crew_skipped = {}
         self.foreground_target = None
         self.pending = self.space_hint = self.space_before = ""
@@ -279,10 +290,12 @@ class App:
         self.dirty = True
 
     def set_sort(self, mode, descending=None):
+        previous = self.selected()
         self.sort_mode = mode
         self.sort_descending = (mode != "Ticket") if descending is None else descending
         self.tickets = ordered(self.tickets, mode, self.sort_descending, self.evidence.worklog)
-        self.index, self.offset, self.preview_scroll = 0, 0, 0
+        self.index = next((i for i, t in enumerate(self.visible()) if previous and t.key == previous.key), 0)
+        self.offset, self.preview_scroll = 0, 0
         self.focus_pane = "list"
         self.store.save("@app", {"sort_mode": mode, "sort_descending": self.sort_descending})
         self.message = "Sorted by " + mode + (" (descending)" if self.sort_descending else " (ascending)")
@@ -459,7 +472,7 @@ class App:
         def remember(result):
             prefix, suffix = f"skip {ticket.key}: ", "; " + crew.AGAIN_HINT
             if result.startswith(prefix) and result.endswith(suffix):
-                self.crew_skipped[ticket.key] = result[len(prefix):-len(suffix)]
+                self.events.put(("crew_skipped", (ticket.key, result[len(prefix):-len(suffix)])))
                 return result[:-len(suffix)] + "; press Space c again to start it anyway"
             return result
 
@@ -512,8 +525,10 @@ class App:
         if os.environ.get('TMUX'):
             self.background("meeting", "Opening the meeting pane", lambda: run_meeting(args))
         else:
+            folder = qa.tickets_dir()
+            folder.mkdir(parents=True, exist_ok=True)
             self.foreground_target = {"argv": [sys.executable, "-B", str(MEETING), "--here", *args],
-                                      "cwd": str(qa.tickets_dir()), "label": "Meeting"}
+                                      "cwd": str(folder), "label": "Meeting"}
 
     def start_work(self, ticket):
         if self.demo:
@@ -541,12 +556,21 @@ class App:
         def task():
             # Like a ticket start: move it to the configured start status (ready statuses only;
             # others are reported, never moved without --yes), then create/open the worktree.
+            moved = ''
             if move:
                 try:
-                    self.events.put(("message", run(["sidequest-data", "jira-start", ticket.key, *yes]).strip()))
+                    moved = run(["sidequest-data", "jira-start", ticket.key, *yes]).strip()
                 except (RuntimeError, OSError, subprocess.SubprocessError) as exc:
-                    self.events.put(("message", f"Jira move failed for {ticket.key}: {exc}"))
-            return workflow.start(ticket.key, ticket.title, ticket.issue_type, window=True)
+                    moved = f"Jira move failed for {ticket.key}: {exc}"
+                self.events.put(("message", moved))
+            # The workspace result replaces the status line, so it repeats the Jira result.
+            try:
+                result = workflow.start(ticket.key, ticket.title, ticket.issue_type, window=True)
+            except (OSError, RuntimeError, ValueError) as exc:
+                if not moved:
+                    raise
+                raise RuntimeError(moved + ' · ' + str(exc)) from exc
+            return replace(result, message=moved + ' · ' + result.message) if moved and result.message else result
         self.background('workspace', 'Starting ' + ticket.key if move else 'Opening local worktree for ' + ticket.key,
                         task, 'launch')
 
@@ -565,9 +589,13 @@ class App:
             self.dirty = True
         self.load_worktrees()
 
-    def background(self, name, label, task, event="message"):
+    def background(self, name, label, task, event="message", quiet=False):
+        """quiet: an automatic reload does not replace the status message when its job already runs."""
         if name in self.jobs:
-            self.message = label + " already in progress"
+            if quiet:
+                self.again[name] = (label, task, event)
+            else:
+                self.message = self.jobs[name][0] + " already in progress"
             return
         self.jobs[name] = (label, time.monotonic())
         self.dirty = True
@@ -586,7 +614,7 @@ class App:
 
     def load_worktrees(self):
         if not self.demo:
-            self.background("worktrees", "Loading worktrees", worktrees, "worktrees")
+            self.background("worktrees", "Loading worktrees", worktrees, "worktrees", quiet=True)
 
     def refresh_environments(self, quiet=False):
         """quiet: automatic checks (startup, after refresh) don't replace the status message."""
@@ -601,14 +629,15 @@ class App:
         numbers = sorted({p["number"] for t in self.tickets for p in t.prs})
         if numbers:
             self.background("heroku", "Loading Heroku environments", lambda: fetch_environments(
-                numbers, run, config.get('heroku', 'pipeline')), "heroku")
+                numbers, run, config.get('heroku', 'pipeline')), "heroku", quiet=quiet)
         elif not quiet:
             self.message = "No linked PRs to check for Heroku environments"
 
     def refresh_worklog(self):
         if not self.demo and config.workspace_repository():
             tickets = [{"key": t.key, "worktree": self.evidence.windows.get(t.key, "")} for t in self.tickets]
-            self.background("worklog", "Loading dated work history", lambda: collect_worklog(tickets, ROOT, run), "worklog")
+            self.background("worklog", "Loading dated work history", lambda: collect_worklog(tickets, ROOT, run), "worklog",
+                            quiet=True)
 
     def environment(self, ticket):
         return self.views.environment(ticket, "heroku" in self.jobs)
@@ -703,6 +732,12 @@ class App:
                 self.views.branch_states = data
             elif name == "job_done":
                 self.jobs.pop(data, None)
+                if data in self.again:
+                    self.background(data, *self.again.pop(data), quiet=True)
+            elif name == "status":
+                self.message = data
+            elif name == "crew_skipped":
+                self.crew_skipped[data[0]] = data[1]
             elif name == 'launch':
                 if data.foreground is not None:
                     self.foreground_target = data.foreground
@@ -728,7 +763,7 @@ class App:
         if not self.demo:
             folders = {t.key: t.worktree for t in self.tickets if t.worktree and t.lane != "Done"}
             self.background("branch_state", "Checking local branches", lambda: branch_state.collect(folders),
-                            "branch_state")
+                            "branch_state", quiet=True)
 
     def summary_card(self, ticket):
         state = self.views.branch_states.get(ticket.key) if ticket.worktree else None
@@ -799,11 +834,14 @@ class App:
 
     def copy_standup(self):
         text = standup.as_text(self.standup_data())
-        try:
-            subprocess.run(["pbcopy"], input=text, text=True, check=True, timeout=5)
-            self.message = "Standup copied to the clipboard"
-        except (OSError, subprocess.SubprocessError):
-            self.message = "Couldn't copy (pbcopy unavailable); use sidequest --standup in a terminal"
+
+        def task():
+            try:
+                subprocess.run(["pbcopy"], input=text, text=True, check=True, timeout=5)
+                return "Standup copied to the clipboard"
+            except (OSError, subprocess.SubprocessError):
+                return "Couldn't copy (pbcopy unavailable); use sidequest --standup in a terminal"
+        self.background("copy", "Copying the standup", task, "status")
 
     def detail_rows(self, ticket):
         ages = lambda: (f"Jira {source_age((self.evidence.jira or self.evidence.fallback).get('generated_at'))} · "
@@ -1367,7 +1405,7 @@ class App:
                     self.jump(ticket)
             elif key == "y" and self.detail_tab == "Standup":
                 self.copy_standup()
-            elif key in TAB_KEYS:
+            elif key in TAB_KEYS and self.view != "AI":
                 self.detail_tab = TAB_KEYS[key]
                 self.preview_scroll = 0
                 self.focus_pane = "preview"
@@ -1382,7 +1420,9 @@ class App:
 
 
 def main():
-    parser = argparse.ArgumentParser(prog='sidequest', description=__doc__)
+    global PLANS
+    parser = argparse.ArgumentParser(prog='sidequest', description=__doc__, epilog=SUBCOMMANDS,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--demo", action="store_true", help="Isolated sample data; no external actions")
     parser.add_argument("--refresh", action="store_true", help="Refresh in background on startup")
     parser.add_argument("--list", action="store_true", help="Print the queue without a TUI")
@@ -1414,6 +1454,9 @@ def main():
         except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc:
             refresh_error = str(exc)  # cached results still print, marked incomplete
     store = Store(":memory:") if args.demo else Store(args.data_dir / "tickets.sqlite3")
+    demo_tickets = tempfile.TemporaryDirectory() if args.demo else None
+    if demo_tickets:
+        PLANS = Path(demo_tickets.name)  # the demo never reads the real ticket folders
     try:
         app = App(store, args.snapshots, args.demo, args.stale_days, args.escalate_days, standup_time)
         if refresh_error:
@@ -1475,6 +1518,8 @@ def main():
         pass
     finally:
         store.close()
+        if demo_tickets:
+            demo_tickets.cleanup()
 
 
 if __name__ == "__main__":

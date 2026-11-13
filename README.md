@@ -537,7 +537,7 @@ environment reads and external programs. It only reads the source.
 | `6` | ✦ AI mode: every ticket's crew pipeline (Blocked tickets are hidden); the details show the selected ticket's worker and history |
 | `/` | Search; the list filters while you type and shows the match count. Enter keeps it, Esc restores the previous search |
 | `a/p/d/c/m/v/s/f/u` | Activity, Plan, Updates, Questions, Meetings, Overview, Work log, Flow, Standup |
-| `o/O` | Choose or reverse a sort (a box over the dashboard; ✓ marks the current sort) |
+| `o/O` | Choose or reverse a sort (a box over the dashboard; ✓ marks the current sort); the selected ticket stays selected |
 | `+/-`, `=` | Resize sections or reset the split |
 | `r`, `e` | Refresh Jira/GitHub, or optional Heroku status |
 | Space `j/o` | Open the ticket or PR in your configured/default browser |
@@ -614,7 +614,7 @@ macOS Keychain (or your environment)      secret values only
 `sidequest-data project wiring` shows everything the project plugs into Sidequest, in one list:
 
 - Each command Sidequest runs (`checks.*`, `app.*`, `workspace.report_command`, `agent_command`,
-  `browser`, `on_up` hooks, window commands), and whether its program exists (OK or FAIL).
+  `browser`, `crew.*`, `meeting.command`, `on_up` hooks, window commands), and whether its program exists (OK or FAIL).
   Window `keys` show as TYPED, because aliases cannot be checked.
 - Each skill, and the file that wins: REPLACE, ADDS (generic + additions) or GENERIC. A link is
   followed to the real file (`->`). It also says where the stubs are installed (Claude Code, Codex).

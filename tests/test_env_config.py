@@ -38,6 +38,11 @@ class EnvironmentSettingsTests(unittest.TestCase):
         self.assertEqual(set(settings), {'jira'})
         self.assertNotIn('secret', json.dumps(settings))
 
+    def test_the_documented_heroku_token_is_a_credential_not_a_setting(self):
+        settings = config.load(self.path, {'SIDEQUEST_HEROKU_TOKEN': 'secret'})
+        self.assertEqual(set(settings), {'jira'})
+        self.assertNotIn('secret', json.dumps(settings))
+
     def test_qa_browser_and_email_are_settings_but_the_password_is_not(self):
         self.path.write_text(json.dumps({'qa': {'browser': '/file/edge'}}))
         settings = config.load(self.path, {'SIDEQUEST_QA_EMAIL': 'qa@example.com', 'SIDEQUEST_QA_PASSWORD': 'p'})

@@ -57,6 +57,25 @@ class CleanupTests(unittest.TestCase):
         self.assertEqual(self.closed, ['APP-1'])
         self.assertEqual(problems, 0)
 
+    def test_a_branch_that_git_will_not_delete_is_reported_not_called_removed(self):
+        path, branch = self.merged_worktree('APP-1', 11)
+        real = cleanup._git
+
+        def no_branch_delete(repository, *args):
+            if args[:2] == ('branch', '-D'):
+                return subprocess.CompletedProcess(args, 1, '', "error: cannot delete branch '" + branch + "'\n")
+            return real(repository, *args)
+        cleanup._git = no_branch_delete
+        self.addCleanup(setattr, cleanup, '_git', real)
+        lines, problems = self.run_cleanup()
+        self.assertFalse(path.exists())
+        self.assertIn(branch, self.branches())
+        self.assertEqual(problems, 1)
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith('removed  APP-1'), lines)
+        self.assertIn('worktree removed; local branch kept (git branch -D: error: cannot delete branch', lines[0])
+        self.assertNotIn('local branch removed', lines[0])
+
     def test_anything_that_could_be_lost_keeps_the_worktree(self):
         dirty, _ = self.merged_worktree('APP-2', 12)
         (dirty / 'APP-2.txt').write_text('unsaved\n')

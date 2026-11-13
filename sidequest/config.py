@@ -93,7 +93,7 @@ KEYS = {
     'sessions': (),  # personal tmux sessions: {name: workspace.windows-style list}; not set from the environment
 }
 # Credentials, read where they are used; they never enter settings.
-NOT_SETTINGS = {'SIDEQUEST_JIRA_TOKEN', 'SIDEQUEST_QA_PASSWORD'}
+NOT_SETTINGS = {'SIDEQUEST_JIRA_TOKEN', 'SIDEQUEST_QA_PASSWORD', 'SIDEQUEST_HEROKU_TOKEN'}
 
 
 def from_environment(data, environ):

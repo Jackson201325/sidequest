@@ -402,6 +402,20 @@ class WaitingReasonTests(unittest.TestCase):
 
 
 class CrewCommandTests(unittest.TestCase):
+    def test_a_dry_run_without_keys_says_what_the_manager_would_run_and_starts_nothing(self):
+        with tempfile.TemporaryDirectory() as folder:
+            env = {k: v for k, v in os.environ.items() if not k.startswith(("SIDEQUEST_", "TMUX", "HERDR_"))}
+            env.update(HOME=folder, XDG_STATE_HOME=folder + "/state", XDG_DATA_HOME=folder + "/data",
+                       XDG_CONFIG_HOME=folder + "/config", SIDEQUEST_CONFIG=str(ROOT / "tests/fixture-config.json"),
+                       SIDEQUEST_TICKETS_DIR=folder + "/tickets", SIDEQUEST_CREW_MANAGER_COMMAND="no-such-agent --x")
+            done = subprocess.run([sys.executable, "-B", str(ROOT / "bin/sidequest"), "crew", "--dry-run"],
+                                  capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL, timeout=60)
+            made = Path(folder, "tickets").exists()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(done.stdout.strip(), "would open the crew manager: no-such-agent --x")
+        self.assertNotIn("Traceback", done.stderr)
+        self.assertFalse(made)
+
     def test_status_prints_the_overview_without_launching(self):
         with tempfile.TemporaryDirectory() as folder:
             runs.update(Path(folder) / "DEMO-4" / "run.json", "DEMO-4", "implement", "waiting", "Q1: Copy?",

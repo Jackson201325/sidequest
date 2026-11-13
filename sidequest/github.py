@@ -96,7 +96,8 @@ def activity_for_pr(number):
     }
 
 def first_line(text: str, limit: int = 180) -> str:
-    line = (text or "").strip().splitlines()[0] if text else ""
+    lines = (text or "").strip().splitlines()
+    line = lines[0] if lines else ""
     line = " ".join(line.split())
     if len(line) > limit:
         return line[: limit - 1] + "…"

@@ -154,3 +154,9 @@ the Meetings tab picks up the new meetings.md section through its file-change ca
 The reason is the worker's run.json note; with no note, "<state> without a note; open the worker (w)"; an open
 PR that moved the row to qa-review shows "PR open; qa-review has not run" instead of the older step's note.
 Working and queued rows show no reason. The details panel uses the same reason on the raw record.
+2026-11-13: A failed worker stays at the step where it failed, even with an open PR (runs.after_ship), so the
+row, the card and the details all show the failure. `--demo` uses an empty temporary tickets folder and
+never reads real run.json files. A busy job's "already in progress" message names the job that runs.
+Space n repeats the Jira move result in the workspace message.
+2026-11-13: An automatic reload asked for while its job runs starts when that job ends (App.again).
+y copies the standup in a background job, so pbcopy never blocks input.

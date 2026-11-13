@@ -349,5 +349,47 @@ class WorkspaceChangeBoundaryTests(unittest.TestCase):
                                                                  for part in name.split('.'))}, sorted(names))
 
 
+
+class SmallBugTests(unittest.TestCase):
+    """2026-11-13 review: bugs that needed no decision."""
+
+    def run_bin(self, name, *args, **extra):
+        with tempfile.TemporaryDirectory() as folder:
+            env = {k: v for k, v in os.environ.items() if not k.startswith(('SIDEQUEST_', 'TMUX', 'HERDR_'))}
+            env.update(HOME=folder, XDG_STATE_HOME=folder + '/state', XDG_DATA_HOME=folder + '/data',
+                       XDG_CONFIG_HOME=folder + '/config', SIDEQUEST_CONFIG=str(ROOT / 'tests/fixture-config.json'),
+                       PYTHONDONTWRITEBYTECODE='1', **extra)
+            return subprocess.run([sys.executable, '-B', str(ROOT / 'bin' / name), *args], capture_output=True,
+                                  text=True, env=env, stdin=subprocess.DEVNULL, timeout=60)
+
+    def test_a_comment_of_only_spaces_has_an_empty_first_line(self):
+        from sidequest.github import first_line
+        for text in ('  \n ', '\n', '', None):
+            with self.subTest(text=text):
+                self.assertEqual(first_line(text), '')
+        self.assertEqual(first_line('\n  Looks   good\nmore'), 'Looks good')
+
+    def test_a_rejected_setting_exits_2_with_one_line_in_every_command(self):
+        for name, args in (('sidequest-start.py', ['APP-1']), ('sidequest-meeting.py', []), ('sidequest-data', ['project']),
+                           ('sidequest-projects.py', []), ('sqapp', ['--status']), ('sidequest', ['--list'])):
+            with self.subTest(name=name):
+                done = self.run_bin(name, *args, SIDEQUEST_JIRA_SITEE='https://x.atlassian.net')
+                self.assertEqual(done.returncode, 2, done.stdout + done.stderr)
+                self.assertIn('SIDEQUEST_JIRA_SITEE is not a Sidequest setting', done.stderr)
+                self.assertNotIn('Traceback', done.stderr)
+                self.assertEqual(len(done.stderr.strip().splitlines()), 1, done.stderr)
+
+    def test_help_names_the_subcommands_and_projects_has_help(self):
+        done = self.run_bin('sidequest', '--help')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        for name in ('sidequest up', 'sidequest start', 'sidequest crew', 'sidequest meeting', 'sidequest map',
+                     'sidequest projects'):
+            self.assertIn(name, done.stdout)
+        done = self.run_bin('sidequest', 'projects', '--help')
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('sidequest projects: every project profile', done.stdout)
+        self.assertNotIn('No projects yet', done.stdout)
+
+
 if __name__ == '__main__':
     unittest.main()

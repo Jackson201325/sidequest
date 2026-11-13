@@ -49,6 +49,19 @@ class WiringTests(unittest.TestCase):
         lines, failed = projects.wiring(home=self.home)
         return '\n'.join(lines), failed
 
+    def test_crew_and_meeting_commands_are_listed_too(self):
+        settings = dict(SETTINGS, crew={'worker_command': 'no-such-agent-for-sidequest --fast'},
+                        meeting={'command': 'sh -c "echo notes"'})
+        with patch.object(config, 'SETTINGS', settings):
+            text, _ = self.lines()
+        self.assertIn('FAIL     crew.worker_command: no-such-agent-for-sidequest --fast '
+                      '(no-such-agent-for-sidequest is not on PATH)', text)
+        self.assertIn('OK       meeting.command: sh -c "echo notes"', text)
+        self.assertIn('OFF      crew.manager_command (default: claude --model ', text)
+        self.assertIn('OFF      crew.challenge_command (default: claude --model ', text)
+        text, _ = self.lines()
+        self.assertIn('OFF      meeting.command', text)
+
     def test_each_command_says_whether_its_program_exists(self):
         text, failed = self.lines()
         self.assertTrue(failed)

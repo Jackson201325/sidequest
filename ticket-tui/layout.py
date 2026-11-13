@@ -305,7 +305,7 @@ def pipeline_columns(width):
 
 def pipeline_header(width):
     key, cell, state = pipeline_columns(width)
-    return (f"{'TICKET':<{key}}" + "".join(f"{name:<{cell}}" for name in PIPELINE_STAGES)
+    return (f"{'TICKET':<{key - 1}}" + "".join(f"{name:<{cell}}" for name in PIPELINE_STAGES)
             + f"{'AGENT':<{state}}REASON · TITLE")[:width]
 
 
@@ -338,9 +338,11 @@ def quiet(ticket, record):
     return record
 
 
-def stop_reason(record, shipped=False):
+def stop_reason(record, shipped=False, theirs=False):
     """Why the worker's pipeline is not moving, or None while it works or waits in the queue.
-    shipped: an open PR moves the shown pipeline to qa-review (runs.after_ship)."""
+    shipped: an open PR moves the shown pipeline to qa-review (runs.after_ship).
+    theirs: the ticket is with someone else (handed_off), so only the worker's own note is a reason;
+    the hook's "waits for you" and the hint to open the worker would be wrong."""
     if not record:
         return None
     shown = runs.after_ship(record) if shipped else record
@@ -348,14 +350,17 @@ def stop_reason(record, shipped=False):
         return None
     if shown["step"] != record["step"]:
         return "PR open; qa-review has not run"
-    return record.get("note") or f"{shown['state']} without a note; open the worker (w)"
+    note = record.get("note")
+    if theirs:
+        return note if note and note not in runs.HOOK_NOTES.values() else None
+    return note or f"{shown['state']} without a note; open the worker (w)"
 
 
 def pipeline_row(ticket, record, frame, width, clock):
     """(glyph, rest) for one AI-mode row; the glyph is coloured by its state."""
     key, cell, state_width = pipeline_columns(width)
     after = runs.after_ship(record) if record and ticket.prs else record
-    reason = stop_reason(record, bool(ticket.prs))
+    reason = stop_reason(record, bool(ticket.prs), bool(handed_off(ticket, after)))
     label = crew_label(ticket, after) if after else ""
     record = quiet(ticket, after)
     if record:

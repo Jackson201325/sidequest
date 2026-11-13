@@ -55,7 +55,11 @@ def build_workflow(settings, environ, run=run_command):
         if not shell:
             raise RuntimeError('Herdr requires zsh; install zsh and configure Herdr terminal.default_shell to use it')
         home = Path(environ.get('HOME') or Path.home())
-        state = Path(environ.get('XDG_STATE_HOME') or home / '.local/state') / 'sidequest' / 'launches'
+        # The same folder as config.STATE_DIR, from this workflow's own environment.
+        state = Path(environ.get('XDG_STATE_HOME') or home / '.local/state') / 'sidequest'
+        if environ.get('SIDEQUEST_PROJECT'):
+            state = state / 'projects' / environ['SIDEQUEST_PROJECT']
+        state = Path(environ.get('SIDEQUEST_STATE_DIR') or state) / 'launches'
         terminal = HerdrTerminal(run, environ, shell, state)
         terminal.require_context()
     else:

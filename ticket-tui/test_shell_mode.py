@@ -91,6 +91,26 @@ class PlainTerminalTests(unittest.TestCase):
         shown = (self.app.message or '') + ' ' + (self.app.deferred_message or '')
         self.assertIn('MOVED %s Ready for Dev → In Dev' % self.ticket.key, shown)
 
+    def test_space_n_keeps_the_jira_move_result_beside_the_window_message(self):
+        from unittest.mock import MagicMock
+        from sidequest import config
+        from sidequest.terminal import LaunchResult
+        settings = {'workspace': {'repository': str(self.path)}, 'jira': {'start_status': 'In Dev'}}
+        moved = 'MOVED %s Ready for Dev → In Dev' % self.ticket.key
+        for outcome, expected in ((LaunchResult(message='Switched to DEMO-901'), 'Switched to DEMO-901'),
+                                  (RuntimeError('tmux is not running'), 'tmux is not running')):
+            workflow = MagicMock()
+            workflow.start.side_effect = [outcome]
+            self.app.workflow_factory = lambda: workflow
+            self.app.message = self.app.deferred_message = None
+            with self.subTest(expected=expected), patch.object(config, 'SETTINGS', settings), \
+                    patch('tui.run', return_value=moved + '\n'):
+                self.app.start_work(self.ticket)
+                drain(self.app)
+                shown = (self.app.message or '') + ' ' + (self.app.deferred_message or '')
+                self.assertIn(moved, shown)
+                self.assertIn(expected, shown)
+
     def test_space_n_passes_the_issue_type_and_asks_for_the_ticket_window(self):
         from unittest.mock import MagicMock
         from sidequest import config

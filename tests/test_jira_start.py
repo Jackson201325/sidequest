@@ -85,6 +85,26 @@ class JiraStartTests(unittest.TestCase):
 
 
 class AttachmentTests(unittest.TestCase):
+    def test_a_failed_attachment_download_leaves_no_partial_file(self):
+        issue = {'key': 'APP-7', 'fields': {'attachment': [{'id': '10', 'filename': 'screen.png'}]}}
+
+        class Broken(io.BytesIO):
+            def read(self, size=-1):
+                data = super().read(2)
+                if not data:
+                    raise OSError('connection reset')
+                return data
+        with tempfile.TemporaryDirectory() as folder, patch.object(client, 'jira', return_value=issue), \
+                patch.dict('os.environ', {'SIDEQUEST_JIRA_TOKEN': 'fixture'}), \
+                patch.object(client, 'BASES', ['https://example.atlassian.net']), \
+                patch.object(client, '_base', [None]), \
+                patch.object(client.identity, 'JIRA_EMAIL', 'dev@example.com'), \
+                patch('urllib.request.urlopen', side_effect=lambda request, timeout=0: Broken(b'half')):
+            rows = client.download_attachments('APP-7', Path(folder))
+            names = sorted(p.name for p in Path(folder).iterdir())
+        self.assertEqual(rows[0]['error'], 'download failed: OSError')
+        self.assertEqual(names, [])
+
     def test_attachments_download_into_the_folder_with_safe_unique_names(self):
         issue = {'key': 'APP-7', 'fields': {'attachment': [
             {'id': '10', 'filename': 'screen.png', 'size': 3, 'mimeType': 'image/png'},

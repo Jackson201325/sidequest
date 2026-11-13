@@ -13,7 +13,8 @@ take(sys.argv)
 try:
     from sidequest import config
 except ValueError as exc:
-    raise SystemExit('sidequest-data: ' + str(exc))
+    print('sidequest-data: ' + str(exc), file=sys.stderr)
+    raise SystemExit(2)
 from sidequest.access import clip, describe_failure
 from sidequest.collector import DEFAULT_OUT, collect
 from sidequest.jira import client

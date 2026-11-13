@@ -36,7 +36,8 @@ take(sys.argv)
 try:
     from sidequest import config, meeting
 except ValueError as exc:
-    raise SystemExit('sidequest meeting: ' + str(exc))
+    print('sidequest meeting: ' + str(exc), file=sys.stderr)
+    raise SystemExit(2)
 from sidequest.qa import tickets_dir
 
 

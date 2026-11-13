@@ -148,8 +148,9 @@ def ran(record, step, version):
 
 
 def after_ship(record):
-    """With an open PR the person has shipped: every step before qa-review is done."""
-    if not record or STEPS.index(record["step"]) >= STEPS.index("qa-review"):
+    """With an open PR the person has shipped: every step before qa-review is done. A failed step
+    stays where it failed, so the PR does not hide the failure."""
+    if not record or record["state"] == "failed" or STEPS.index(record["step"]) >= STEPS.index("qa-review"):
         return record
     state = record["state"] if record["state"] in ("working", "queued") else "waiting"
     return dict(record, step="qa-review", state=state)

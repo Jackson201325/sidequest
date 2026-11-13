@@ -185,7 +185,7 @@ Steps are runs.STEPS: start, implement, qa-local, ship-check, challenge, qa-revi
 which needs the PR the person opens with sidequest-ship. runs.update counts a finished step under
 "finished" with the code fingerprint bin/sidequest-run.py computes (HEAD, `git diff HEAD`, untracked
 files; read-only Git); hooks never count. runs.after_ship moves the AI-mode row to qa-review when the
-ticket has an open PR.
+ticket has an open PR, except a failed step, which stays where it failed.
 sidequest/runs.py owns run.json (written only by `sidequest-data run`); Claude Code workers get
 UserPromptSubmit/Stop/Notification/PostToolUse hooks through `--settings`, and a hook always exits 0 and
 never overrides a state the worker reported. PostToolUse ("hook tool") only clears the waiting state a
