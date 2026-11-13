@@ -114,7 +114,7 @@ def check():
     for key, label in (('review', 'review-app login'), ('qa', 'local QA password')):
         ref = credentials.reference(key)
         if ref:
-            found = (credentials.login(key)[1] if key == 'review' else credentials.secret(key)) is not None
+            found = all(credentials.login(key)) if key == 'review' else credentials.secret(key) is not None
             row('OK' if found else 'MISSING', label + ': ' + ('found' if found else 'not found') + ' (' + ref + ')')
     skills = sorted(path.name for path in (config.PROJECTS_DIR / config.PROJECT / 'skills').glob('*.md'))
     row('OK' if skills else 'OFF', 'project skills' + (': ' + ', '.join(skills) if skills else ' (generic skills)'))

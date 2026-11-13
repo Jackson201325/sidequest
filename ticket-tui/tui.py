@@ -399,8 +399,7 @@ class App:
         def changed(value):
             self.query, self.index, self.offset = value, 0, 0
             self.fit()
-            total = sum(self.in_view(t, self.view) for t in self.tickets)
-            return f"  ({len(self.visible())} of {total})"
+            return f"  ({len(self.visible())} of {self.lane_count(self.view)})"
 
         query = self.prompt("Search", self.query, changed)
         if query is None:
@@ -444,6 +443,9 @@ class App:
         A ticket without a worktree gets one first (no window opens, no Jira move)."""
         if self.demo:
             self.message = "Demo: crew workers are disabled"
+            return
+        if terminal_mode.action_mode(os.environ, config.SETTINGS) == 'shell':
+            self.message = "Crew workers need their own windows; run Sidequest inside tmux or Herdr (sidequest up)"
             return
         create = not ticket.worktree
         if create and not config.workspace_repository():
@@ -500,7 +502,7 @@ class App:
                 self.message = "Crew manager cancelled"
                 return
             args = ["--continue" if choice == 0 else "--new"]
-        if terminal_mode.inside(os.environ):
+        if terminal_mode.inside(os.environ) and terminal_mode.action_mode(os.environ, config.SETTINGS) != 'shell':
             self.background("crew", "Opening the crew manager", lambda: run_crew(args))
         else:
             folder.mkdir(parents=True, exist_ok=True)
@@ -522,7 +524,7 @@ class App:
                 self.message = "Meeting cancelled"
                 return
             args = [ticket.key] if choice == 0 else []
-        if os.environ.get('TMUX'):
+        if os.environ.get('TMUX') and terminal_mode.action_mode(os.environ, config.SETTINGS) == 'tmux':
             self.background("meeting", "Opening the meeting pane", lambda: run_meeting(args))
         else:
             folder = qa.tickets_dir()
@@ -654,14 +656,25 @@ class App:
             return stage_context(ticket)["index"] == 1
         return view in ("All", "AI") or ticket.lane == view
 
-    def visible(self):
-        rows = [t for t in self.tickets if self.in_view(t, self.view)]
-        if self.view == "AI":
-            # Workers on tickets outside the queue still show; the person's turn comes first.
+    def lane_rows(self, view):
+        """Every row of a lane, before the search filter and in queue order."""
+        rows = [t for t in self.tickets if self.in_view(t, view)]
+        if view == "AI":
+            # Workers on tickets outside the queue still show.
             known = {t.key for t in self.tickets}
             rows = [t for t in rows if t.status.casefold() not in AI_HIDDEN_STATUSES]
-            rows += [Ticket(record["key"], title="(not in your queue)", lane="Clarify")
+            rows += [Ticket(record["key"], title="(not in your queue)", lane="Clarify",
+                            worktree=self.evidence.windows.get(record["key"], ""))
                      for record in self.views.crew_records(PLANS) if record["key"] not in known]
+        return rows
+
+    def lane_count(self, view):
+        return len(self.lane_rows(view))
+
+    def visible(self):
+        rows = self.lane_rows(self.view)
+        if self.view == "AI":
+            # The person's turn comes first.
             order = {t.key: self.ai_rank(t) for t in rows}
             rows.sort(key=lambda t: order[t.key])
         return [t for t in rows if self.query.casefold() in f"{t.key} {t.title} {t.status} {t.action}".casefold()]
@@ -680,8 +693,11 @@ class App:
     def ai_needs_you(self, rows=None, shown=None):
         rows = self.visible() if rows is None else rows
         shown = shown or {t.key: self.ai_record(t) for t in rows}
-        return sum(bool(r) and r["state"] in ("waiting", "failed", "ready") and not handed_off(t, r)
-                   for t in rows for r in [shown[t.key]])
+        return sum(self.needs_person(t, shown[t.key]) for t in rows)
+
+    @staticmethod
+    def needs_person(ticket, record):
+        return bool(record) and record["state"] in ("waiting", "failed", "ready") and not handed_off(ticket, record)
 
     def selected(self):
         rows = self.visible()
@@ -1040,7 +1056,7 @@ class App:
         parts = [(" Sidequest" + (" · DEMO" if self.demo else "") + "  ", bold | accent)]
         compact = width < 130
         for i, view in enumerate(VIEWS):
-            count = sum(self.in_view(t, view) for t in self.tickets)
+            count = self.lane_count(view)
             label = lane_tab(i + 1, view, count, self.view == view, compact)
             parts.append((label, (curses.A_REVERSE | bold) if self.view == view else self.style(view) or 0))
         x = self.put_parts(0, 0, parts, width - 1)
@@ -1356,9 +1372,11 @@ class App:
                 elif key in ("l", "L"):
                     rows = self.visible()
                     direction = 1 if key == "l" else -1
+                    wanted = ((lambda t: self.needs_person(t, self.ai_record(t))) if self.view == "AI" else
+                              (lambda t: t.lane in ("Needs me", "Clarify") or t.age >= self.stale_days))
                     for step in range(1, len(rows) + 1):
                         i = (self.index + direction * step) % len(rows)
-                        if rows[i].lane in ("Needs me", "Clarify") or rows[i].age >= self.stale_days:
+                        if wanted(rows[i]):
                             self.index, self.preview_scroll = i, 0
                             break
             elif key in ("q", "\x11"):

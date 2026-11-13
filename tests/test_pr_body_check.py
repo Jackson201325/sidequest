@@ -39,13 +39,33 @@ class PrBodyCheckTests(unittest.TestCase):
         self.assertEqual((result.returncode, result.stdout.strip()), (0, "OK: no AI attribution"))
 
     def test_each_attribution_phrase_is_reported_with_its_line_number(self):
-        text = "Summary\nCo-Authored-By: Someone\nGenerated with a tool\nasked codex, claude, openai, anthropic, opencode\n"
+        text = "Summary\nCo-Authored-By: Review Bot\nGenerated with a tool\nasked codex, claude, openai, anthropic, opencode\n"
         result = self.run_check(self.body(text))
         self.assertEqual(result.returncode, 1)
         lines = result.stdout.splitlines()
         self.assertTrue(lines[0].startswith("ATTRIBUTION line 2:"))
         self.assertTrue(lines[1].startswith("ATTRIBUTION line 3:"))
         self.assertTrue(lines[2].startswith("ATTRIBUTION line 4:"))
+
+    def test_a_human_co_author_is_not_ai_attribution(self):
+        result = self.run_check(self.body("Summary\nCo-authored-by: Ana Lopez <ana@example.com>\n"))
+        self.assertEqual((result.returncode, result.stdout.strip()), (0, "OK: no AI attribution"))
+
+    def test_ship_check_and_pr_body_check_share_one_attribution_rule(self):
+        from pathlib import Path
+        import sys
+        root = Path(__file__).resolve().parents[1]
+        sys.path.insert(0, str(root))
+        from sidequest import attribution
+        for line, flagged in (("Co-authored-by: Ana Lopez <ana@example.com>", False), ("Co-authored-by: Some Bot", True),
+                              ("Co-Authored-By: Claude <noreply@anthropic.com>", True), ("Generated with a tool", True),
+                              ("Fix the totals", False)):
+            with self.subTest(line=line):
+                self.assertEqual(bool(attribution.AI.search(line)), flagged)
+        for name in ("sidequest-ship-check.py", "sidequest-pr-body-check.py"):
+            source = (root / "bin" / name).read_text()
+            self.assertIn("attribution.AI", source)
+            self.assertNotIn("co-authored", source)
 
     def test_missing_file_is_a_usage_error(self):
         result = self.run_check(str(self.dir / "nope.md"))

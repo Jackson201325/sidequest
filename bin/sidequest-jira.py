@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from sidequest import config, credentials, identity
 from sidequest.access import CAUSES
+from sidequest.ticket_keys import SHAPE
 
 SITE = config.get('jira', 'site').rstrip('/')
 CLOUD_ID = config.get('jira', 'cloud_id')
@@ -43,7 +44,7 @@ def _auth():
                         cause='credentials')
     return 'Basic ' + base64.b64encode((email + ':' + token).encode()).decode()
 
-TRANSITION_PATH = re.compile(r'/rest/api/3/issue/[A-Z][A-Z0-9_]*-\d+/transitions')
+TRANSITION_PATH = re.compile(r'/rest/api/3/issue/' + SHAPE + '/transitions')
 
 
 def _write_allowed(method, path):
@@ -345,12 +346,12 @@ def name(v):
 
 
 def fetch_one(key, include_activity=False, account_id=None):
-    if not re.fullmatch(r'[A-Z][A-Z0-9_]*-\d+', key):
+    if not re.fullmatch(SHAPE, key):
         raise JiraError('Expected a Jira key such as APP-123', permanent=True)
     fields = 'summary,status,assignee,priority,issuetype,created,updated,description'
     issue = jira('GET', '/rest/api/3/issue/%s?fields=%s' % (key, fields))
     if isinstance(issue.get('key'), str) and issue['key'] != key:
-        new = issue['key'] if re.fullmatch(r'[A-Z][A-Z0-9_]*-\d+', issue['key']) else 'another key'
+        new = issue['key'] if re.fullmatch(SHAPE, issue['key']) else 'another key'
         raise JiraError('Jira issue %s moved to %s; previous data retained' % (key, new), 301, permanent=True)
     if issue.get('key') != key or not isinstance(issue.get('fields'), dict):
         raise JiraError('Invalid Jira issue response; previous data retained')

@@ -58,9 +58,10 @@ def secret(name):
 
 
 def login(name):
-    """(account, password) for `name` (review), or (None, None)."""
+    """(account, password) for `name` (review), or (None, None). An env: reference holds only the
+    password, so the email variable names the account then."""
     email, password = (os.environ.get(variable) for variable in LOGINS[name])
     if email and password:
         return email, password
     found = _resolve(name)
-    return (found[0] or None, found[1]) if found else (None, None)
+    return (found[0] or email or None, found[1]) if found else (None, None)

@@ -19,7 +19,7 @@ import argparse, functools, json, os, re, subprocess, sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest import config, gitutil, qa as qa_evidence
+from sidequest import attribution, config, gitutil, qa as qa_evidence
 from sidequest.ticket_keys import branch_ticket
 
 LOCAL = re.compile(r"^(\.claude/|\.codex/|\.opencode/|\.sidequest/|\.env|AGENTS\.md$|config/master\.key$|"
@@ -34,7 +34,7 @@ DEBUG = [
     (re.compile(r"AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY|"
                 r"(api_?key|secret|token|password)\s*[:=]\s*['\"][A-Za-z0-9_\-]{16,}['\"]", re.I), "possible secret"),
 ]
-ATTRIB = re.compile(r"claude|codex|opencode|openai|anthropic|co-authored-by: .*(bot|ai)\b|generated (with|by)", re.I)
+ATTRIB = attribution.AI
 # "DEMO-766 (2): ..." breadcrumbs that sidequest-start leaves in the code; they must be gone before a PR.
 PLAN_MARKER = r"[A-Z][A-Z0-9_]*-[0-9]+ \([0-9]+\):"
 TABLE_RE = re.compile(r"""(?:create_table|change_table|drop_table|add_column|remove_column|rename_column|change_column\w*|
@@ -124,7 +124,7 @@ def main():
 
     if not a.no_fetch:
         remotes = git("remote").split()
-        remote = a.base.split("/", 1)[0] if "/" in a.base and a.base.split("/", 1)[0] in remotes else "origin"
+        remote = gitutil.base_remote(a.base, remotes)
         p = subprocess.run(["git", "fetch", "--quiet", remote], capture_output=True, text=True, timeout=120)
         if p.returncode != 0:
             r["warnings"].append("git fetch failed, %s may be stale: %s" % (a.base, p.stderr.strip()[:200]))

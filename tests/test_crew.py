@@ -89,6 +89,18 @@ class WorkerPromptTests(unittest.TestCase):
         self.assertEqual(hooks["PostToolUse"][0]["hooks"][0]["command"], DATA + " run DEMO-9 hook tool")
         self.assertEqual(crew.worker_command("codex", "DEMO-9", DATA), "codex")
 
+    def test_one_rule_says_which_command_is_claude_code(self):
+        for command in ("claude", "/opt/bin/claude --model x", "env A=1 claude", "env -i A=1 /usr/bin/claude", "A=1 B=2 claude"):
+            with self.subTest(command=command):
+                self.assertIn(" --settings ", crew.worker_command(command, "DEMO-9", DATA))
+        for command in ("codex", "aider --model claude", "env A=1 codex --profile claude", "env A=1"):
+            with self.subTest(command=command):
+                self.assertEqual(crew.worker_command(command, "DEMO-9", DATA), command)
+                with tempfile.TemporaryDirectory() as folder:
+                    argv, saved = crew.manager_argv(command, "go", folder, new_id=lambda: "id-1")
+                self.assertEqual((argv[-1], saved), ("go", None))
+                self.assertNotIn("--session-id", argv)
+
     def test_a_ready_ship_check_starts_the_challenger_when_the_worker_stops(self):
         line = crew.worker_command("claude", "DEMO-9", DATA, "/opt/sidequest/bin/sidequest")
         hooks = json.loads(shlex.split(line)[shlex.split(line).index("--settings") + 1])["hooks"]

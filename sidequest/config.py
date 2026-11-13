@@ -7,6 +7,8 @@ import shlex
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from sidequest.ticket_keys import is_key
+
 NAMESPACE = 'sidequest'
 CONFIG_ROOT = (Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / NAMESPACE).expanduser()
 PROJECTS_DIR = CONFIG_ROOT / 'projects'
@@ -151,11 +153,13 @@ def load(path, environ=None, project=None):
         for key, value in values.items():
             if re.search(r'token|password|secret|api.?key', key, re.I):
                 raise ValueError('Keep credentials in environment variables, not in configuration')
+            if section not in ('sessions', 'credentials', 'app') and key not in KEYS[section]:
+                raise ValueError(section + '.' + str(key) + ' is not a Sidequest setting')
             if section == 'github' and key in ('pr_tickets', 'branch_tickets'):
                 pattern = r'\d+' if key == 'pr_tickets' else r'[^\s]+'
                 if not isinstance(value, dict) or not all(
                         isinstance(k, str) and re.fullmatch(pattern, k) and isinstance(v, str) and
-                        re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*-\d+', v) for k, v in value.items()):
+                        is_key(v) for k, v in value.items()):
                     raise ValueError('github.' + key + ' must map ' + ('PR numbers' if key == 'pr_tickets' else 'branch names') +
                                      ' to Jira keys such as APP-123')
             elif section == 'credentials':

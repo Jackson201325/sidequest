@@ -64,7 +64,7 @@ def main():
     print(made['state'].upper() + ' ' + made['branch'])
     up = subprocess.run([sys.executable, SIDEQUEST, 'up', '--offline', '--no-attach'],
                         capture_output=True, text=True, stdin=subprocess.DEVNULL)
-    session = values.get('tmux_session') or config.PROJECT or 'sidequest'
+    session = terminal_mode.session_name(values, config.PROJECT)
     window = up.stdout.find('windows  ') >= 0 and 'not opened' not in up.stdout
     if up.returncode:
         print('note     the layout reported a problem; run sidequest up -n to see it', file=sys.stderr)

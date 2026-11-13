@@ -9,10 +9,14 @@ Exit 0 clean, 1 findings, 2 usage or gh failure.
 import argparse
 import json
 import re
+from pathlib import Path
 import subprocess
 import sys
 
-ATTRIB = re.compile(r"claude|codex|opencode|openai|anthropic|generated (with|by)|co-authored", re.I)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from sidequest import attribution
+
+ATTRIB = attribution.AI
 LOCAL_PATH = re.compile(r"/Users/|/home/|tickets/[A-Z][A-Z0-9_]*-")
 
 

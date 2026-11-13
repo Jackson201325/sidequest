@@ -1,9 +1,10 @@
 """The one place that reads Jira ticket keys out of text, branches and PR fields."""
 import re
 
-KEY = re.compile(r"\b[A-Z][A-Z0-9_]*-\d+\b", re.I)
-WHOLE_KEY = re.compile(r"[A-Z][A-Z0-9_]*-\d+", re.I)
-SEGMENT_KEY = re.compile(r"(?:^|/)([A-Z][A-Z0-9_]*-\d+)(?=-|$)", re.I)
+SHAPE = r"[A-Z][A-Z0-9_]*-\d+"  # a key in capitals; the patterns below accept any case
+KEY = re.compile(r"\b" + SHAPE + r"\b", re.I)
+WHOLE_KEY = re.compile(SHAPE, re.I)
+SEGMENT_KEY = re.compile(r"(?:^|/)(" + SHAPE + r")(?=-|$)", re.I)
 MENTION = re.compile(r"\b([A-Z][A-Z0-9_]*)[ -](\d+)\b", re.I)
 LEADING_KEY = re.compile(r"^\s*\[?[A-Z][A-Z0-9_]*[ -]\d+\]?[\s:.-]*", re.I)
 

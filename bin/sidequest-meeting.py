@@ -5,7 +5,8 @@
   sidequest meeting KEY             a ticket meeting: the command also gets the ticket's notes
                                     Inside tmux both open a pane below this one (40% of its height)
                                     that runs meeting.command; an open meeting pane is selected
-                                    instead. Outside tmux they run in this terminal.
+                                    instead. Outside tmux, or with workspace.terminal shell or herdr,
+                                    they run in this terminal.
   sidequest meeting --here [KEY]    run meeting.command in this terminal
 
 meeting.command is your own transcriber or notes tool, run with /bin/sh in workspace.repository
@@ -105,7 +106,9 @@ def main():
         except ValueError as exc:
             print('sidequest meeting: ' + str(exc), file=sys.stderr)
             return 2
-    if not args.here and os.environ.get('TMUX') and os.environ.get('TMUX_PANE'):
+    from sidequest.terminal_mode import action_mode
+    if (not args.here and action_mode(os.environ, config.SETTINGS) == 'tmux' and os.environ.get('TMUX')
+            and os.environ.get('TMUX_PANE')):
         from sidequest.terminal_mode import run_tmux
         argv = meeting.pane_argv(sys.executable, Path(__file__).resolve(), key, config.PROJECT or '')
         try:

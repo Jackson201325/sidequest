@@ -688,3 +688,9 @@ own message or failed; that message now repeats the Jira result. (6) A busy back
 new request ("Opening the crew manager already in progress" while a worker started); it is named by the job
 that runs. Not fixed: `sidequest crew --dry-run` without keys still raises AttributeError (open_manager gets
 no workflow). Live tmux, Jira and Heroku were not exercised.
+2026-11-13: Decision 1, after the person's go-ahead. tests/test_crew.py failed first. `sidequest crew
+--dry-run` without keys raised AttributeError (open_manager got no workflow); it now prints "would open the
+crew manager: <command>" and creates nothing. crew.claude_code is the one test for Claude Code: the first
+word that is not `env`, an option or NAME=value. A worker command such as `env A=1 claude` now gets its
+hooks, and a manager command such as `aider --model claude` no longer gets --session-id. This closes the open
+notes above about these two.

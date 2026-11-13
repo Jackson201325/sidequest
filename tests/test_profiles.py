@@ -180,15 +180,19 @@ class ProfileTests(unittest.TestCase):
             'jira': {'site': 'https://alpha.atlassian.net', 'projects': ['ALP']},
             'github': {'repository': 'example/alpha'},
             'checks': {'test': 'make test'},
-            'credentials': {'jira': 'env:ALPHA_JIRA'}})
+            'credentials': {'jira': 'env:ALPHA_JIRA', 'review': 'env:ALPHA_REVIEW'}})
         path = str(tools) + os.pathsep + os.environ['PATH']
-        good = self.data('alpha-repo', 'project', 'check', ALPHA_JIRA='SECRETVALUE123', PATH=path)
+        good = self.data('alpha-repo', 'project', 'check', ALPHA_JIRA='SECRETVALUE123', PATH=path,
+                         ALPHA_REVIEW='SECRETVALUE456', SIDEQUEST_REVIEW_EMAIL='qa@example.com')
         self.assertEqual(good.returncode, 0, good.stdout + good.stderr)
         self.assertIn('OK       Jira token: found (env:ALPHA_JIRA)', good.stdout)
         self.assertIn('OK       repository:', good.stdout)
         self.assertIn('OK       GitHub sign-in', good.stdout)
         self.assertIn('OK       tests: make test', good.stdout)
-        self.assertNotIn('SECRETVALUE123', good.stdout + good.stderr)
+        self.assertIn('OK       review-app login: found (env:ALPHA_REVIEW)', good.stdout)
+        self.assertNotIn('SECRETVALUE', good.stdout + good.stderr)
+        no_email = self.data('alpha-repo', 'project', 'check', ALPHA_JIRA='x', ALPHA_REVIEW='pw', PATH=path)
+        self.assertIn('MISSING  review-app login: not found (env:ALPHA_REVIEW)', no_email.stdout)
         bad = self.data('alpha-repo', 'project', 'check', PATH=path)
         self.assertEqual(bad.returncode, 1)
         self.assertIn('FAIL     Jira token: not found (env:ALPHA_JIRA)', bad.stdout)

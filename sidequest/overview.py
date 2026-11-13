@@ -59,7 +59,7 @@ def project_rows(root=None, state_home=None, run=_run):
         settings = _json(path)
         workspace = settings.get('workspace') if isinstance(settings.get('workspace'), dict) else {}
         app = settings.get('app') if isinstance(settings.get('app'), dict) else {}
-        repo, session = workspace.get('repository') or '', workspace.get('tmux_session') or name
+        repo, session = workspace.get('repository') or '', terminal_mode.session_name(workspace, name)
         state = state_home / config.NAMESPACE / 'projects' / name
         worktrees = None
         if repo:

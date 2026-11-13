@@ -100,7 +100,7 @@ def up_all(argv):
 if '--all' in sys.argv[1:]:
     raise SystemExit(up_all(sys.argv[1:]))
 try:
-    from sidequest import app_booking, cleanup, collector, config, github, sync, terminal_mode, tmux, updates
+    from sidequest import app_booking, cleanup, collector, config, github, gitutil, sync, terminal_mode, tmux, updates
 except ValueError as exc:
     print('sidequest up: ' + str(exc), file=sys.stderr)
     raise SystemExit(2)
@@ -127,7 +127,7 @@ def session_windows(snapshot, repository, save=True):
     values = config.SETTINGS.get('workspace', {})
     extras = values.get('windows') or [{'name': 'sidequest', 'command': SIDEQUEST, 'at': 'start', 'stay': True}]
     root = values.get('worktrees_dir') or str(Path(repository).parent)
-    session = values.get('tmux_session') or config.PROJECT or 'sidequest'
+    session = terminal_mode.session_name(values, config.PROJECT)
     remembered = sync.remember_order(config.STATE_DIR / 'window-order.json', snapshot, save)
     return session, sync.layout(snapshot, parse_worktrees(listed), extras, root, remembered)
 
@@ -136,7 +136,7 @@ def personal_sessions(dry_run):
     """(lines, problems): build each tmux session in the `sessions` setting (no network), or list it."""
     if os.environ.get('SIDEQUEST_UP_SESSIONS') == 'off':  # --all builds them once, under their own header
         return [], 0
-    project_session = config.get('workspace', 'tmux_session') or config.PROJECT or 'sidequest'
+    project_session = terminal_mode.session_name(config.SETTINGS.get('workspace'), config.PROJECT)
     lines, problems = [], 0
     for name, windows, note in sync.personal_sessions(config.SETTINGS.get('sessions'), project_session,
                                                       str(Path.home())):
@@ -189,7 +189,7 @@ def main():
     workspace = GitWorkspace(repository, values.get('worktrees_dir'), config.base_ref(),
                              shlex.split(values.get('copy_files') or ''))
     if args.rebuild and not args.dry_run and not NOTE:
-        session = values.get('tmux_session') or config.PROJECT or 'sidequest'
+        session = terminal_mode.session_name(values, config.PROJECT)
         try:
             inside = BOX.inside(session)
         except RuntimeError:
@@ -202,7 +202,7 @@ def main():
     if args.when_due and not args.offline:
         recent = sync.fresh(SnapshotStore(collector.DEFAULT_OUT).read(), config.get('sync', 'every_minutes'),
                             tz=config.get('identity', 'timezone', 'UTC'))
-        session = values.get('tmux_session') or config.PROJECT or 'sidequest'
+        session = terminal_mode.session_name(values, config.PROJECT)
         try:
             is_open = bool(recent) and not NOTE and BOX.exists(session)
         except RuntimeError as exc:
@@ -228,6 +228,12 @@ def main():
                                  capture_output=True, text=True).returncode == 0
         if not fetched:
             print('note     git fetch failed; branches are not updated this run')
+        # Branches follow origin; a base on another remote (upstream/main) needs that remote too.
+        remotes = subprocess.run(['git', '-C', str(repository), 'remote'], capture_output=True, text=True).stdout.split()
+        other = gitutil.base_remote(config.base_ref(), remotes)
+        if other != 'origin' and subprocess.run(['git', '-C', str(repository), 'fetch', '--quiet', other],
+                                                capture_output=True, text=True).returncode:
+            print('note     git fetch ' + other + ' failed; ' + config.base_ref() + ' may be old')
     snapshot = SnapshotStore(collector.DEFAULT_OUT).read()
     plan = sync.discover(snapshot, workspace, open_prs=config.get('sync', 'open_prs') != 'off')
     hooks = config.get('workspace', 'on_up') or []
@@ -238,7 +244,7 @@ def main():
     if args.cleanup and mode == 'off':
         mode = 'ask'
     merged, merged_problem = sync.source(snapshot, 'merged_prs', 'prs')
-    session_name = config.get('workspace', 'tmux_session') or config.PROJECT or 'sidequest'
+    session_name = terminal_mode.session_name(config.SETTINGS.get('workspace'), config.PROJECT)
 
     def close_window(name):
         if not note:

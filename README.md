@@ -544,7 +544,7 @@ environment reads and external programs. It only reads the source.
 | `w` | Open the worktree through the selected shell, tmux window or Herdr tab |
 | Space `n` | Create/reuse a local ticket worktree and open a shell there |
 | Space `s` | Run a bundled workflow or custom prompt with the configured agent |
-| Space `c` | Start (or restart) the selected ticket's crew worker, after a confirm box; a ticket without a worktree gets one first; after Jira skips it (another assignee or a review/QA status), the next Space `c` offers "Start anyway" (`--again`) |
+| Space `c` | Start (or restart) the selected ticket's crew worker, after a confirm box (inside tmux or Herdr only); a ticket without a worktree gets one first; after Jira skips it (another assignee or a review/QA status), the next Space `c` offers "Start anyway" (`--again`) |
 | Space `C` | Open the crew manager in a pane below the dashboard (40% of its height) in tmux/Herdr, else this terminal; after a first manager chat it asks: continue the last chat or start a new one |
 | Space `M` | Choose a ticket meeting (loads the selected ticket's notes) or a general meeting; `meeting.command` runs in a tmux pane below the dashboard, else this terminal; see `sidequest meeting` |
 | `y` | Copy standup with macOS pbcopy; --standup prints it on any platform |
@@ -605,7 +605,9 @@ macOS Keychain (or your environment)      secret values only
    `credentials` names where a secret lives (`keychain:SERVICE`, `keychain:SERVICE/ACCOUNT` or
    `env:NAME`) and refuses anything else, so a secret can never be written to the file. An
    environment variable (`SIDEQUEST_JIRA_TOKEN`, `SIDEQUEST_REVIEW_EMAIL`/`_PASSWORD`,
-   `SIDEQUEST_QA_PASSWORD`) still wins over the reference.
+   `SIDEQUEST_QA_PASSWORD`) still wins over the reference. For `credentials.review`, `env:NAME`
+   holds only the password; set `SIDEQUEST_REVIEW_EMAIL` for the account. A setting name that
+   Sidequest does not know is refused, in the file and in the environment.
 4. `sidequest-data project check`, inside the project, lists each part as OK, MISSING, FAIL or OFF
    (repository, identity, Jira and its token, GitHub sign-in, Heroku, shared app, checks, logins,
    project skills) and exits 1 on a FAIL. It never prints a secret.
@@ -643,6 +645,7 @@ leaves your list), the main checkout first, plus `workspace.windows`:
 `stay` leaves a shell when the command ends; `keys` is typed into a new window's shell once, so
 aliases work. Windows are reused and moved, never closed; your own windows stay, after the
 worktrees. `on_up` commands run last, then the session is attached (`--no-attach` leaves it).
+It fetches `origin` and, when `workspace.base_ref` is on another remote (`upstream/main`), that remote too.
 After a successful fetch it also keeps branches current, the way most people would by hand:
 each branch takes new commits from its own origin branch (fast-forward only), local `main` follows
 `origin/main`, a branch never pushed is rebased onto the base, and a pushed branch that is behind
@@ -799,7 +802,8 @@ the repository's parent folder). A ticket meeting also gets `SIDEQUEST_TICKET` a
 `SIDEQUEST_TICKET_CONTEXT`: a private temporary file with the ticket's `plan.md`, `questions.md` and
 earlier `meetings.md`, removed when the command exits. When the project sets `jira.site`, the command
 gets `JIRA_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN` (from `credentials.jira`). Put `meeting.command` in
-the shared `config.json` to use one companion in every project. Inside tmux it opens in a pane below
+the shared `config.json` to use one companion in every project. Inside tmux (unless
+`workspace.terminal` is `shell` or `herdr`) it opens in a pane below
 (40% of the height), so the dashboard stays on screen; an open meeting pane is selected instead of a
 second one. When the tool exits, the pane prints the newest `## <date> · <scope>` section of every
 `meetings.md` the tool changed, then closes on Enter. The Meetings tab (`m`) shows the same file.

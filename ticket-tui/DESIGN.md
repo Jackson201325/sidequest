@@ -158,5 +158,13 @@ Working and queued rows show no reason. The details panel uses the same reason o
 row, the card and the details all show the failure. `--demo` uses an empty temporary tickets folder and
 never reads real run.json files. A busy job's "already in progress" message names the job that runs.
 Space n repeats the Jira move result in the workspace message.
+2026-11-13: Space C and Space M follow terminal_mode.action_mode, the rule `w` already used through
+WorkspaceWorkflow: with workspace.terminal shell they hand this terminal over, also inside tmux. A ticket
+that is with someone else shows only the worker's own note as the reason (layout.stop_reason, theirs), never
+the hook's "waits for you" or "open the worker (w)", in the row, the card and the details.
+2026-11-13: A sort keeps the selected ticket. In AI mode the tab keys do nothing, gl/gL go to the next
+worker that needs the person (App.needs_person, the rule of the "need you" count), and the lane count is
+the number of rows in the list (App.lane_rows). Space c says that workers need tmux or Herdr before it
+creates a worktree. Automatic reloads never write "already in progress" to the status line.
 2026-11-13: An automatic reload asked for while its job runs starts when that job ends (App.again).
 y copies the standup in a background job, so pbcopy never blocks input.

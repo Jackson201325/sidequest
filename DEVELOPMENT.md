@@ -164,6 +164,9 @@ Fenced code is not parsed as headings, and unrecognized sections stay in Plan.
 Tests exercise rendered views, no document writes, reload behavior and real PTY
 keyboard navigation at the approved TUI interface.
 
+terminal_mode.action_mode picks the terminal of one action (shell, tmux or herdr; auto outside tmux and
+Herdr is the shell); build_workflow, Space C, Space M and `sidequest meeting` share it, and the tmux session
+is workspace.tmux_session, else the project name, else "sidequest", as in `sidequest up`.
 `sidequest meeting` (bin/sidequest-meeting.py, sidequest/meeting.py) runs the person's meeting.command with
 /bin/sh, in a tmux pane below the caller tagged with the role "meeting" (tmux.open_below), else in place.
 It records nothing; after the command exits it prints the newest section of each meetings.md modified

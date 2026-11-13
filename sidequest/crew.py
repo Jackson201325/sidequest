@@ -2,6 +2,7 @@
 and a manager agent that watches every ticket. Workers report through run.json (sidequest.runs).
 No Git, Jira or terminal policy lives here; callers pass the launcher and worktree lookup."""
 import json
+import re
 import shlex
 import uuid
 from pathlib import Path
@@ -27,10 +28,18 @@ def hook_settings(key, data, sidequest=None):
                                  "Notification": entry("notify"), "PostToolUse": entry("tool")}})
 
 
+def claude_code(argv):
+    """True when the command's program is Claude Code, also behind `env` and NAME=value words."""
+    for word in argv:
+        if Path(word).name == "env" or word.startswith("-") or re.match(r"[A-Za-z_]\w*=", word):
+            continue
+        return Path(word).name == "claude"
+    return False
+
+
 def worker_command(command, key, data, sidequest=None):
     """The worker's command line; Claude Code also gets the reporting hooks."""
-    argv = shlex.split(command)
-    if argv and Path(argv[0]).name == "claude":
+    if claude_code(shlex.split(command)):
         return command + " --settings " + shlex.quote(hook_settings(key, data, sidequest))
     return command
 
@@ -215,7 +224,7 @@ def manager_argv(command, prompt, folder, resume=False, new_id=uuid.uuid4):
     """The manager's argv and the new session id to save (None when nothing new). Claude Code
     continues the saved chat when resume is set; any other agent, or no saved chat, starts new."""
     argv = shlex.split(command)
-    if not any(Path(arg).name == "claude" for arg in argv):
+    if not claude_code(argv):
         return argv + [prompt], None
     last = last_manager_session(folder)
     if resume and last:

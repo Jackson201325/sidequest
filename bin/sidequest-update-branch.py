@@ -17,7 +17,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from sidequest import config, updates
+from sidequest import config, gitutil, updates
 
 
 def main():
@@ -28,11 +28,12 @@ def main():
     parser.add_argument('--keep-conflicts', action='store_true', help='leave a conflict open instead of aborting')
     args = parser.parse_args()
     base = args.base or config.base_ref()
-    if not args.no_fetch and '/' in base:
-        fetched = subprocess.run(['git', 'fetch', '--quiet', base.split('/', 1)[0]], capture_output=True, text=True,
-                                 timeout=120)
+    remotes = subprocess.run(['git', 'remote'], capture_output=True, text=True).stdout.split()
+    remote = gitutil.base_remote(base, remotes)
+    if not args.no_fetch and remote in remotes:
+        fetched = subprocess.run(['git', 'fetch', '--quiet', remote], capture_output=True, text=True, timeout=120)
         if fetched.returncode:
-            print('FAILED git fetch ' + base.split('/', 1)[0] + ': ' + (fetched.stderr.strip() or 'no output'),
+            print('FAILED git fetch ' + remote + ': ' + (fetched.stderr.strip() or 'no output'),
                   file=sys.stderr)
             return 1
     code, lines = updates.update_branch(Path.cwd(), base, args.keep_conflicts)

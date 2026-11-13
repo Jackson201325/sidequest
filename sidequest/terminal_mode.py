@@ -21,6 +21,22 @@ def mode(environ, settings):
     return 'tmux'
 
 
+def action_mode(environ, settings):
+    """shell, tmux or herdr for one dashboard or command action: SIDEQUEST_TERMINAL, else
+    workspace.terminal. Unlike mode(), auto outside tmux and Herdr is the shell: an action never
+    starts a session."""
+    value = environ.get('SIDEQUEST_TERMINAL') or (settings.get('workspace') or {}).get('terminal') or 'auto'
+    if value != 'auto':
+        return value
+    return 'tmux' if environ.get('TMUX') else 'herdr' if environ.get('HERDR_ENV') == '1' else 'shell'
+
+
+def session_name(workspace, project):
+    """The project's tmux session or Herdr workspace: workspace.tmux_session, else the project's name,
+    else sidequest."""
+    return (workspace or {}).get('tmux_session') or project or 'sidequest'
+
+
 def unavailable(chosen):
     """Why sessions cannot be opened with `chosen`, or ''."""
     if chosen == 'shell':

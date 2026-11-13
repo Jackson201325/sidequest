@@ -154,6 +154,29 @@ class DashboardAuditTests(unittest.TestCase):
         waiting = runs.after_ship(dict(record, state="waiting"))
         self.assertEqual((waiting["step"], waiting["state"]), ("qa-review", "waiting"))
 
+    def test_space_m_and_space_c_hand_over_the_terminal_inside_tmux_when_the_terminal_is_shell(self):
+        from sidequest import config
+        store = Store(":memory:")
+        self.addCleanup(store.close)
+        app = tui.App(store, self.root, demo=True)
+        app.demo = False
+        started = []
+        with patch.object(config, "SETTINGS", {"workspace": {"terminal": "shell"}}), \
+                patch.object(tui.qa, "tickets_dir", return_value=self.root / "tickets"), \
+                patch.object(tui.App, "choose", return_value=1), \
+                patch.object(tui, "run_meeting", lambda args: started.append("meeting")), \
+                patch.object(tui, "run_crew", lambda args: started.append("crew")), \
+                patch.dict("os.environ", {"TMUX": "/tmp/tmux,1,0"}, clear=True):
+            for action, script in ((app.meeting, tui.MEETING), (app.crew_manager, tui.CREW)):
+                app.foreground_target = None
+                action()
+                deadline = time.monotonic() + 2
+                while app.jobs and time.monotonic() < deadline:
+                    app.drain()
+                self.assertIsNotNone(app.foreground_target, script.name)
+                self.assertIn(str(script), app.foreground_target["argv"])
+        self.assertEqual(started, [])
+
     def test_a_handed_off_row_does_not_say_the_worker_waits_for_you(self):
         import layout
         from sidequest import runs
@@ -202,6 +225,45 @@ class DashboardAuditTests(unittest.TestCase):
         from sidequest import runs
         runs.update(self.root / key / "run.json", key, step, state, note, "2026-11-11T10:00:00+00:00")
 
+    def test_space_c_in_a_plain_shell_says_so_before_it_creates_a_worktree(self):
+        from unittest.mock import MagicMock
+        from sidequest import config
+        app = self.ai_app()
+        app.demo = False
+        ticket = app.selected()
+        ticket.worktree = ""
+        workflow, started = MagicMock(), []
+        app.workflow_factory = lambda: workflow
+        with patch.object(config, "SETTINGS", {"workspace": {"repository": str(self.root)}}), \
+                patch.object(tui.App, "choose", return_value=0) as choose, \
+                patch.object(tui, "run_crew", lambda args: started.append(args) or "x"), \
+                patch.dict("os.environ", {}, clear=True):
+            app.crew_worker(ticket)
+            deadline = time.monotonic() + 2
+            while app.jobs and time.monotonic() < deadline:
+                app.drain()
+        self.assertIn("inside tmux or Herdr", app.message)
+        choose.assert_not_called()
+        workflow.prepare.assert_not_called()
+        self.assertEqual(started, [])
+
+    def test_a_worker_outside_the_queue_keeps_its_worktree(self):
+        app = self.ai_app()
+        self.worker("OUT-1")
+        app.evidence.windows["OUT-1"] = "/trees/OUT-1"
+        app.view = "AI"
+        row = next(ticket for ticket in app.visible() if ticket.key == "OUT-1")
+        self.assertEqual(row.worktree, "/trees/OUT-1")
+
+    def test_the_ai_lane_count_is_the_number_of_rows_in_its_list(self):
+        app = self.ai_app()
+        self.worker("OUT-1")
+        app.tickets[0].status = "Blocked"
+        app.view = "AI"
+        self.assertEqual(app.lane_count("AI"), len(app.visible()))
+        self.assertNotEqual(app.lane_count("AI"), sum(app.in_view(t, "AI") for t in app.tickets))
+        self.assertEqual(app.lane_count("All"), sum(app.in_view(t, "All") for t in app.tickets))
+
     def test_the_pipeline_header_sits_over_the_pipeline_cells(self):
         import layout
         record = {"key": "APP-1", "step": "implement", "state": "working", "note": "", "updated": ""}
@@ -227,6 +289,20 @@ class DashboardAuditTests(unittest.TestCase):
             app.set_sort(mode)
             with self.subTest(mode=mode):
                 self.assertEqual(app.selected().key, key)
+
+    def test_gl_in_ai_mode_goes_to_the_worker_that_needs_you(self):
+        app = self.ai_app()
+        target = next(t for t in app.tickets if t.lane not in ("Needs me", "Clarify", "Done"))
+        self.worker(target.key)
+        app.view = "AI"
+        rows = app.visible()
+        self.assertEqual(rows[0].key, target.key)
+        for start in (0, len(rows) - 1):
+            app.index = start
+            app.press("g")
+            app.press("l")
+            with self.subTest(start=start):
+                self.assertEqual(app.selected().key, target.key)
 
     def test_an_automatic_reload_does_not_replace_the_status_line_when_it_is_busy(self):
         from sidequest import config

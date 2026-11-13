@@ -43,6 +43,14 @@ class EnvironmentSettingsTests(unittest.TestCase):
         self.assertEqual(set(settings), {'jira'})
         self.assertNotIn('secret', json.dumps(settings))
 
+    def test_an_unknown_setting_in_the_file_is_refused_like_one_from_the_environment(self):
+        for section, key in (('sync', 'cleanupp'), ('workspace', 'tmux_sesion'), ('jira', 'sitee')):
+            self.path.write_text(json.dumps({section: {key: 'on'}}))
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, section + r'\.' + key + ' is not a Sidequest setting'):
+                config.load(self.path)
+        self.path.write_text(json.dumps({'sessions': {'dotfiles': [{'name': 'edit'}]}}))
+        self.assertEqual(config.load(self.path)['sessions'], {'dotfiles': [{'name': 'edit'}]})
+
     def test_qa_browser_and_email_are_settings_but_the_password_is_not(self):
         self.path.write_text(json.dumps({'qa': {'browser': '/file/edge'}}))
         settings = config.load(self.path, {'SIDEQUEST_QA_EMAIL': 'qa@example.com', 'SIDEQUEST_QA_PASSWORD': 'p'})

@@ -225,7 +225,7 @@ class CrewTests(unittest.TestCase):
         self.ticket.worktree = '/w/' + self.ticket.key
         key = self.ticket.key
         skip = f'skip {key}: assigned to Ana in Jira; use --again to start it anyway'
-        with patch.object(tui, 'run_crew', lambda args: skip):
+        with patch.object(tui, 'run_crew', lambda args: skip), patch.dict('os.environ', {'TMUX': '/tmp/tmux'}):
             self.app.press(' ')
             with patch.object(tui.App, 'choose', return_value=0):
                 self.app.press('c')

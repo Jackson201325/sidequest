@@ -56,6 +56,14 @@ class CredentialTests(unittest.TestCase):
         with patch.dict('os.environ', {'SIDEQUEST_REVIEW_EMAIL': 'a@b.c', 'SIDEQUEST_REVIEW_PASSWORD': 'x'}, clear=True):
             self.assertEqual(credentials.login('review'), ('a@b.c', 'x'))
 
+    def test_an_env_reference_for_a_login_holds_the_password_and_the_email_variable_names_the_account(self):
+        settings = {'credentials': {'review': 'env:MY_REVIEW_PASSWORD'}}
+        with patch.object(config, 'SETTINGS', settings), \
+                patch.dict('os.environ', {'MY_REVIEW_PASSWORD': 'pw', 'SIDEQUEST_REVIEW_EMAIL': 'qa@example.com'}, clear=True):
+            self.assertEqual(credentials.login('review'), ('qa@example.com', 'pw'))
+        with patch.object(config, 'SETTINGS', settings), patch.dict('os.environ', {'MY_REVIEW_PASSWORD': 'pw'}, clear=True):
+            self.assertEqual(credentials.login('review'), (None, 'pw'))
+
     def test_env_references_missing_items_and_other_systems(self):
         run, _ = keychain({})
         with patch.object(credentials, 'RUN', run), patch.dict('os.environ', {'MY_QA_PASSWORD': 'qa-pw'}, clear=True):

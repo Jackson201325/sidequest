@@ -5,6 +5,7 @@ import shlex
 import shutil
 
 from sidequest.repository import repository_from
+from sidequest.terminal_mode import action_mode, session_name
 from sidequest.terminal import ShellTerminal, TmuxTerminal, agent_argv, run_command
 from sidequest.workspace import GitWorkspace
 from sidequest.herdr import HerdrTerminal
@@ -41,15 +42,13 @@ def build_workflow(settings, environ, run=run_command):
                              values.get('worktrees_dir'), values.get('base_ref') or 'origin/main',
                              shlex.split(values.get('copy_files') or ''))
     shell = environ.get('SHELL') or '/bin/sh'
-    mode = environ.get('SIDEQUEST_TERMINAL') or values.get('terminal', 'auto')
-    if mode not in ('auto', 'shell', 'tmux', 'herdr'):
+    mode = action_mode(environ, settings)
+    if mode not in ('shell', 'tmux', 'herdr'):
         raise ValueError('workspace.terminal must be auto, shell, tmux or herdr')
-    if mode == 'auto':
-        mode = 'tmux' if environ.get('TMUX') else 'herdr' if environ.get('HERDR_ENV') == '1' else 'shell'
     if mode == 'tmux':
         if not environ.get('TMUX'):
             raise RuntimeError('Run Sidequest inside tmux to use workspace.terminal=tmux')
-        terminal = TmuxTerminal(run, values.get('tmux_session', 'sidequest'), shell)
+        terminal = TmuxTerminal(run, session_name(values, environ.get('SIDEQUEST_PROJECT')), shell)
     elif mode == 'herdr':
         shell = shutil.which('zsh', path=environ.get('PATH'))
         if not shell:

@@ -350,6 +350,67 @@ class WorkspaceChangeBoundaryTests(unittest.TestCase):
 
 
 
+class OneRuleTests(unittest.TestCase):
+    """2026-11-13 review: the same question had different answers in different commands."""
+
+    def test_dashboard_actions_use_the_session_name_sidequest_up_builds(self):
+        from sidequest.application import build_workflow
+        tmux = {'TMUX': '/tmp/tmux,1,0', 'SHELL': '/bin/sh'}
+        for workspace, project, expected in (({}, 'acme', 'acme'), ({'tmux_session': ''}, 'acme', 'acme'),
+                                             ({'tmux_session': 'work'}, 'acme', 'work'), ({}, '', 'sidequest')):
+            environ = dict(tmux, SIDEQUEST_PROJECT=project) if project else tmux
+            with self.subTest(workspace=workspace, project=project):
+                flow = build_workflow({'workspace': workspace}, environ, run=lambda *a, **k: '')
+                self.assertEqual(flow.terminal.session, expected)
+
+    def test_one_function_names_the_session(self):
+        from sidequest import terminal_mode
+        self.assertEqual(terminal_mode.session_name({'tmux_session': 'work'}, 'acme'), 'work')
+        self.assertEqual(terminal_mode.session_name({'tmux_session': ''}, 'acme'), 'acme')
+        self.assertEqual(terminal_mode.session_name({}, ''), 'sidequest')
+        self.assertEqual(terminal_mode.session_name(None, None), 'sidequest')
+        for path in ('bin/sidequest-up.py', 'bin/sidequest-start.py', 'sidequest/application.py', 'sidequest/overview.py'):
+            with self.subTest(path=path):
+                self.assertNotIn("get('tmux_session')", (ROOT / path).read_text())
+
+    def test_one_rule_names_the_remote_to_fetch_for_a_base(self):
+        from sidequest import gitutil
+        self.assertEqual(gitutil.base_remote('upstream/main', ['origin', 'upstream']), 'upstream')
+        self.assertEqual(gitutil.base_remote('origin/main', ['origin']), 'origin')
+        self.assertEqual(gitutil.base_remote('main', ['origin', 'upstream']), 'origin')
+        self.assertEqual(gitutil.base_remote('feature/x', ['origin']), 'origin')
+        for path in ('bin/sidequest-up.py', 'bin/sidequest-update-branch.py', 'bin/sidequest-ship-check.py'):
+            with self.subTest(path=path):
+                self.assertIn('base_remote(', (ROOT / path).read_text())
+
+    def test_one_rule_says_which_terminal_an_action_uses(self):
+        from sidequest import terminal_mode
+        from sidequest.application import build_workflow
+        from sidequest.terminal import ShellTerminal, TmuxTerminal
+        tmux = {'TMUX': '/tmp/tmux,1,0', 'SHELL': '/bin/sh'}
+        shell = {'workspace': {'terminal': 'shell'}}
+        self.assertEqual(terminal_mode.action_mode(tmux, shell), 'shell')
+        self.assertEqual(terminal_mode.action_mode(tmux, {}), 'tmux')
+        self.assertEqual(terminal_mode.action_mode({'HERDR_ENV': '1'}, {}), 'herdr')
+        self.assertEqual(terminal_mode.action_mode({}, {}), 'shell')
+        self.assertEqual(terminal_mode.action_mode(dict(tmux, SIDEQUEST_TERMINAL='shell'), {}), 'shell')
+        self.assertIsInstance(build_workflow(shell, tmux).terminal, ShellTerminal)
+        self.assertIsInstance(build_workflow({}, tmux, run=lambda *a, **k: '').terminal, TmuxTerminal)
+
+    def test_sidequest_meeting_runs_in_place_inside_tmux_when_the_terminal_is_shell(self):
+        with tempfile.TemporaryDirectory() as folder:
+            env = {k: v for k, v in os.environ.items() if not k.startswith(('SIDEQUEST_', 'TMUX', 'HERDR_'))}
+            env.update(HOME=folder, XDG_STATE_HOME=folder + '/state', XDG_DATA_HOME=folder + '/data',
+                       XDG_CONFIG_HOME=folder + '/config', SIDEQUEST_CONFIG=str(ROOT / 'tests/fixture-config.json'),
+                       SIDEQUEST_TICKETS_DIR=folder + '/tickets', SIDEQUEST_MEETING_COMMAND='echo ran-in-place',
+                       SIDEQUEST_TERMINAL='shell', TMUX=folder + '/no-server,1,0', TMUX_PANE='%1')
+            done = subprocess.run([sys.executable, '-B', str(ROOT / 'bin/sidequest-meeting.py')], capture_output=True,
+                                  text=True, env=env, stdin=subprocess.DEVNULL, timeout=30)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn('ran-in-place', done.stdout)
+
+
+
 class SmallBugTests(unittest.TestCase):
     """2026-11-13 review: bugs that needed no decision."""
 
