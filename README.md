@@ -309,6 +309,7 @@ test commands, branch conventions and environment booking rules.
 | `sidequest-feedback` | Read complete review threads, fix issues and draft replies |
 | `sidequest-triage` | Investigate a supplied error and reproduce it with fixtures |
 | `sidequest-where` | Resume a ticket: print its state, last activity, blockers and next step (read-only) |
+| `sidequest-manage` | The crew manager: see every ticket and worker, say what needs you, start or resume workers |
 
 In the dashboard, Space `s` runs a selected workflow through your configured agent
 in the ticket's local worktree. In shell mode, the dashboard hands its terminal to
@@ -391,7 +392,8 @@ You do not need tmux. Set `workspace.repository` to your application checkout.
 In the dashboard, Space `n` creates or reuses the selected ticket's worktree and
 opens your normal shell there. `w` opens a shell in an existing ticket worktree.
 Run your editor, test commands or coding assistant as usual. Type `exit` to return
-to Sidequest. Starting a local worktree does not move the Jira ticket.
+to Sidequest. Starting a local worktree does not move the Jira ticket, unless you set
+`jira.start_status` (see "Starting tickets").
 
 The CLI's `workspace ... --open` command creates/reuses the checkout and opens a
 shell there as well. It uses `workspace.base_ref` (default `origin/main`) unless you
@@ -400,8 +402,9 @@ therefore starts a shell in the worktree. To change your current shell instead,
 omit --open and use `cd` with the printed DIR path.
 
 Sidequest does not bundle a company Docker stack, shared database booking service,
-automatic worktree cleanup, Jira custom-field mapping or board-specific status
-transitions. The skills use the project's own setup and ask before remote actions
+Jira custom-field mapping or board-specific status transitions. The opt-in exceptions
+are the Jira start move (`jira.start_status`) and the removal of merged worktrees by
+`sidequest up` (`sync.cleanup`). The skills use the project's own setup and ask before remote actions
 unless already authorized. Nothing merges, deploys or sends messages on refresh.
 
 ### Work in Herdr
@@ -533,6 +536,10 @@ environment reads and external programs. It only reads the source.
 | --- | --- |
 | `j/k`, arrows | Move through tickets or scroll details |
 | `h/l`, Enter | Switch between the list and details |
+| `j/k`, arrows, `gg`/`G` | Next or previous ticket (or scroll the preview); first or last ticket |
+| `Ctrl-f/b`, `Ctrl-d/u` | Page the ticket list; scroll the preview |
+| `h/l`, Enter, Esc | List or preview pane; Esc clears the filter and returns to the list |
+| `gl`/`gL` | Next or previous ticket that needs you |
 | `1`–`5` | All, Needs me, Waiting, Clarify, In Dev (implementation or rework, from the Jira status) |
 | `6` | ✦ AI mode: every ticket's crew pipeline (Blocked tickets are hidden); the details show the selected ticket's worker and history. Below 100 columns a row names only the current step, its state and the reason |
 | `/` | Search; the list filters while you type and shows the match count. Enter keeps it, Esc restores the previous search |
@@ -541,7 +548,7 @@ environment reads and external programs. It only reads the source.
 | `+/-`, `=` | Resize sections or reset the split |
 | `r`, `e` | Refresh Jira/GitHub, or optional Heroku status |
 | Space `j/o` | Open the ticket or PR in your configured/default browser |
-| `w` | Open the worktree through the selected shell, tmux window or Herdr tab |
+| `w`, `gw`, Space `w` | Open the worktree through the selected shell, tmux window or Herdr tab |
 | Space `n` | Create/reuse a local ticket worktree and open a shell there |
 | Space `s` | Run a bundled workflow or custom prompt with the configured agent |
 | Space `c` | Start (or restart) the selected ticket's crew worker, after a confirm box (inside tmux or Herdr only); a ticket without a worktree gets one first; after Jira skips it (another assignee or a review/QA status), the next Space `c` offers "Start anyway" (`--again`) |

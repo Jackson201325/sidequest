@@ -688,6 +688,53 @@ own message or failed; that message now repeats the Jira result. (6) A busy back
 new request ("Opening the crew manager already in progress" while a worker started); it is named by the job
 that runs. Not fixed: `sidequest crew --dry-run` without keys still raises AttributeError (open_manager gets
 no workflow). Live tmux, Jira and Heroku were not exercised.
+2026-11-13: Same review, one rule per question. tests/test_codebase_review.py (OneRuleTests),
+tests/test_env_config.py, tests/test_credentials.py, tests/test_profiles.py and
+ticket-tui/test_review_fixes.py failed first. (1) Dashboard and crew actions used the tmux session
+"sidequest" when workspace.tmux_session was not set, while `sidequest up` and `start` built the session with
+the project's name; build_workflow now uses tmux_session, else SIDEQUEST_PROJECT, else "sidequest".
+(2) terminal_mode.action_mode is the one rule for an action's terminal (SIDEQUEST_TERMINAL, else
+workspace.terminal; auto is the terminal this runs in, else the shell). build_workflow, Space C, Space M and
+`sidequest meeting` use it, so workspace.terminal shell inside tmux hands the terminal over for all of them.
+terminal_mode.mode stays the rule for sessions (auto: tmux). (3) A ticket that is with someone else no longer
+shows the hook's "waits for you" note or "open the worker (w)" in the AI-mode row, the card or the details;
+the worker's own note still shows. (4) A setting name that Sidequest does not know is refused in the file,
+as it was in the environment ("sync.cleanupp is not a Sidequest setting"); sessions keeps free names.
+(5) credentials.review as env:NAME holds only the password; SIDEQUEST_REVIEW_EMAIL names the account, and
+`project check` reports the login found only when both exist. Not changed: sync.update off still lets
+`sidequest up` fast-forward and rebase after a fetch (the README describes this; only the merge of the base
+is gated); crew.py tests only the first word of a worker command for Claude Code. Stale statements in
+README.md, DEVELOPMENT.md, ARCHITECTURE.md and ticket-tui/DESIGN.md were corrected.
+2026-11-13: Same review, bugs that needed no decision. tests/test_codebase_review.py (SmallBugTests),
+tests/test_jira_start.py, tests/test_cleanup.py, tests/test_wiring.py and ticket-tui/test_review_fixes.py
+failed first. Package and commands: github.first_line raised IndexError on a comment of only spaces; a
+failed attachment download left NAME.part; cleanup printed "local branch removed" when `git branch -D`
+failed (now "worktree removed; local branch kept", counted as a problem); `project wiring` omitted crew.*
+and meeting.command; a rejected setting made start, meeting, sidequest-data and projects exit 1 and sqapp
+print a traceback (all exit 2 with one line); `sidequest --help` named no subcommand and `sidequest
+projects --help` opened the list. Dashboard: Space c in a plain shell created the worktree before
+`sidequest crew` refused (it now says first that workers need tmux or Herdr); a worker row outside the queue
+had no worktree; the lane 6 count and the search total ignored hidden Blocked tickets and outside workers
+(App.lane_rows is the one list); the AI header was one column right of its cells; tab keys changed the
+hidden tab in AI mode; a sort moved the selection to the first row; gl/gL in AI mode used the lane rule
+(App.needs_person is the one rule); an automatic reload replaced the status line with "already in
+progress"; the crew skip reason was stored from the worker thread (now a crew_skipped event). Removed with
+no caller in code, tests or specs: tui.py's re and concurrent.futures imports, DETAIL_WORKERS and
+App.pr_label; core.py's re and ZoneInfo imports; terminal.agent_request; terminal_mode.Tmux.window_count.
+Open: `sidequest crew --dry-run` without keys and the first-word Claude test in crew.py; an automatic reload
+that arrives while its job runs is still dropped; the help has no scroll; pbcopy runs on the UI thread.
+2026-11-13: Same review, the last small items. tests/test_herdr.py, tests/test_codebase_review.py and
+ticket-tui/test_review_fixes.py failed first. An automatic reload asked for while its job runs is kept
+(App.again) and starts when that job ends, so a worktree change during a work log load is no longer lost.
+y copies the standup in a background job; its result reaches the status line through a "status" event.
+Herdr launch scripts go to the folder config.STATE_DIR names (SIDEQUEST_STATE_DIR, else the XDG state
+folder with projects/NAME for a project), not always <state>/sidequest/launches.
+terminal_mode.session_name is the one rule for the session name (up, start, overview, build_workflow).
+ticket_keys.SHAPE is the one key shape; config.py and bin/sidequest-jira.py use it. Two patterns stay
+apart on purpose: ship-check's PLAN_MARKER is a `git grep -E` pattern, and pr-body-check's LOCAL_PATH
+matches only a key's start. Removed with no caller: workspace.prepare (the module-level adapter;
+WorkspaceWorkflow.prepare stays) and status_since in bin/sidequest-jira.py. sync.KINDS stays: it names
+the plan row kinds.
 2026-11-13: Same review, eight decisions the person made. Tests failed first in tests/test_start.py,
 test_profiles.py, test_codebase_review.py, test_pr_body_check.py and ticket-tui/test_review_fixes.py.
 (2) A bare ticket number is refused when jira.projects names several projects; start, crew, meeting and

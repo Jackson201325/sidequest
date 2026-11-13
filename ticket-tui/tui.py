@@ -7,14 +7,12 @@ import curses
 import json
 import os
 import queue
-import re
 import shlex
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -86,7 +84,6 @@ def run_meeting(args):
     return (lines[-1] if lines else 'sidequest meeting exited with status ' + str(done.returncode))[:200]
 
 
-DETAIL_WORKERS = 4
 SUBCOMMANDS = """Subcommands (each has --help):
   sidequest up         build or update the project's session and worktrees
   sidequest start KEY  start one ticket: worktree, window and the optional Jira move
@@ -643,9 +640,6 @@ class App:
 
     def environment(self, ticket):
         return self.views.environment(ticket, "heroku" in self.jobs)
-
-    def pr_label(self, ticket):
-        return " / ".join(f"#{p['number']}" for p in ticket.prs) if ticket.prs else "none linked"
 
     @staticmethod
     def in_view(ticket, view):

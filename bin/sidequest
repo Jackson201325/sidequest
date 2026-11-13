@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch the personal ticket queue (workflow/ticket-tui) from any working directory."""
+"""Launch the Sidequest dashboard (ticket-tui) or a `sidequest` subcommand from any working directory."""
 
 import os
 import runpy

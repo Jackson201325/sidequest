@@ -32,10 +32,6 @@ def agent_argv(prompt, command=None):
     return argv + [prompt]
 
 
-def agent_request(path, prompt):
-    return request(agent_argv(prompt), path, 'Agent')
-
-
 def agent_display_name(argv=None):
     name = Path((agent_argv('') if argv is None else argv)[0]).name
     return {'claude': 'Claude Code', 'codex': 'Codex'}.get(name, name)

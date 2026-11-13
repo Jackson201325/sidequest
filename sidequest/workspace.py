@@ -122,14 +122,3 @@ class GitWorkspace:
         if self.copy_files:
             result['copied'] = self._copy_local_files(current.path)
         return result
-
-
-def prepare(key, summary, issue_type='', prefix=None, base='origin/main', apply=False):
-    """Compatibility adapter; new CLI/TUI callers use WorkspaceWorkflow."""
-    import os
-    from sidequest import config
-    values = config.SETTINGS.get('workspace', {})
-    workspace = GitWorkspace(config.workspace_repository() or '.',
-                             values.get('worktrees_dir'))
-    plan = workspace.preview(key, summary, issue_type, prefix, base)
-    return workspace.apply(plan) if apply else plan.result()

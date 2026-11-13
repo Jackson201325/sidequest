@@ -66,11 +66,6 @@ class Tmux:
     def exists(self, session):
         return subprocess.run(['tmux', 'has-session', '-t', '=' + session], capture_output=True).returncode == 0
 
-    def window_count(self, session):
-        ran = subprocess.run(['tmux', 'list-windows', '-F', '#{window_id}', '-t', '=' + session],
-                             capture_output=True, text=True)
-        return len(ran.stdout.splitlines()) if ran.returncode == 0 else None
-
     def inside(self, session):
         """True when this command runs in a pane of `session`, so closing the session stops it."""
         if not os.environ.get('TMUX'):

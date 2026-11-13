@@ -2,7 +2,8 @@
 
 This is an attention queue and optional local launcher. It explains whose turn a
 ticket is, how long it has waited and what evidence supports the next action.
-It is read-only toward Jira, GitHub and Heroku. Explicit local workspace actions
+It is read-only toward Jira, GitHub and Heroku, except the opt-in Jira start move
+(Space n with jira.start_status). Explicit local workspace actions
 use the shared WorkspaceWorkflow; refresh never mutates Git. Ticket changes,
 shipping, application management and scheduled reporting belong to other tools.
 
@@ -11,7 +12,7 @@ terminals show the focused pane. Keep readable focus borders, lane symbols and
 NO_COLOR support. Preserve selection after refresh and sorting. Network I/O never
 blocks input; only the UI thread updates UI state and SQLite.
 
-Use Activity, Plan, Overview, Work log, Flow and Standup views. Activity contains
+Use Activity, Plan, Updates, Questions, Meetings, Overview, Work log, Flow and Standup views. Activity contains
 Jira/GitHub events; work logs contain dated commit evidence. Unknown ownership or
 history remains explicitly unknown. Unresolved PR review threads take
 precedence over Jira handoffs; once every thread is resolved, the Jira handoff

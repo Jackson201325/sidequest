@@ -11,7 +11,7 @@ command line share everything from "Use cases" down.
 
 | Part | What it owns | Files |
 | --- | --- | --- |
-| Entry points | What you run: the dashboard, `sidequest up`, `sidequest start`, `sidequest projects`, headless commands, the app booking | `bin/sidequest` (+ `bin/sidequest-up.py`, `bin/sidequest-start.py`, `bin/sidequest-projects.py`), `bin/sidequest-data` (+ `bin/sidequest-*.py` helpers), `bin/sqapp` |
+| Entry points | What you run: the dashboard, `sidequest up`, `sidequest start`, `sidequest projects`, `sidequest crew`, `sidequest meeting`, `sidequest map`, headless commands, the app booking | `bin/sidequest` (+ `bin/sidequest-up.py`, `bin/sidequest-start.py`, `bin/sidequest-projects.py`, `bin/sidequest-crew.py`, `bin/sidequest-meeting.py`, `bin/sidequest-map.py`), `bin/sidequest-data` (+ `bin/sidequest-*.py` helpers), `bin/sqapp` |
 | Dashboard | Drawing the queue and detail tabs, keys, background jobs, curses handoff | `ticket-tui/tui.py`, `layout.py`, `detail_views.py`, `plan_document.py`, `sorting.py` |
 | Queue rules | Whose turn it is, lanes, stages, standup, local branch state; no curses, no writes | `ticket-tui/core.py`, `workflow.py`, `activity.py`, `worklog.py`, `standup.py`, `branch_state.py`, `queue_evidence.py` |
 | Agent workflows | The skills, per-ticket files (plan, questions, QA evidence) and their helpers | `agents/skills/`, `sidequest/skills.py`, `questions.py`, `qa.py`, `bin/sidequest-{plan-init,ship-check,pr-body-check,qa-shot,feedback,questions,review-app,worktree}.py` |
@@ -54,7 +54,7 @@ flowchart TD
 | `sidequest/tmux.py` | Session-scoped pane matching, windows, selection and quoting |
 | `sidequest/herdr.py` | Caller-workspace-scoped tab/pane discovery, layout and private agent launchers |
 | `sidequest/herdr_session.py` | `sidequest up` sessions in Herdr: workspace per session, tab per window, server start, attach |
-| `sidequest/terminal_mode.py` | Picks tmux or Herdr for sessions (`workspace.terminal`, context) and one interface over both |
+| `sidequest/terminal_mode.py` | Picks tmux or Herdr for sessions (`workspace.terminal`, context) and one interface over both; `action_mode` picks shell, tmux or Herdr for one action |
 | `sidequest/environments.py` | Read-only Heroku authentication, pagination and status mapping |
 | `sidequest/ticket_keys.py` | Every ticket key question: valid key, PR ticket, branch keys and branch ticket, mentions in text, leading-key removal |
 | `sidequest/repository.py` | One rule for the workspace repository: an existing SIDEQUEST_REPO folder, else workspace.repository; no config import |
@@ -62,6 +62,12 @@ flowchart TD
 | `sidequest/config.py` | Settings: shared config.json, the selected project profile over it, then SIDEQUEST_* variables; per-project storage |
 | `sidequest/credentials.py` | Secrets by reference (environment, Keychain item or variable name); settings never hold a value |
 | `sidequest/projects.py` | `project init` (a profile from config.example.json) and `project check` (what is set and what works) |
+| `sidequest/sync.py`, `updates.py`, `cleanup.py` | `sidequest up`: the worktree plan from the snapshot; keeping branches current after a fetch (never a push); removal of merged worktrees only when nothing can be lost (`sync.cleanup`) |
+| `sidequest/gitutil.py` | Runs Git for the `ship-check` and `qa-shot` helpers |
+| `sidequest/crew.py` | Crew: worker, challenger and manager prompts and commands, hook settings, dispatch; no Git, Jira or terminal policy |
+| `sidequest/runs.py` | Per-ticket worker state `run.json`: steps, states, hook events, finished counts; written only by `sidequest-data run` |
+| `sidequest/meeting.py` | `sidequest meeting`: the pane for the person's `meeting.command`, the ticket context and the new `meetings.md` sections; records nothing |
+| `sidequest/attribution.py` | The one rule for AI attribution in commits and PR text (`ship-check`, `pr-body-check`); a human co-author is not attribution |
 | `sidequest/skills.py` | `skill NAME`: generic skill, project commands, additions or the project's replace version; installed stubs |
 | `sidequest/access.py` | AccessFailure: a failed service request with its cause; recovery text; word-based guessing only for text-only tools |
 | `collector.py` and `snapshots.py` | Shared collection, validation, atomic publication and last-good retention |
@@ -80,8 +86,8 @@ supported helper commands instead of duplicating that policy.
 shell, agent command, terminal mode and managed context once per workflow. Later changes to its
 input dictionaries cannot redirect it. The CLI composes once per invocation;
 the dashboard composes once per explicit action and accepts an injected factory.
-Other queue/transport modules still use process-wide configuration. This is not
-whole-application multi-profile support.
+Other queue/transport modules still use process-wide configuration, so one process
+serves one project profile.
 
 ## Planning, execution and presentation
 
@@ -109,7 +115,6 @@ Workspace CLI flags/output, default preview, configured base and explicit `--ope
 remain. CLI `--open` keeps opening a foreground shell even inside tmux; since 2026-11-09 Space n
 in tmux mode selects or creates the ticket's window instead (`start(..., window=True)`).
 Other in-tmux navigation and agent launches keep their existing behavior.
-Compatibility helpers in `workspace.py` delegate to package implementations.
 The dashboard reaches tmux only through WorkspaceWorkflow, and imports Heroku reading
 and browser opening from the package directly;
 the former `ticket-tui/launcher.py` and `ticket-tui/environments.py` are removed. Headless modules

@@ -26,7 +26,7 @@ launch argument vectors. The dashboard reaches tmux only through WorkspaceWorkfl
 and calls sidequest.environments and sidequest.terminal.open_browser directly. Heroku reading lives in sidequest/environments.py;
 headless QA lookup never imports the UI or changes sys.path. Provider-specific
 UI cache keys, global configuration in older collection modules and the existing
-CLI dispatcher remain; whole-application multi-profile support is not implemented.
+CLI dispatcher remain; one process serves one project profile, because configuration is process-wide.
 
 Service errors are sidequest.access.AccessFailure (service + cause). Adapters that
 know the cause report it (Jira from HTTP status and connection errors, run_tool from
@@ -65,7 +65,8 @@ disabled until configured. Identity defaults contain no account identifiers.
 The default timezone is UTC and business hours are Mon–Fri 09:00–17:00.
 
 `bin/sidequest-jira.py` owns Jira HTTP requests, search, history and comments. It rejects
-writes, except the POST endpoint Jira uses for read-only searches. GitHub uses
+writes, except the POST endpoint Jira uses for read-only searches and, only when
+jira.start_status is set, the transition POST of `jira-start`. GitHub uses
 the user's gh CLI with an explicit repository, paginated activity and unresolved
 threads. Heroku needs an explicit pipeline and uses only GET requests. Credentials
 stay in process memory or the user's CLI authentication store.
@@ -124,7 +125,8 @@ The base ref is configurable with workspace.base_ref. The helper never removes
 worktrees, switches an existing checkout, fetches
 or copies credentials. `plan-init` never overwrites a plan. Artifact paths are
 shared with the dashboard and remain outside repositories. QA login has no default
-account or Keychain fallback; credentials come from explicit environment variables.
+account; credentials come from environment variables or the `credentials` references
+(sidequest/credentials.py).
 The browser's actual host is checked before login after redirects. Review-app QA
 is restricted to the HTTPS Heroku host discovered for the PR.
 
@@ -135,8 +137,9 @@ from action-specific tools. Personal editor/report aliases, tmux and macOS-only
 credential/clipboard setup are not installation requirements. Browser links use
 the OS opener or configured browser; screenshots and agent workflows need their
 respective tools only when invoked.
-Project Docker booking, automatic cleanup, attachment download, Jira custom fields
-and status transitions are not copied. Skills use the target project's commands
+Project Docker booking and Jira custom fields are not copied. Attachment download
+(`ticket --attachments`), the Jira start move (`jira-start`, jira.start_status) and the removal
+of merged worktrees (`sidequest up`, sync.cleanup) exist only as explicit commands or settings. Skills use the target project's commands
 and require remote-action authorization from that user.
 
 2026-11-05: Herdr terminal adapter. sidequest/herdr.py implements the existing

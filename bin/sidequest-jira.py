@@ -232,11 +232,6 @@ def download_attachments(key, folder):
     return rows
 
 
-def status_since(key, current_status, created=None):
-    """Compatibility entry point for callers needing only the status date."""
-    return workflow_dates(key, current_status, created)["status_since"]
-
-
 def search(jql, fields, max_results=50):
     issues, seen, token = [], set(), None
     while max_results is None or len(issues) < max_results:
