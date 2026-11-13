@@ -41,8 +41,8 @@ Keep each ticket to one or two lines.
   the Jira status.
 - Restart a worker that stopped: `{{SIDEQUEST_HOME}}/bin/sidequest crew KEY --again`.
 - Answer a question: record the user's answer with `{{SIDEQUEST_DATA}} questions KEY answer
-  Q<n> "<their words>" --by <who> --via crew`. Then tell the user to type "continue" in that
-  ticket's worker window, or restart the worker with `--again` when its window is closed.
+  Q<n> "<their words>" --by <who> --via crew`. Then run `crew KEY --again`: in tmux it sends
+  the prompt to the worker's open pane, so the same session continues; a closed pane gets a new one.
 - Never answer a question yourself, never invent an answer, and never commit, push, open a
   PR, post comments or change Jira for a worker.
 

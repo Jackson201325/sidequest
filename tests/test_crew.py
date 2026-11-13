@@ -218,6 +218,20 @@ class WorkerFocusTests(unittest.TestCase):
         launch("DEMO-1", "/w/demo-1", "prompt")
         self.assertEqual(calls, [("DEMO-1", False)])
 
+    def test_tmux_workers_and_challengers_each_reuse_their_own_tagged_pane(self):
+        cli = load_cli()
+        from sidequest.terminal import TmuxTerminal
+        seen = []
+
+        class Flow:
+            agent_command = ""
+            terminal = TmuxTerminal(lambda args, timeout=45: "", "proj", "/bin/sh")
+        with unittest.mock.patch("sidequest.tmux.start_agent", lambda *a, **kw: seen.append((a[1], kw)) or "ok"):
+            cli.worker_launcher(Flow(), "claude", DATA)("DEMO-1", "/w/demo-1", "prompt")
+            cli.worker_launcher(Flow(), "claude", DATA, "challenger")("DEMO-1", "/w/demo-1", "prompt")
+        self.assertEqual([(key, kw["role"], kw["focus"]) for key, kw in seen],
+                         [("DEMO-1", "crew-worker:DEMO-1", False), ("DEMO-1", "crew-challenger:DEMO-1", False)])
+
 
 class WaitingReasonTests(unittest.TestCase):
     def test_review_qa_and_other_assignees_are_waiting_on_someone_else(self):

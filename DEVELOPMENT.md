@@ -166,7 +166,9 @@ keyboard navigation at the approved TUI interface.
 
 `sidequest crew` (bin/sidequest-crew.py, sidequest/crew.py) starts the manager (crew.manager_command)
 and one worker per ticket worktree (crew.worker_command) through WorkspaceWorkflow.agent, so tmux and
-Herdr placement stay in the terminal adapters. Workers chain the bundled skills and stop at human gates.
+Herdr placement stay in the terminal adapters. In tmux, worker_launcher passes a role
+(crew-worker:KEY or crew-challenger:KEY) to tmux.start_agent, which tags the new pane with
+@sidequest_role and later pastes the prompt into that live pane instead of splitting again. Workers chain the bundled skills and stop at human gates.
 Steps are runs.STEPS: start, implement, qa-local, ship-check, challenge, qa-review. A ready ship-check
 makes crew.first_step return challenge, which dispatch starts with the challenger launcher
 (crew.challenge_command, default Opus) and crew.challenge_prompt. A ready challenge returns qa-review,

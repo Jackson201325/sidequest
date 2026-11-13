@@ -68,6 +68,42 @@ class BackgroundLaunchTests(unittest.TestCase):
         self.assertFalse(any(c[1] in ("select-window", "switch-client") for c in commands))
 
 
+class RolePaneTests(unittest.TestCase):
+    def start(self, tagged):
+        calls = []
+
+        def run(args, timeout=45):
+            calls.append(args)
+            if args[:2] == ["tmux", "list-panes"] and "-s" in args:
+                return tagged
+            if args[:2] == ["tmux", "list-panes"]:
+                return PANES
+            if args[:2] == ["tmux", "split-window"]:
+                return "%9\n"
+            return ""
+        message = tmux.start_agent(run, KEY, WORKTREE, ["claude", "next step"], True, SESSION, "Claude Code",
+                                   focus=False, role="crew-worker:DEMO-1", pause=0)
+        return calls, message
+
+    def test_a_new_role_pane_is_tagged_so_the_next_request_finds_it(self):
+        calls, _ = self.start("%1\t0\t\n")
+        split = next(c for c in calls if c[1] == "split-window")
+        self.assertEqual(split[-4:-1], ["-P", "-F", "#{pane_id}"])
+        self.assertIn(["tmux", "set-option", "-p", "-t", "%9", "@sidequest_role", "crew-worker:DEMO-1"], calls)
+
+    def test_an_open_role_pane_gets_the_prompt_instead_of_a_new_split(self):
+        calls, message = self.start("%1\t0\t\n%7\t0\tcrew-worker:DEMO-1\n")
+        self.assertFalse(any(c[1] in ("split-window", "new-window", "new-session") for c in calls))
+        self.assertIn(["tmux", "set-buffer", "-b", "sidequest-prompt", "--", "next step"], calls)
+        self.assertIn(["tmux", "paste-buffer", "-p", "-d", "-b", "sidequest-prompt", "-t", "%7"], calls)
+        self.assertEqual(calls[-1], ["tmux", "send-keys", "-t", "%7", "Enter"])
+        self.assertIn("open pane", message)
+
+    def test_a_dead_role_pane_is_not_reused(self):
+        calls, _ = self.start("%7\t1\tcrew-worker:DEMO-1\n")
+        self.assertTrue(any(c[1] == "split-window" for c in calls))
+
+
 class PaneBelowTests(unittest.TestCase):
     def run_with(self, tagged):
         calls = []

@@ -100,10 +100,19 @@ def workflow():
     return flow, isinstance(flow.terminal, ShellTerminal)
 
 
-def worker_launcher(flow, worker, data):
-    """Workers start in the background: the person stays in the window they are in."""
+def worker_launcher(flow, worker, data, agent='worker'):
+    """Workers start in the background: the person stays in the window they are in. In tmux each
+    ticket keeps one pane per agent: a later request goes to the open pane's session."""
+    from sidequest import tmux
+    from sidequest.terminal import TmuxTerminal, agent_argv, agent_display_name
+
     def launch(key, path, prompt):
         flow.agent_command = crew.worker_command(worker, key, data)
+        terminal = getattr(flow, 'terminal', None)
+        if isinstance(terminal, TmuxTerminal):
+            argv = agent_argv(prompt, flow.agent_command)
+            return tmux.start_agent(terminal.run, key, path, argv, True, terminal.session,
+                                    agent_display_name(argv), focus=False, role=f'crew-{agent}:{key}')
         return flow.agent(key, path, prompt, focus=False).message
     return launch
 
@@ -173,7 +182,8 @@ def main():
               file=sys.stderr)
         return 2
     launch = worker_launcher(flow, config.get('crew', 'worker_command') or crew.DEFAULT_WORKER, DATA)
-    challenger = worker_launcher(flow, config.get('crew', 'challenge_command') or crew.DEFAULT_CHALLENGER, DATA)
+    challenger = worker_launcher(flow, config.get('crew', 'challenge_command') or crew.DEFAULT_CHALLENGER, DATA,
+                                 'challenger')
     skip = config.get('crew', 'skip_statuses') or SKIP_STATUSES
     found = {} if args.again else jira_tickets(keys)
     try:

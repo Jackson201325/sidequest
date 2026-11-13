@@ -636,3 +636,8 @@ in temporary storage, and the crew tests fail if they reach the real workflow fa
 2026-11-13: The status column did not show that a PR still had unresolved review threads.
 ticket-tui/test_layout.py failed first. stage_label() adds "(PR feedback)" while any thread is unresolved and
 shortens the Jira status, not the mark, in a narrow column.
+2026-11-13: Each `sidequest crew KEY` (restart, challenger, qa-review) split one more agent pane into the
+ticket window; one ticket collected five Claude panes. tests/test_tmux_launch.py and tests/test_crew.py
+failed first. tmux.start_agent takes a role (crew-worker:KEY, crew-challenger:KEY) and tags the new pane;
+when a live pane has the role, the prompt goes into it with set-buffer, `paste-buffer -p` and Enter.
+A dead or closed pane gets a new split. Herdr still opens a new pane each time.

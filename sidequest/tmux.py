@@ -3,6 +3,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 
 from sidequest.ticket_keys import mentions
 
@@ -75,9 +76,42 @@ def start_window(run, key, path, inside, session):
     return switch_client(run, inside, session) or 'Switched to ' + title
 
 
-def start_agent(run, key, path, argv, inside, session, display_name, focus=True):
+def role_pane(run, session, role):
+    """The live pane tagged `role` in session, or None."""
+    try:
+        out = run(['tmux', 'list-panes', '-s', '-t', '=' + session, '-F',
+                   '#{pane_id}\t#{pane_dead}\t#{' + ROLE_OPTION + '}'], timeout=5)
+    except RuntimeError:
+        return None
+    for line in out.splitlines():
+        parts = line.split('\t')
+        if len(parts) == 3 and parts[2] == role and parts[1] != '1':
+            return parts[0]
+    return None
+
+
+def send_prompt(run, pane, text, pause=0.5):
+    """Paste text into the agent running in pane and submit it. Bracketed paste keeps the
+    prompt's newlines from submitting early; the pause lets the agent finish the paste first."""
+    run(['tmux', 'set-buffer', '-b', 'sidequest-prompt', '--', text], timeout=5)
+    run(['tmux', 'paste-buffer', '-p', '-d', '-b', 'sidequest-prompt', '-t', pane], timeout=5)
+    time.sleep(pause)
+    run(['tmux', 'send-keys', '-t', pane, 'Enter'], timeout=5)
+
+
+def start_agent(run, key, path, argv, inside, session, display_name, focus=True, role=None, pause=0.5):
     """Run argv beside the ticket's window, or in a new window named KEY. Without focus the person
-    stays where they are: the pane or window is created detached and nothing is selected."""
+    stays where they are: the pane or window is created detached and nothing is selected.
+    With a role, a live pane tagged with it gets the prompt (argv's last item) instead, so a
+    repeated request continues the same agent session; a new pane is tagged with the role."""
+    if role:
+        pane = role_pane(run, session, role)
+        if pane:
+            send_prompt(run, pane, argv[-1], pause)
+            if focus:
+                run(['tmux', 'select-pane', '-t', pane], timeout=5)
+            return f'{display_name} got the prompt in its open pane {pane}'
+    tag = ['-P', '-F', '#{pane_id}'] if role else []
     try:
         panes = list_panes(run)
     except RuntimeError:
@@ -85,15 +119,19 @@ def start_agent(run, key, path, argv, inside, session, display_name, focus=True)
     target = find_window(panes, key, path, session)
     if target:
         wid, title = target
-        run(split_command(wid, path, argv, detached=not focus), timeout=5)
+        command = split_command(wid, path, argv, detached=not focus)
+        created = run(command[:-1] + tag + command[-1:], timeout=5)
         if focus:
             run(['tmux', 'select-window', '-t', wid], timeout=5)
     else:
         session_exists = any(line.startswith(session + '\t') for line in panes.splitlines())
-        run(window_command(key, path, argv, session, session_exists, detached=not focus), timeout=5)
+        command = window_command(key, path, argv, session, session_exists, detached=not focus)
+        created = run(command[:-1] + tag + command[-1:], timeout=5)
         if focus:
             run(['tmux', 'select-window', '-t', session + ':' + key], timeout=5)
         title = key + ' (new window)'
+    if role and (created or '').strip():
+        run(['tmux', 'set-option', '-p', '-t', created.strip(), ROLE_OPTION, role], timeout=5)
     if not focus:
         return f'{display_name} started in the background in {title}'
     return switch_client(run, inside, session) or f'{display_name} started in {title}: {argv[-1]}'
