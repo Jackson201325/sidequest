@@ -306,7 +306,7 @@ def pipeline_columns(width):
 def pipeline_header(width):
     key, cell, state = pipeline_columns(width)
     return (f"{'TICKET':<{key}}" + "".join(f"{name:<{cell}}" for name in PIPELINE_STAGES)
-            + f"{'AGENT':<{state}}TITLE")[:width]
+            + f"{'AGENT':<{state}}REASON · TITLE")[:width]
 
 
 def handed_off(ticket, record):
@@ -338,10 +338,24 @@ def quiet(ticket, record):
     return record
 
 
+def stop_reason(record, shipped=False):
+    """Why the worker's pipeline is not moving, or None while it works or waits in the queue.
+    shipped: an open PR moves the shown pipeline to qa-review (runs.after_ship)."""
+    if not record:
+        return None
+    shown = runs.after_ship(record) if shipped else record
+    if shown["state"] in ("working", "queued"):
+        return None
+    if shown["step"] != record["step"]:
+        return "PR open; qa-review has not run"
+    return record.get("note") or f"{shown['state']} without a note; open the worker (w)"
+
+
 def pipeline_row(ticket, record, frame, width, clock):
     """(glyph, rest) for one AI-mode row; the glyph is coloured by its state."""
     key, cell, state_width = pipeline_columns(width)
     after = runs.after_ship(record) if record and ticket.prs else record
+    reason = stop_reason(record, bool(ticket.prs))
     label = crew_label(ticket, after) if after else ""
     record = quiet(ticket, after)
     if record:
@@ -350,5 +364,5 @@ def pipeline_row(ticket, record, frame, width, clock):
     else:
         glyph, state = " ", "no worker"
     rest = (f"{ticket.key:<{key - 1}}" + "".join(pipeline_cells(record, frame, cell))
-            + f"{state:<{state_width}}{ticket.title}")
+            + f"{state:<{state_width}}" + (f"→ {reason} · " if reason else "") + ticket.title)
     return glyph, rest[:max(0, width - 1)]

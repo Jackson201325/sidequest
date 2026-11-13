@@ -12,7 +12,7 @@ from pathlib import Path
 from core import now, parse_time
 from activity import ticket_activity
 import branch_state
-from layout import EVENT_INDENT, crew_label, handed_off, relative, shown_record, timeline_rows
+from layout import EVENT_INDENT, crew_label, handed_off, relative, shown_record, stop_reason, timeline_rows
 from plan_document import document_views, meeting_sections
 from sorting import last_commit
 from workflow import next_owner, ownership, stage_context, workflow_path, workflow_strip
@@ -305,8 +305,9 @@ class DetailViews:
                 Row(f"{record['step']} · {crew_label(ticket, record)} · {runs.age(record.get('updated'), clock)}",
                     "current" if record["state"] in ("waiting", "failed", "ready")
                     and not handed_off(ticket, record) else "plain")]
-        if record.get("note"):
-            rows.append(Row("→ " + record["note"]))
+        reason = stop_reason(record) or record.get("note")
+        if reason:
+            rows.append(Row("→ " + reason))
         rows += plain("", questions_line,
                       "Answer the worker in its window (w).  Restart it: sidequest crew " + ticket.key + " --again",
                       "Ask the manager about every ticket: sidequest crew")

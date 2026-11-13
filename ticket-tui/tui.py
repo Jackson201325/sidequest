@@ -1149,7 +1149,7 @@ class App:
                  "  h / l, Enter  List / preview pane           gl / gL   Next / previous ticket needing you",
                  "  + / -         Grow / shrink ticket section   =       Reset 30/70 split (size is remembered)",
                  "  1..5          All / Needs me / Waiting / Clarify / In Dev",
-                 "  6             ✦ AI mode: every ticket's crew pipeline, Blocked hidden; details show its worker",
+                 "  6             ✦ AI mode: every ticket's crew pipeline, Blocked hidden; rows say why a stopped pipeline stopped; details show its worker",
                  "  /             Filter while typing (Enter keeps)  Esc  Clear filter, back to list",
                  "",
                  "WAIT starts at the later of Jira status entry or first assignment to you.",

@@ -144,3 +144,7 @@ when they have a worker record. Lanes 1-5 still show them.
 Jira done → "done in Jira"; court them → "with <owner>"; court unknown in a review, QA or Approved status →
 "Jira: <status>". Court me keeps "waiting on you". Such rows keep a still ◌ (layout.shown_record), sort
 after working and queued workers, and do not count in "need you". Working and failed are unchanged.
+2026-11-13: AI mode rows say why a pipeline stopped: `→ <reason> · <title>` after AGENT (layout.stop_reason).
+The reason is the worker's run.json note; with no note, "<state> without a note; open the worker (w)"; an open
+PR that moved the row to qa-review shows "PR open; qa-review has not run" instead of the older step's note.
+Working and queued rows show no reason. The details panel uses the same reason on the raw record.

@@ -77,6 +77,22 @@ class CrewTests(unittest.TestCase):
         _, rest = layout.pipeline_row(self.ticket, record, 0, 160, None)
         self.assertEqual(rest.count('✓'), 3)
 
+    def test_a_stopped_pipeline_row_says_why_it_stopped(self):
+        self.ticket.prs, self.ticket.court = [], 'me'
+        record = {'key': self.ticket.key, 'step': 'implement', 'state': 'waiting', 'note': 'Q2: Which copy?',
+                  'updated': ''}
+        _, rest = layout.pipeline_row(self.ticket, record, 0, 200, None)
+        self.assertIn('→ Q2: Which copy? · ' + self.ticket.title, rest)
+        _, rest = layout.pipeline_row(self.ticket, dict(record, state='failed', note=''), 0, 200, None)
+        self.assertIn('→ failed without a note; open the worker (w)', rest)
+        _, rest = layout.pipeline_row(self.ticket, dict(record, state='working'), 0, 200, None)
+        self.assertNotIn('→', rest)
+        self.ticket.prs = [{'number': 12}]
+        _, rest = layout.pipeline_row(self.ticket, record, 0, 200, None)
+        self.assertIn('→ PR open; qa-review has not run', rest)
+        self.assertNotIn('Which copy', rest)
+        self.assertIn('REASON', layout.pipeline_header(200))
+
     def test_a_ready_worker_on_a_ticket_with_someone_else_names_who_has_it(self):
         self.record(self.ticket.key, 'ship-check', 'ready', 'Clean')
         record = runs.read(self.path)
@@ -162,6 +178,8 @@ class CrewTests(unittest.TestCase):
         self.assertRegex(text, '✓ start  ✓ implement  [●○] qa-local  · ship-check')
         self.assertIn('→ Q1: Staging data?', text)
         self.assertIn('HISTORY', text)
+        self.record(key, 'qa-local', 'waiting', at='2026-11-11T10:30:00+00:00')
+        self.assertIn('→ waiting without a note; open the worker (w)', '\n'.join(self.app.details(self.app.selected())))
         self.assertLess(text.index('qa-local · waiting on you'), text.index('implement · queued'))
         self.app.press('j')
         other = self.app.selected().key
