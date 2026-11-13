@@ -688,6 +688,22 @@ own message or failed; that message now repeats the Jira result. (6) A busy back
 new request ("Opening the crew manager already in progress" while a worker started); it is named by the job
 that runs. Not fixed: `sidequest crew --dry-run` without keys still raises AttributeError (open_manager gets
 no workflow). Live tmux, Jira and Heroku were not exercised.
+2026-11-13: Same review, eight decisions the person made. Tests failed first in tests/test_start.py,
+test_profiles.py, test_codebase_review.py, test_pr_body_check.py and ticket-tui/test_review_fixes.py.
+(2) A bare ticket number is refused when jira.projects names several projects; start, crew, meeting and
+review-app share start.full_key. Before, `sidequest start 12` took the first project and could move the
+wrong ticket. (3) `project check` reports MISSING workspace.worktrees_dir: project selection does not match
+the repository's parent folder, because that folder can hold other projects. (4) Flags without effect stay
+for old callers and their help says "no effect" (collect/snapshot/ticket/pr-feedback --json, snapshot
+--max-age, ship-check --no-fetch). (5) gitutil.base_remote names the remote of a base ref (its first part
+when that is a remote, else origin). ship-check and update-branch fetch it; update-branch no longer runs
+`git fetch` with a branch prefix that is not a remote. `sidequest up` still fetches origin for the
+branches and now also the base's remote when it differs. (6) sidequest/attribution.py is the one AI
+attribution rule; pr-body-check no longer flags a human Co-authored-by. (7) config.example.json lists crew
+and meeting; `project init` leaves them out of the profile, like identity, so an empty value does not hide
+the shared one. (8) The help scrolls (j/k, Ctrl-d/u) when it does not fit. (9) Below 100 columns an AI-mode
+row shows `step · state age`, then the reason and title, not six cells. Decision 1 waits: `sidequest crew
+--dry-run` without keys and the first-word Claude test stay open until the uncommitted crew work lands.
 2026-11-13: Decision 1, after the person's go-ahead. tests/test_crew.py failed first. `sidequest crew
 --dry-run` without keys raised AttributeError (open_manager got no workflow); it now prints "would open the
 crew manager: <command>" and creates nothing. crew.claude_code is the one test for Claude Code: the first

@@ -303,8 +303,14 @@ def pipeline_columns(width):
     return 10, cell, 22
 
 
+PIPELINE_NARROW = 100  # below this width a row names only the current step
+PIPELINE_STEP = 32
+
+
 def pipeline_header(width):
     key, cell, state = pipeline_columns(width)
+    if width < PIPELINE_NARROW:
+        return (f"{'TICKET':<{key - 1}}{'STEP · AGENT':<{PIPELINE_STEP}}REASON · TITLE")[:width]
     return (f"{'TICKET':<{key - 1}}" + "".join(f"{name:<{cell}}" for name in PIPELINE_STAGES)
             + f"{'AGENT':<{state}}REASON · TITLE")[:width]
 
@@ -368,6 +374,10 @@ def pipeline_row(ticket, record, frame, width, clock):
         state = f"{label} {runs.age(record.get('updated'), clock)}"
     else:
         glyph, state = " ", "no worker"
+    tail = (f"→ {reason} · " if reason else "") + ticket.title
+    if width < PIPELINE_NARROW:
+        step = f"{after['step']} · {state}" if after else state
+        return glyph, (f"{ticket.key:<{key - 1}}{step[:PIPELINE_STEP - 1]:<{PIPELINE_STEP}}" + tail)[:max(0, width - 1)]
     rest = (f"{ticket.key:<{key - 1}}" + "".join(pipeline_cells(record, frame, cell))
-            + f"{state:<{state_width}}" + (f"→ {reason} · " if reason else "") + ticket.title)
+            + f"{state:<{state_width}}" + tail)
     return glyph, rest[:max(0, width - 1)]

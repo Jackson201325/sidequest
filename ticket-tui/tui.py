@@ -1242,7 +1242,6 @@ class App:
             self.crew_worker(ticket)
 
     def help(self):
-        self.screen.erase()
         lines = ["Sidequest attention queue / keys", "",
                  "MOVE",
                  "  j/k, arrows   Next / previous ticket (or scroll the preview)   gg / G  First / last",
@@ -1281,13 +1280,28 @@ class App:
                  "Limits: assigned Jira inventory is paginated; 100 open PRs is an explicit limit. Only Jira write: Space n moves the ticket when jira.start_status is set;",
                  "Agent command: workspace.agent_command (default claude; configure your preferred CLI).",
                  "Terminal: workspace.terminal or SIDEQUEST_TERMINAL (auto, shell, tmux, herdr).",
-                 "", "Press any key to return."]
-        height, _ = self.screen.getmaxyx()
-        for y, line in enumerate(lines[:height - 1]):
-            heading = line and not line.startswith(" ") and line.isupper() or line.startswith(("VIEWS", "OPEN"))
-            self.put(y, 1, line, (curses.A_BOLD | self.style("accent")) if heading or y == 0 else 0)
-        self.screen.refresh()
-        self.blocking(self.screen.get_wch)
+]
+        top = 0
+        while True:
+            height, _ = self.screen.getmaxyx()
+            page = max(1, height - 2)
+            fits = len(lines) <= page
+            top = max(0, min(top, len(lines) - page))
+            self.screen.erase()
+            for y, line in enumerate(lines[top:top + page]):
+                heading = line and not line.startswith(" ") and line.isupper() or line.startswith(("VIEWS", "OPEN"))
+                self.put(y, 1, line, (curses.A_BOLD | self.style("accent")) if heading or top + y == 0 else 0)
+            self.put(height - 1, 1, "Press any key to return." if fits else "j/k or Ctrl-d/u scroll · any other key returns"
+                     + ("  ·  more ↓" if top + page < len(lines) else ""), curses.A_DIM)
+            self.screen.refresh()
+            key = self.blocking(self.screen.get_wch)
+            if key == curses.KEY_RESIZE:
+                continue
+            step = {"j": 1, curses.KEY_DOWN: 1, "k": -1, curses.KEY_UP: -1,
+                    "\x04": page // 2, "\x15": -(page // 2)}.get(key)
+            if step is None or fits:
+                return
+            top += step
 
     def loop(self, screen):
         self.screen = screen

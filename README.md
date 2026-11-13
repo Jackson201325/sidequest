@@ -534,7 +534,7 @@ environment reads and external programs. It only reads the source.
 | `j/k`, arrows | Move through tickets or scroll details |
 | `h/l`, Enter | Switch between the list and details |
 | `1`–`5` | All, Needs me, Waiting, Clarify, In Dev (implementation or rework, from the Jira status) |
-| `6` | ✦ AI mode: every ticket's crew pipeline (Blocked tickets are hidden); the details show the selected ticket's worker and history |
+| `6` | ✦ AI mode: every ticket's crew pipeline (Blocked tickets are hidden); the details show the selected ticket's worker and history. Below 100 columns a row names only the current step, its state and the reason |
 | `/` | Search; the list filters while you type and shows the match count. Enter keeps it, Esc restores the previous search |
 | `a/p/d/c/m/v/s/f/u` | Activity, Plan, Updates, Questions, Meetings, Overview, Work log, Flow, Standup |
 | `o/O` | Choose or reverse a sort (a box over the dashboard; ✓ marks the current sort); the selected ticket stays selected |
@@ -548,7 +548,7 @@ environment reads and external programs. It only reads the source.
 | Space `C` | Open the crew manager in a pane below the dashboard (40% of its height) in tmux/Herdr, else this terminal; after a first manager chat it asks: continue the last chat or start a new one |
 | Space `M` | Choose a ticket meeting (loads the selected ticket's notes) or a general meeting; `meeting.command` runs in a tmux pane below the dashboard, else this terminal; see `sidequest meeting` |
 | `y` | Copy standup with macOS pbcopy; --standup prints it on any platform |
-| `?`, `q` | Help, quit |
+| `?`, `q` | Help (`j/k` and `Ctrl-d/u` scroll it on a short terminal), quit |
 
 ## Shared local app (sqapp)
 

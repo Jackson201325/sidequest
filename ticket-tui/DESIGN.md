@@ -168,3 +168,6 @@ the number of rows in the list (App.lane_rows). Space c says that workers need t
 creates a worktree. Automatic reloads never write "already in progress" to the status line.
 2026-11-13: An automatic reload asked for while its job runs starts when that job ends (App.again).
 y copies the standup in a background job, so pbcopy never blocks input.
+2026-11-13: The help scrolls with j/k and Ctrl-d/u when it is longer than the terminal; the bottom row says
+so and shows "more ↓". Below 100 columns (layout.PIPELINE_NARROW) an AI-mode row is `KEY  step · state age
+→ reason · title`; the six pipeline cells need the wider form. The glyph still shows the state.

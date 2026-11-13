@@ -272,6 +272,46 @@ class DashboardAuditTests(unittest.TestCase):
             with self.subTest(width=width):
                 self.assertEqual(layout.pipeline_header(width).index(layout.PIPELINE_STAGES[0]), rest.index("✓"))
 
+    def test_the_help_scrolls_on_a_short_terminal(self):
+        from test_responsive import KeyScreen
+        app = self.ai_app()
+        app.screen = KeyScreen(["\x04", "\x04", "k", "x"], height=24, width=120)
+        app.help()
+        frames = ["\n".join(frame) for frame in app.screen.frames]
+        self.assertEqual(len(frames), 4)
+        self.assertIn("Sidequest attention queue", frames[0])
+        self.assertNotIn(" DATA", frames[0])
+        self.assertIn("more ↓", frames[0])
+        self.assertIn(" DATA", frames[2])
+        self.assertIn("Terminal: workspace.terminal", frames[2])
+        self.assertNotIn("more ↓", frames[2])
+        self.assertNotEqual(frames[2], frames[3])
+        tall = KeyScreen(["j"], height=70, width=120)
+        app.screen = tall
+        app.help()
+        self.assertEqual(len(tall.frames), 1)
+        self.assertIn(" DATA", "\n".join(tall.frames[0]))
+
+    def test_a_narrow_ai_row_shows_the_current_step_and_the_reason(self):
+        import layout
+        ticket = Ticket("APP-12", title="Totals page", court="me")
+        record = {"key": "APP-12", "step": "implement", "state": "failed", "note": "rspec failed", "updated": ""}
+        glyph, rest = layout.pipeline_row(ticket, record, 0, 76, None)
+        header = layout.pipeline_header(76)
+        self.assertEqual(glyph, "✗")
+        self.assertIn("implement · failed", rest)
+        self.assertIn("→ rspec failed · Totals page", rest)
+        self.assertNotIn("━", rest)
+        self.assertNotIn("SHIP-CHECK", header)
+        self.assertEqual(header.index("REASON"), rest.index("→"))
+        self.assertEqual(header.index("STEP"), rest.index("implement"))
+        _, rest = layout.pipeline_row(ticket, None, 0, 76, None)
+        self.assertIn("no worker", rest)
+        self.assertIn("Totals page", rest)
+        _, wide = layout.pipeline_row(ticket, record, 0, 100, None)
+        self.assertIn("✓━", wide)
+        self.assertIn("SHIP-CHECK", layout.pipeline_header(100))
+
     def test_tab_keys_do_nothing_in_ai_mode_where_no_tab_shows(self):
         app = self.ai_app()
         app.view, app.detail_tab, app.focus_pane = "AI", "Activity", "list"
