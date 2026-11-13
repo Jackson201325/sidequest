@@ -774,7 +774,8 @@ on a running one offers a restart) and Space `C` opens the manager; both run `si
 `sidequest crew` needs the ticket's own worktree (`sidequest start KEY`); Space `c` creates it. It reads each ticket from Jira first and skips one that is assigned to someone else, is in a `crew.skip_statuses` status (default: every review, QA, approved and done status in the Flow view's status map, plus Blocked) or could not be read from Jira; an unassigned ticket starts. `--again` starts it anyway. The Jira lookups run in parallel. `--status` shows each ticket's Jira status. A worker that is recorded as
 working is not started twice; `--again` restarts it, `--dry-run` previews. In tmux each ticket keeps one
 worker pane and one challenger pane: when that pane is still open, `sidequest crew KEY` pastes the new
-prompt into its agent session instead of splitting another pane. Workers need tmux
+prompt into its agent session instead of splitting another pane, and prints "prompt sent to the open
+worker pane" instead of "worker started". Workers need tmux
 or Herdr; outside them, `sidequest crew` runs the manager in the current terminal.
 `crew.manager_command` (default `claude --model claude-opus-5-5`) and `crew.worker_command`
 (default `claude --model claude-sonnet-5-5`) choose the agents.

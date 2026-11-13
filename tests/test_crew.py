@@ -106,6 +106,11 @@ class DispatchTests(unittest.TestCase):
         record = runs.read(self.tickets / "DEMO-1" / "run.json")
         self.assertEqual((record["step"], record["state"]), ("start", "queued"))
 
+    def test_a_launcher_that_reused_an_open_pane_is_reported_as_sending_the_prompt(self):
+        lines, _ = crew.dispatch(["DEMO-1"], self.trees.get, self.tickets, lambda key, path, prompt: True,
+                                 DATA, "2026-11-11T10:00:00+00:00")
+        self.assertEqual(lines, ["DEMO-1: prompt sent to the open worker pane at start"])
+
     def test_ticket_with_a_plan_starts_at_implement(self):
         (self.tickets / "DEMO-1").mkdir()
         (self.tickets / "DEMO-1" / "plan.md").write_text("# Plan\n")
@@ -231,6 +236,20 @@ class WorkerFocusTests(unittest.TestCase):
             cli.worker_launcher(Flow(), "claude", DATA, "challenger")("DEMO-1", "/w/demo-1", "prompt")
         self.assertEqual([(key, kw["role"], kw["focus"]) for key, kw in seen],
                          [("DEMO-1", "crew-worker:DEMO-1", False), ("DEMO-1", "crew-challenger:DEMO-1", False)])
+
+    def test_the_tmux_launcher_says_whether_it_reused_an_open_pane(self):
+        cli = load_cli()
+        from sidequest.terminal import TmuxTerminal
+
+        class Flow:
+            agent_command = ""
+            terminal = TmuxTerminal(lambda args, timeout=45: "", "proj", "/bin/sh")
+        launch = cli.worker_launcher(Flow(), "claude", DATA)
+        with unittest.mock.patch("sidequest.tmux.start_agent", return_value="ok"):
+            with unittest.mock.patch("sidequest.tmux.role_pane", return_value="%7"):
+                self.assertIs(launch("DEMO-1", "/w/demo-1", "prompt"), True)
+            with unittest.mock.patch("sidequest.tmux.role_pane", return_value=None):
+                self.assertIs(launch("DEMO-1", "/w/demo-1", "prompt"), False)
 
 
 class WaitingReasonTests(unittest.TestCase):

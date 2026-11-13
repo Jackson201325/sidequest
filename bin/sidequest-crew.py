@@ -11,7 +11,7 @@
   sidequest crew --status           every worker's step and state, the ones waiting on you first
 
 In tmux a ticket keeps one worker pane and one challenger pane; a later request for that ticket is
-pasted into the open pane's agent session instead of a new split.
+pasted into the open pane's agent session instead of a new split ("prompt sent to the open worker pane").
 Workers report through `sidequest-data run`; the dashboard shows it on the card and in AI mode (6).
 Tickets assigned to someone else, in a crew.skip_statuses Jira status (review, QA, Approved, Blocked, Done),
 or whose Jira lookup failed are skipped unless --again; unassigned tickets start. Workers never commit, push, open PRs or post. Exit 0: done; 1: a ticket was skipped; 2: usage or settings.
@@ -102,7 +102,8 @@ def workflow():
 
 def worker_launcher(flow, worker, data, agent='worker'):
     """Workers start in the background: the person stays in the window they are in. In tmux each
-    ticket keeps one pane per agent: a later request goes to the open pane's session."""
+    ticket keeps one pane per agent: a later request goes to the open pane's session, and launch
+    returns True so dispatch reports the prompt as sent, not a new start."""
     from sidequest import tmux
     from sidequest.terminal import TmuxTerminal, agent_argv, agent_display_name
 
@@ -110,9 +111,11 @@ def worker_launcher(flow, worker, data, agent='worker'):
         flow.agent_command = crew.worker_command(worker, key, data)
         terminal = getattr(flow, 'terminal', None)
         if isinstance(terminal, TmuxTerminal):
-            argv = agent_argv(prompt, flow.agent_command)
-            return tmux.start_agent(terminal.run, key, path, argv, True, terminal.session,
-                                    agent_display_name(argv), focus=False, role=f'crew-{agent}:{key}')
+            argv, role = agent_argv(prompt, flow.agent_command), f'crew-{agent}:{key}'
+            reused = tmux.role_pane(terminal.run, terminal.session, role) is not None
+            tmux.start_agent(terminal.run, key, path, argv, True, terminal.session,
+                             agent_display_name(argv), focus=False, role=role)
+            return reused
         return flow.agent(key, path, prompt, focus=False).message
     return launch
 

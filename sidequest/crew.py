@@ -135,7 +135,8 @@ def dispatch(keys, find_worktree, tickets, launch, data, at, again=False, dry_ru
              challenger=None):
     """Start a worker for each ticket that has its own worktree. Returns (lines, any skipped).
     waiting(key) gives a reason the ticket is with someone else (review, QA, another assignee), or None.
-    challenger(key, path, prompt) starts the challenge step; without it, launch does."""
+    challenger(key, path, prompt) starts the challenge step; without it, launch does. A launcher returns
+    True when it sent the prompt to an agent that was already open."""
     lines, skipped = [], False
     for key in keys:
         found = find_worktree(key) or {"state": "none"}
@@ -169,9 +170,10 @@ def dispatch(keys, find_worktree, tickets, launch, data, at, again=False, dry_ru
             continue
         step = first_step(record, has_plan)
         agent = "challenger" if step == "challenge" and challenger else "worker"
-        (challenger if agent == "challenger" else launch)(key, found["path"], prompt)
+        reused = (challenger if agent == "challenger" else launch)(key, found["path"], prompt) is True
         runs.update(path, key, step, "queued", "Dispatched by sidequest crew", at)
-        lines.append(f"{key}: {agent} started at {step}")
+        lines.append(f"{key}: prompt sent to the open {agent} pane at {step}" if reused
+                     else f"{key}: {agent} started at {step}")
     return lines, skipped
 
 

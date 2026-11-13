@@ -641,3 +641,6 @@ ticket window; one ticket collected five Claude panes. tests/test_tmux_launch.py
 failed first. tmux.start_agent takes a role (crew-worker:KEY, crew-challenger:KEY) and tags the new pane;
 when a live pane has the role, the prompt goes into it with set-buffer, `paste-buffer -p` and Enter.
 A dead or closed pane gets a new split. Herdr still opens a new pane each time.
+2026-11-13: A crew request that reused the open pane still printed "worker started". tests/test_crew.py
+failed first. The tmux launcher returns True when a pane with its role was open, and dispatch prints
+"prompt sent to the open worker pane at <step>".
