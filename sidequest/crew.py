@@ -111,8 +111,9 @@ def worker_prompt(key, record, data, has_plan=False):
         "in the same run.",
         f"When qa-review is done, run `{report} qa-review ready --note \"<one line: review app result>\"`, "
         "present the evidence and stop.",
-        "Never commit, push, open a PR, post comments or change Jira. Two exceptions: finishing the rebase or "
-        "merge that update-branch started, and the start workflow's configured start move. Never push or "
+        "Never commit, push, open a PR, post comments or change Jira. One exception: finishing the rebase or "
+        "merge that update-branch started. Skip the start workflow's Jira move: leave the ticket's status "
+        "as it is, even when that workflow says to move it. Never push or "
         "force-push. The person ships with sidequest-ship.",
     ]
     if record:
@@ -127,8 +128,13 @@ def worker_prompt(key, record, data, has_plan=False):
     return "\n".join(lines)
 
 
-def dispatch(keys, find_worktree, tickets, launch, data, at, again=False, dry_run=False, challenger=None):
+AGAIN_HINT = "use --again to start it anyway"
+
+
+def dispatch(keys, find_worktree, tickets, launch, data, at, again=False, dry_run=False, waiting=None,
+             challenger=None):
     """Start a worker for each ticket that has its own worktree. Returns (lines, any skipped).
+    waiting(key) gives a reason the ticket is with someone else (review, QA, another assignee), or None.
     challenger(key, path, prompt) starts the challenge step; without it, launch does."""
     lines, skipped = [], False
     for key in keys:
@@ -149,6 +155,11 @@ def dispatch(keys, find_worktree, tickets, launch, data, at, again=False, dry_ru
         if record and record["state"] in ("working", "queued") and not again:
             lines.append(f"skip {key}: a worker is already {record['state']} at {record['step']}; "
                          "use --again if it stopped")
+            skipped = True
+            continue
+        reason = waiting(key) if waiting and not again else None
+        if reason:
+            lines.append(f"skip {key}: {reason}; {AGAIN_HINT}")
             skipped = True
             continue
         has_plan = (tickets / key / "plan.md").is_file()

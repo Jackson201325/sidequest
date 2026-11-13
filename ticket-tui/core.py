@@ -162,11 +162,16 @@ def infer(ticket):
     prs = ticket.prs
     if status in ("done", "closed", "cancelled", "canceled", "archived", "resolved"):
         return "done", "No action", "Jira reports a completed status"
-    # Jira owns the handoff; old GitHub feedback stays visible without taking it back.
-    review = status in ("ready for code review", "code review", "in code review", "in review")
+    # Open review threads outrank the Jira handoff; once all are resolved, Jira decides again.
+    # GitHub keeps CHANGES_REQUESTED until a re-review, so the decision alone does not override Jira.
+    if any(p.get("unresolved_count", 0) for p in prs):
+        if any(p.get("review_decision") == "CHANGES_REQUESTED" for p in prs):
+            return "me", "Address requested changes", f"A PR review requests changes with unresolved threads (Jira: {ticket.status})"
+        return "me", "Triage unresolved review threads", f"Unresolved threads may need a fix or a reply (Jira: {ticket.status})"
     # One status map with the Flow view: "QA Failed" is rework, not QA still testing.
     normalised = " ".join(status.replace("_", " ").split())
     stage = ALIASES.get(normalised)
+    review = stage == 2
     if normalised in REWORK and ticket.assigned_me is True:
         return "me", "Address returned work", f"Jira status {ticket.status} returns this to implementation"
     if stage == 3 or (stage is None and ("qa" in status or "testing" in status)):
@@ -194,8 +199,6 @@ def infer(ticket):
         return "me", "Address requested changes", "A PR review requests changes"
     if any(p.get("ci") == "failing" for p in prs):
         return "me", "Investigate failed checks", "A PR has failing CI"
-    if any(p.get("unresolved_count", 0) for p in prs):
-        return "me", "Triage unresolved review threads", "Unresolved threads may need a fix or a reply"
     if any(p.get("wip") for p in prs):
         return "me", "Finish draft work", "An authored PR is a draft"
     if prs and all(p.get("review_decision") == "APPROVED" for p in prs):

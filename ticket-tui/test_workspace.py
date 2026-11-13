@@ -39,7 +39,7 @@ class WorkspaceTests(unittest.TestCase):
                 app.draw()
             self.assertIn("KEY", app.screen.lines[2])                       # table header
             first = app.screen.lines[3]
-            for expected in ("●", "DEMO-901", "In Progress", "you", "#901 ✓", "<1h"):
+            for expected in ("●", "DEMO-901", "In Pro", "(PR feedback)", "you", "#901 ✓", "<1h"):
                 self.assertIn(expected, first)
             self.assertTrue(any("DEMO-901 · Validate bulk request quantities" in line for line in app.screen.lines[5:]))   # details below tickets
             self.assertTrue(any("turn: you" in line for line in app.screen.lines))      # summary card

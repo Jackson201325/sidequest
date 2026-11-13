@@ -260,7 +260,7 @@ Jira details for tickets named in those PRs. It separates work into:
 
 | Lane | Meaning |
 | --- | --- |
-| Needs me | Current evidence points to your next action |
+| Needs me | Current evidence points to your next action; unresolved PR review threads land here whatever the Jira status; once they are all resolved, the Jira status decides again. The STATUS column then shows `(PR feedback)` after the Jira status |
 | Waiting | Jira assignment or a handoff points to another owner |
 | Clarify | The available evidence does not establish who acts next |
 
@@ -533,7 +533,7 @@ environment reads and external programs. It only reads the source.
 | `j/k`, arrows | Move through tickets or scroll details |
 | `h/l`, Enter | Switch between the list and details |
 | `1`–`5` | All, Needs me, Waiting, Clarify, In Dev (implementation or rework, from the Jira status) |
-| `6` | ✦ AI mode: every ticket's crew pipeline; the details show the selected ticket's worker and history |
+| `6` | ✦ AI mode: every ticket's crew pipeline (Blocked tickets are hidden); the details show the selected ticket's worker and history |
 | `/` | Search; the list filters while you type and shows the match count. Enter keeps it, Esc restores the previous search |
 | `a/p/d/c/m/v/s/f/u` | Activity, Plan, Updates, Questions, Meetings, Overview, Work log, Flow, Standup |
 | `o/O` | Choose or reverse a sort (a box over the dashboard; ✓ marks the current sort) |
@@ -543,7 +543,7 @@ environment reads and external programs. It only reads the source.
 | `w` | Open the worktree through the selected shell, tmux window or Herdr tab |
 | Space `n` | Create/reuse a local ticket worktree and open a shell there |
 | Space `s` | Run a bundled workflow or custom prompt with the configured agent |
-| Space `c` | Start (or restart) the selected ticket's crew worker, after a confirm box; a ticket without a worktree gets one first |
+| Space `c` | Start (or restart) the selected ticket's crew worker, after a confirm box; a ticket without a worktree gets one first; after Jira skips it (another assignee or a review/QA status), the next Space `c` offers "Start anyway" (`--again`) |
 | Space `C` | Open the crew manager in a pane below the dashboard (40% of its height) in tmux/Herdr, else this terminal |
 | `y` | Copy standup with macOS pbcopy; --standup prints it on any platform |
 | `?`, `q` | Help, quit |
@@ -756,8 +756,8 @@ the tests, fixes in-scope defects with a failing test first, writes challenge.md
 reports "N wrong, M fixed, K open". Ship after it. With an open PR, Space `c` starts the last step,
 qa-review: the worker runs qa-review-app on the PR's review app and presents the evidence; it never
 updates the PR screenshots. Workers never
-commit, push, open PRs, post or change Jira, except the start workflow's configured start
-move. You ship with sidequest-ship. Answer a worker in its window, or ask the manager.
+commit, push, open PRs, post or change Jira; they skip the start workflow's Jira move
+too. You ship with sidequest-ship. Answer a worker in its window, or ask the manager.
 
 Workers start in the background: their pane opens in the ticket's window (or a new detached window),
 and your terminal stays where it is. The manager does take focus, because you open it to talk to it.
@@ -768,11 +768,13 @@ step's count and a fingerprint of the code (commit, uncommitted diff, untracked 
 that step; `run KEY show` prints the counts. Claude Code workers also get hooks: a finished turn or a permission request
 marks them "waiting on you". The card shows an `Agent` line. Press `6` for AI mode: every open ticket
 (and every worker outside your queue) as a pipeline row, start → implement → qa-local → ship-check → challenge → qa-review, with
-the ones waiting on you first. A ticket with an open PR shows every step before qa-review as done. The details show the selected ticket's worker, note and history. `1`–`5`
+the ones waiting on you first. A ticket with an open PR shows every step before qa-review as done. When Jira or the PR says the ticket is with someone else (code review, QA, another assignee, done), a waiting or ready worker shows who has it, for example `with Eddie` or `Jira: In Code Review`, instead of "waiting on you"; it does not blink, sorts after busy workers and is not counted as needing you. The details show the selected ticket's worker, note and history. `1`–`5`
 return to the ticket lanes. In the dashboard, Space `c` starts the selected ticket's worker (Space `c`
 on a running one offers a restart) and Space `C` opens the manager; both run `sidequest crew`.
-`sidequest crew` needs the ticket's own worktree (`sidequest start KEY`); Space `c` creates it. A worker that is recorded as
-working is not started twice; `--again` restarts it, `--dry-run` previews. Workers need tmux
+`sidequest crew` needs the ticket's own worktree (`sidequest start KEY`); Space `c` creates it. It reads each ticket from Jira first and skips one that is assigned to someone else, is in a `crew.skip_statuses` status (default: every review, QA, approved and done status in the Flow view's status map, plus Blocked) or could not be read from Jira; an unassigned ticket starts. `--again` starts it anyway. The Jira lookups run in parallel. `--status` shows each ticket's Jira status. A worker that is recorded as
+working is not started twice; `--again` restarts it, `--dry-run` previews. In tmux each ticket keeps one
+worker pane and one challenger pane: when that pane is still open, `sidequest crew KEY` pastes the new
+prompt into its agent session instead of splitting another pane. Workers need tmux
 or Herdr; outside them, `sidequest crew` runs the manager in the current terminal.
 `crew.manager_command` (default `claude --model claude-opus-5-5`) and `crew.worker_command`
 (default `claude --model claude-sonnet-5-5`) choose the agents.

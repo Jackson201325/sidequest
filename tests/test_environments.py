@@ -9,6 +9,8 @@ sys.path[:0] = [str(Path(__file__).resolve().parents[1])]
 
 from sidequest.environments import fetch_environments, review_status
 
+PIPELINE_ID = '00000000-0000-4000-8000-000000000001'
+
 
 class EnvironmentTests(unittest.TestCase):
     def test_explicit_pipeline_does_not_require_parent_app_access(self):
@@ -18,9 +20,9 @@ class EnvironmentTests(unittest.TestCase):
             self.assertEqual(args, ['heroku', 'auth:token'])
             return 'fixture-token'
         with patch.dict('os.environ', {}, clear=True), patch('urllib.request.urlopen', return_value=io.BytesIO(b'[]')) as api:
-            result = fetch_environments([42], cli, 'fixture-pipeline')
+            result = fetch_environments([42], cli, PIPELINE_ID)
         self.assertEqual(result['entries']['42']['status'], 'Not provisioned')
-        self.assertTrue(api.call_args[0][0].full_url.endswith('/pipelines/fixture-pipeline/review-apps'))
+        self.assertTrue(api.call_args[0][0].full_url.endswith('/pipelines/' + PIPELINE_ID + '/review-apps'))
         self.assertEqual(commands, [['heroku', 'auth:token']])
 
     def test_no_pipeline_means_no_credential_or_api_access(self):
@@ -51,11 +53,26 @@ class EnvironmentTests(unittest.TestCase):
             return "test-secret"
 
         with patch.dict("os.environ", {}, clear=True), patch("urllib.request.urlopen", side_effect=respond):
-            result = fetch_environments([42, 99], cli, "test-pipeline")
+            result = fetch_environments([42, 99], cli, PIPELINE_ID)
         self.assertEqual(result["entries"]["42"]["status"], "Web up")
         self.assertEqual(result["entries"]["99"]["status"], "Not provisioned")
         self.assertNotIn("test-secret", json.dumps(result))
         self.assertTrue(all(r.get_method() == "GET" for r in requests))
+
+    def test_a_pipeline_name_is_resolved_to_its_id_first(self):
+        # Heroku answers [] for /pipelines/<name>/review-apps, so a name alone would hide every review app.
+        payloads = [{"id": PIPELINE_ID, "name": "test-pipeline"}, [{"pr_number": 42, "status": "building"}]]
+        urls = []
+
+        def respond(request, **kwargs):
+            urls.append(request.full_url)
+            return io.BytesIO(json.dumps(payloads.pop(0)).encode())
+
+        with patch.dict("os.environ", {}, clear=True), patch("urllib.request.urlopen", side_effect=respond):
+            result = fetch_environments([42], lambda *a, **kw: "test-secret", "test-pipeline")
+        self.assertEqual([u.split("api.heroku.com")[1] for u in urls],
+                         ["/pipelines/test-pipeline", "/pipelines/" + PIPELINE_ID + "/review-apps"])
+        self.assertEqual(result["entries"]["42"]["status"], "Building")
 
 
 if __name__ == "__main__":

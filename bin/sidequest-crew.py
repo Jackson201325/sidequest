@@ -10,11 +10,16 @@
                                     which assumes the work is wrong and checks it before you ship
   sidequest crew --status           every worker's step and state, the ones waiting on you first
 
+In tmux a ticket keeps one worker pane and one challenger pane; a later request for that ticket is
+pasted into the open pane's agent session instead of a new split.
 Workers report through `sidequest-data run`; the dashboard shows it on the card and in AI mode (6).
-Workers never commit, push, open PRs or post. Exit 0: done; 1: a ticket was skipped; 2: usage or settings.
+Tickets assigned to someone else, in a crew.skip_statuses Jira status (review, QA, Approved, Blocked, Done),
+or whose Jira lookup failed are skipped unless --again; unassigned tickets start. Workers never commit, push, open PRs or post. Exit 0: done; 1: a ticket was skipped; 2: usage or settings.
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import shlex
@@ -35,6 +40,42 @@ from sidequest.skills import DATA
 
 SIDEQUEST = shlex.quote(str(ROOT / 'bin' / 'sidequest'))
 MANAGER_WINDOW = 'Crew'
+# Statuses where the ticket is with reviewers, QA or a blocker, not the person; crew.skip_statuses overrides.
+SKIP_STATUSES = ('Ready for Code Review,In Code Review,Code Review,Ready for QA,In QA,Approved,Blocked,Done,'
+                 'Closed,In Review,QA,Testing,In Testing,Ready for Production,Ready to Deploy,Resolved,'
+                 'Ready for Stakeholder Review,In Stakeholder Review,Archived')
+
+
+def jira_ticket(key):
+    """Status and assignee from Jira (read-only), or None when the lookup fails."""
+    try:
+        out = subprocess.run([str(ROOT / 'bin' / 'sidequest-data'), 'ticket', key, '--json'],
+                             capture_output=True, text=True, timeout=30, check=True).stdout
+        return json.loads(out)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def waiting_reason(ticket, skip_statuses):
+    if not ticket:
+        return "could not read the ticket from Jira"
+    if ticket.get('assignee_ok') is False and ticket.get('assignee') != 'Unassigned':
+        return f"assigned to {ticket.get('assignee') or 'someone else'} in Jira"
+    status = ticket.get('status') or ''
+    if status.casefold() in {s.strip().casefold() for s in skip_statuses.split(',') if s.strip()}:
+        return f"Jira status is {status}; it is with someone else"
+    return None
+
+
+def jira_tickets(keys):
+    if not keys:
+        return {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return dict(zip(keys, pool.map(jira_ticket, keys)))
+
+
+def jira_statuses(keys):
+    return {key: t.get('status') for key, t in jira_tickets(keys).items() if t and t.get('status')}
 
 
 def find_worktree(key):
@@ -105,12 +146,14 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
     parser.add_argument('keys', nargs='*', help='ticket keys such as APP-123, or only their numbers')
     parser.add_argument('--status', action='store_true', help='print every worker and exit')
-    parser.add_argument('--again', action='store_true', help='start a worker even when one is recorded as running')
+    parser.add_argument('--again', action='store_true',
+                        help='start a worker even when one is recorded as running, or the ticket is with someone else')
     parser.add_argument('--dry-run', action='store_true', help='show what would start; launch nothing')
     args = parser.parse_args()
     clock = datetime.now(timezone.utc)
     if args.status:
-        print('\n'.join(runs.table(runs.all_records(tickets_dir()), clock)))
+        records = runs.all_records(tickets_dir())
+        print('\n'.join(runs.table(records, clock, jira_statuses([r['key'] for r in records]))))
         return 0
     from sidequest.start import full_key
     try:
@@ -131,9 +174,12 @@ def main():
         return 2
     launch = worker_launcher(flow, config.get('crew', 'worker_command') or crew.DEFAULT_WORKER, DATA)
     challenger = worker_launcher(flow, config.get('crew', 'challenge_command') or crew.DEFAULT_CHALLENGER, DATA)
+    skip = config.get('crew', 'skip_statuses') or SKIP_STATUSES
+    found = {} if args.again else jira_tickets(keys)
     try:
         lines, skipped = crew.dispatch(keys, find_worktree, tickets_dir(), launch, DATA,
                                        clock.isoformat(timespec='seconds'), args.again, args.dry_run,
+                                       waiting=lambda key: waiting_reason(found.get(key), skip),
                                        challenger=challenger)
     except RuntimeError as exc:
         print('sidequest crew: ' + str(exc), file=sys.stderr)

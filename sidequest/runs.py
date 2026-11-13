@@ -165,9 +165,11 @@ def all_records(folder):
     return sorted(found, key=lambda r: (ORDER[r["state"]], r.get("updated") or ""))
 
 
-def table(records, clock):
+def table(records, clock, statuses=None):
     if not records:
         return ["No crew workers yet. Start one with: sidequest crew APP-123"]
     width = max(len(r["key"]) for r in records)
+    statuses = statuses or {}
     return [f"{r['key']:<{width}}  {r['step']}  {LABELS[r['state']]}  {age(r.get('updated'), clock)}"
+            + (f"  [Jira: {statuses[r['key']]}]" if statuses.get(r["key"]) else "")
             + (f"  {r['note']}" if r.get("note") else "") for r in records]

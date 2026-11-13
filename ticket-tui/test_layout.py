@@ -51,6 +51,17 @@ class LayoutTests(unittest.TestCase):
         self.assertIn("…", rest)
         self.assertEqual(len(table_header(cols)), sum(cols.values()))
 
+    def test_status_column_marks_unresolved_pr_feedback_even_when_narrow(self):
+        open_threads = Ticket("DEMO-7", "Totals", status="Ready for Code Review", court="me", lane="Needs me",
+                              prs=[{"number": 7, "unresolved_count": 2}])
+        resolved = Ticket("DEMO-8", "Totals", status="Ready for Code Review", court="them", lane="Waiting",
+                          prs=[{"number": 8, "unresolved_count": 0, "review_decision": "CHANGES_REQUESTED"}])
+        for width in (88, 160):
+            cols = columns(width)
+            self.assertIn("(PR feedback)", table_row(open_threads, cols)[1], width)
+            self.assertNotIn("PR feedback", table_row(resolved, cols)[1], width)
+        self.assertIn("Ready for Code Review (PR feedback)", table_row(open_threads, dict(columns(160), stage=40))[1])
+
     def test_focus_is_visible_by_border_shape(self):
         focused, other = border(20, "Tickets 3", True), border(20, "Tickets 3", False)
         self.assertTrue(focused.startswith(HEAVY[0]) and other.startswith(LIGHT[0]))

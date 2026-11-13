@@ -3,11 +3,27 @@ from core import Store, Ticket, rank
 from workflow import next_owner, stage_context
 
 class HandoffTests(unittest.TestCase):
-    def test_review_handoff_keeps_jira_owner_despite_github_feedback(self):
+    def test_review_feedback_on_the_pr_overrides_the_jira_handoff(self):
         store = Store(':memory:')
         self.addCleanup(store.close)
         for status in ('Ready for Code Review', 'In Code Review', 'In QA', 'Approved'):
-            for pr in ({'review_decision': 'CHANGES_REQUESTED'}, {'ci': 'failing'}, {'unresolved_count': 2}):
+            for assigned_me in (False, True):
+                for pr in ({'review_decision': 'CHANGES_REQUESTED', 'unresolved_count': 1}, {'unresolved_count': 2}):
+                    with self.subTest(status=status, assigned_me=assigned_me, pr=pr):
+                        ticket = Ticket('DEMO-600', status=status, assignee='Review Owner', assigned_me=assigned_me,
+                                        prs=[{'number': 2059, 'requested_reviewers': ['example-org'], **pr}])
+                        rank(ticket, store)
+                        self.assertEqual(ticket.court, 'me')
+                        self.assertEqual(next_owner(ticket), 'You')
+        done = Ticket('DEMO-601', status='Done', prs=[{'number': 1, 'review_decision': 'CHANGES_REQUESTED'}])
+        rank(done, store)
+        self.assertEqual(done.court, 'done')
+
+    def test_review_handoff_keeps_jira_owner_once_threads_are_resolved_or_only_ci_fails(self):
+        store = Store(':memory:')
+        self.addCleanup(store.close)
+        for status in ('Ready for Code Review', 'In Code Review', 'In QA', 'Approved'):
+            for pr in ({'ci': 'failing'}, {'review_decision': 'CHANGES_REQUESTED', 'unresolved_count': 0}):
                 with self.subTest(status=status, pr=pr):
                     ticket = Ticket('DEMO-600', status=status, assignee='Review Owner', assigned_me=False,
                                     prs=[{'number': 2059, 'requested_reviewers': ['example-org'], **pr}])

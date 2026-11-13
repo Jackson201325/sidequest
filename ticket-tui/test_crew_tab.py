@@ -20,6 +20,7 @@ class CrewTests(unittest.TestCase):
         self.store = Store(':memory:')
         self.addCleanup(self.store.close)
         self.app = tui.App(self.store, self.root, demo=True)
+        self.app.workflow_factory = lambda: self.fail('a test reached the real workspace workflow')
         self.ticket = self.app.selected()
         self.path = self.root / self.ticket.key / 'run.json'
         self.plans = patch.object(tui, 'PLANS', self.root)
@@ -31,6 +32,7 @@ class CrewTests(unittest.TestCase):
 
     def test_card_shows_the_worker_step_and_what_it_needs(self):
         self.assertFalse(any(line.startswith('Agent ') for line in self.app.summary_card(self.ticket)))
+        self.ticket.prs = []
         self.record(self.ticket.key, 'implement', 'waiting', 'Q2: Which copy?')
         before = self.path.read_text()
         agent = [line for line in self.app.summary_card(self.ticket) if line.startswith('Agent ')]
@@ -75,18 +77,76 @@ class CrewTests(unittest.TestCase):
         _, rest = layout.pipeline_row(self.ticket, record, 0, 160, None)
         self.assertEqual(rest.count('✓'), 3)
 
+    def test_a_ready_worker_on_a_ticket_with_someone_else_names_who_has_it(self):
+        self.record(self.ticket.key, 'ship-check', 'ready', 'Clean')
+        record = runs.read(self.path)
+        self.ticket.court, self.ticket.assignee, self.ticket.prs = 'them', 'Eddie Sitt', []
+        self.assertEqual(layout.crew_label(self.ticket, record), 'with Eddie Sitt')
+        agent = [line for line in self.app.summary_card(self.ticket) if line.startswith('Agent ')][0]
+        self.assertIn('ship-check · with Eddie Sitt · ', agent)
+        self.assertNotIn('ready for you', agent)
+        self.ticket.court = 'done'
+        self.assertEqual(layout.crew_label(self.ticket, record), 'done in Jira')
+        self.ticket.court = 'me'
+        self.assertEqual(layout.crew_label(self.ticket, record), 'ready for you')
+        self.assertIsNone(layout.handed_off(self.ticket, dict(record, state='waiting')))
+
+    def test_a_waiting_worker_is_not_your_turn_when_jira_or_the_pr_says_someone_else_has_it(self):
+        record = {'key': self.ticket.key, 'step': 'qa-review', 'state': 'waiting', 'note': '', 'updated': ''}
+        self.ticket.court, self.ticket.assignee, self.ticket.status = 'them', 'Eddie Sitt', 'In Code Review'
+        self.assertEqual(layout.crew_label(self.ticket, record), 'with Eddie Sitt')
+        self.ticket.court = 'unknown'
+        self.assertEqual(layout.crew_label(self.ticket, record), 'Jira: In Code Review')
+        self.ticket.status = 'In Progress'
+        self.assertEqual(layout.crew_label(self.ticket, record), 'waiting on you')
+        self.ticket.court, self.ticket.status = 'me', 'In Code Review'
+        self.assertEqual(layout.crew_label(self.ticket, record), 'waiting on you')
+        self.ticket.court = 'them'
+        self.assertEqual(layout.crew_label(self.ticket, dict(record, state='working')), 'working')
+        self.assertEqual(layout.crew_label(self.ticket, dict(record, state='failed')), 'failed')
+
+    def test_a_handed_off_waiting_row_stops_blinking(self):
+        record = {'key': self.ticket.key, 'step': 'implement', 'state': 'waiting', 'note': '', 'updated': ''}
+        self.ticket.court, self.ticket.assignee = 'them', 'Eddie Sitt'
+        rows = {layout.pipeline_row(self.ticket, record, frame, 160, None) for frame in range(8)}
+        self.assertEqual(len(rows), 1, rows)
+        self.ticket.court = 'me'
+        rows = {layout.pipeline_row(self.ticket, record, frame, 160, None) for frame in range(8)}
+        self.assertGreater(len(rows), 1)
+
+    def test_ai_mode_puts_handed_off_tickets_after_working_ones_and_does_not_count_them(self):
+        open_tickets = [t for t in self.app.tickets if t.lane != 'Done' and t.status != 'Blocked']
+        held, busy = open_tickets[0], open_tickets[1]
+        held.court, held.assignee, held.prs = 'them', 'Eddie Sitt', []
+        self.record(held.key, 'implement', 'waiting')
+        self.record(busy.key, 'implement', 'working')
+        self.app.press('6')
+        shown = [t.key for t in self.app.visible()]
+        self.assertLess(shown.index(busy.key), shown.index(held.key))
+        self.assertEqual(self.app.ai_needs_you(), 0)
+
     def test_ai_mode_lists_every_ticket_as_a_pipeline_the_persons_turn_first(self):
-        keys = [t.key for t in self.app.tickets if t.lane != 'Done']
-        self.record(keys[-1], 'implement', 'waiting', 'Q1: Copy?')
+        keys = [t.key for t in self.app.tickets if t.lane != 'Done' and t.status != 'Blocked']
+        mine = next(t.key for t in self.app.tickets if t.court == 'me')
+        self.record(mine, 'implement', 'waiting', 'Q1: Copy?')
         self.record('OTHER-7', 'qa-local', 'working')
         self.app.press('6')
         self.assertEqual(self.app.view, 'AI')
         shown = [t.key for t in self.app.visible()]
-        self.assertEqual(shown[:2], [keys[-1], 'OTHER-7'])
-        self.assertEqual(sorted(shown[2:]), sorted(keys[:-1]))
+        self.assertEqual(shown[:2], [mine, 'OTHER-7'])
+        self.assertEqual(sorted(shown[2:]), sorted(k for k in keys if k != mine))
         self.assertTrue(self.app.animating())
         self.app.press('1')
         self.assertNotIn('OTHER-7', [t.key for t in self.app.visible()])
+
+    def test_ai_mode_hides_blocked_tickets_even_with_a_worker(self):
+        blocked = next(t for t in self.app.tickets if t.lane != 'Done')
+        blocked.status = 'Blocked'
+        self.record(blocked.key, 'implement', 'waiting')
+        self.app.press('6')
+        shown = [t.key for t in self.app.visible()]
+        self.assertNotIn(blocked.key, shown)
+        self.assertTrue(shown)
 
     def test_ai_mode_details_show_one_tickets_whole_agent_story(self):
         key = self.ticket.key
@@ -139,6 +199,45 @@ class CrewTests(unittest.TestCase):
         calls, choose = self.space('c')
         self.assertTrue(choose.call_args[0][1][0].startswith('Restart'), choose.call_args[0][1])
         self.assertEqual(calls, [[self.ticket.key, '--again']])
+
+    def test_space_c_offers_start_anyway_after_jira_said_the_ticket_is_with_someone_else(self):
+        self.app.demo = False
+        self.ticket.worktree = '/w/' + self.ticket.key
+        key = self.ticket.key
+        skip = f'skip {key}: assigned to Ana in Jira; use --again to start it anyway'
+        with patch.object(tui, 'run_crew', lambda args: skip):
+            self.app.press(' ')
+            with patch.object(tui.App, 'choose', return_value=0):
+                self.app.press('c')
+            deadline = __import__('time').monotonic() + 3
+            while self.app.jobs and __import__('time').monotonic() < deadline:
+                self.app.drain()
+            self.app.drain()
+        calls, choose = self.space('c', choice=1)
+        self.assertTrue(choose.call_args[0][1][0].startswith('Start anyway'))
+        self.assertEqual(calls, [])
+        calls, choose = self.space('c')
+        option = choose.call_args[0][1][0]
+        self.assertTrue(option.startswith('Start anyway'), option)
+        self.assertIn('assigned to Ana in Jira', option)
+        self.assertEqual(calls, [[key, '--again']])
+        calls, choose = self.space('c')
+        self.assertTrue(choose.call_args[0][1][0].startswith('Start a worker'))
+        self.assertEqual(calls, [[key]])
+
+    def test_a_slow_crew_command_reports_a_timeout_instead_of_raising(self):
+        def slow(*args, **kwargs):
+            raise tui.subprocess.TimeoutExpired(args[0], kwargs.get('timeout'))
+        with patch.object(tui.subprocess, 'run', slow):
+            result = tui.run_crew(['DEMO-1'])
+        self.assertIn('timed out', result)
+        self.assertIn('sidequest crew --status', result)
+
+    def test_the_agent_line_with_an_open_pr_shows_the_step_the_list_shows(self):
+        self.record(self.ticket.key, 'ship-check', 'ready', 'Clean')
+        self.ticket.court, self.ticket.prs = 'me', [{'number': 7}]
+        agent = [line for line in self.app.summary_card(self.ticket) if line.startswith('Agent ')][0]
+        self.assertIn('qa-review · waiting on you', agent)
 
     def test_space_c_without_a_worktree_creates_it_then_starts_the_worker(self):
         self.app.demo = False

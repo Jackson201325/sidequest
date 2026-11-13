@@ -12,7 +12,7 @@ from pathlib import Path
 from core import now, parse_time
 from activity import ticket_activity
 import branch_state
-from layout import EVENT_INDENT, relative, timeline_rows
+from layout import EVENT_INDENT, crew_label, handed_off, relative, shown_record, timeline_rows
 from plan_document import document_views, meeting_sections
 from sorting import last_commit
 from workflow import next_owner, ownership, stage_context, workflow_path, workflow_strip
@@ -280,7 +280,13 @@ class DetailViews:
 
     def agent_line(self, ticket, plans):
         record = self.run_record(ticket.key, plans)
-        return ["Agent " + runs.glyph(record["state"], self.frame) + " " + runs.summary(record, now())] if record else []
+        if not record:
+            return []
+        clock = now()
+        shown = runs.after_ship(record) if ticket.prs else record
+        parts = [shown["step"], crew_label(ticket, shown), runs.age(record.get("updated"), clock)]
+        return ["Agent " + runs.glyph(shown_record(ticket, record)["state"], self.frame) + " " + " · ".join(
+            parts + ([record["note"]] if record.get("note") else []))]
 
     def crew_records(self, plans):
         return [r for r in (self.run_record(p.parent.name, plans) for p in self.run_paths(plans)) if r]
@@ -296,8 +302,9 @@ class DetailViews:
                          f"It needs the ticket's own worktree first:  sidequest start {ticket.key}", "", questions_line)
         clock = now()
         rows = [Row("PIPELINE", "heading"), Row(runs.track(record["step"], record["state"], self.frame)),
-                Row(f"{record['step']} · {runs.LABELS[record['state']]} · {runs.age(record.get('updated'), clock)}",
-                    "current" if record["state"] in ("waiting", "failed", "ready") else "plain")]
+                Row(f"{record['step']} · {crew_label(ticket, record)} · {runs.age(record.get('updated'), clock)}",
+                    "current" if record["state"] in ("waiting", "failed", "ready")
+                    and not handed_off(ticket, record) else "plain")]
         if record.get("note"):
             rows.append(Row("→ " + record["note"]))
         rows += plain("", questions_line,

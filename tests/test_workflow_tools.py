@@ -11,8 +11,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class WorkflowToolTests(unittest.TestCase):
     def invoke(self, folder, *args):
-        env = dict(os.environ, SIDEQUEST_TICKETS_DIR=str(Path(folder) / 'tickets'),
+        env = {key: value for key, value in os.environ.items() if not key.startswith('SIDEQUEST_')}
+        env.update(HOME=folder, XDG_CONFIG_HOME=folder + '/config', XDG_DATA_HOME=folder + '/data',
+                   XDG_STATE_HOME=folder + '/state', SIDEQUEST_TICKETS_DIR=str(Path(folder) / 'tickets'),
                    PYTHONDONTWRITEBYTECODE='1')
+        env.pop('TMUX', None)
+        env.pop('HERDR_ENV', None)
         return subprocess.run([sys.executable, '-B', str(ROOT / 'bin/sidequest-data'), *args],
                               cwd=folder, env=env, capture_output=True, text=True)
 

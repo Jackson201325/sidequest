@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import sys
 
-from workflow import STAGE_LABELS, next_owner, stage_context
+from workflow import ALIASES, STAGE_LABELS, next_owner, stage_context
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sidequest import runs
@@ -62,9 +62,20 @@ def turn_label(ticket):
     return first + (f" +{len(names) - 1}" if len(names) > 1 else "")
 
 
-def stage_label(ticket):
-    """The ticket's Jira status as the board shows it (In Dev, Ready for QA, …)."""
-    return ticket.status.strip() or "?"
+FEEDBACK_MARK = "(PR feedback)"
+
+
+def stage_label(ticket, size=0):
+    """The ticket's Jira status as the board shows it (In Dev, Ready for QA, …).
+    Unresolved PR review threads add "(PR feedback)"; a narrow column shortens the status, not the mark."""
+    status = ticket.status.strip() or "?"
+    if not any(p.get("unresolved_count", 0) for p in ticket.prs):
+        return status
+    label = f"{status} {FEEDBACK_MARK}"
+    if not size or len(label) < size:
+        return label
+    room = size - len(FEEDBACK_MARK) - 3
+    return f"{status[:room]}… {FEEDBACK_MARK}" if room > 0 else FEEDBACK_MARK
 
 
 def pr_label(ticket):
@@ -114,7 +125,7 @@ def table_row(ticket, cols, when=""):
     """(glyph, rest): key and title first, then the workflow fields."""
     glyph = cell(LANE_GLYPH.get(ticket.lane, " "), cols["glyph"])
     rest = "".join([cell(ticket.key, cols["key"]), cell(ticket.title, cols["title"]),
-                    cell(stage_label(ticket), cols["stage"]), cell(turn_label(ticket), cols["turn"]),
+                    cell(stage_label(ticket, cols["stage"]), cols["stage"]), cell(turn_label(ticket), cols["turn"]),
                     cell(pr_label(ticket), cols["pr"]), cell(ticket.wait_label, cols["age"], True),
                     cell(when, cols["when"], True)])
     return glyph, rest
@@ -298,13 +309,44 @@ def pipeline_header(width):
             + f"{'AGENT':<{state}}TITLE")[:width]
 
 
+def handed_off(ticket, record):
+    """Who has a "waiting" or "ready" ticket when Jira or the PR says it is not the person's turn, else None.
+    The worker's run.json only knows its own steps; review, QA and other assignees live in the ticket."""
+    if not record or record["state"] not in ("waiting", "ready") or ticket.court == "me":
+        return None
+    if ticket.court == "done":
+        return "done in Jira"
+    if ticket.court == "them":
+        return "with " + next_owner(ticket)
+    if ALIASES.get(" ".join(ticket.status.casefold().replace("_", " ").split())) in (2, 3, 4):
+        return "Jira: " + ticket.status
+    return None
+
+
+def crew_label(ticket, record):
+    return handed_off(ticket, record) or runs.LABELS[record["state"]]
+
+
+def shown_record(ticket, record):
+    """The record AI mode shows: past ship-check with an open PR; a handed-off wait does not blink."""
+    return quiet(ticket, runs.after_ship(record) if ticket.prs else record)
+
+
+def quiet(ticket, record):
+    if record and record["state"] == "waiting" and handed_off(ticket, record):
+        return dict(record, state="queued", handed_off=True)
+    return record
+
+
 def pipeline_row(ticket, record, frame, width, clock):
     """(glyph, rest) for one AI-mode row; the glyph is coloured by its state."""
     key, cell, state_width = pipeline_columns(width)
-    record = runs.after_ship(record) if ticket.prs else record
+    after = runs.after_ship(record) if record and ticket.prs else record
+    label = crew_label(ticket, after) if after else ""
+    record = quiet(ticket, after)
     if record:
         glyph = runs.glyph(record["state"], frame)
-        state = f"{runs.LABELS[record['state']]} {runs.age(record.get('updated'), clock)}"
+        state = f"{label} {runs.age(record.get('updated'), clock)}"
     else:
         glyph, state = " ", "no worker"
     rest = (f"{ticket.key:<{key - 1}}" + "".join(pipeline_cells(record, frame, cell))

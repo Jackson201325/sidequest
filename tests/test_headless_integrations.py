@@ -32,7 +32,7 @@ from unittest.mock import patch
 before = list(sys.path)
 from sidequest import config
 from sidequest.review_apps import review_app
-config.SETTINGS = {'heroku': {'pipeline': 'fixture-pipeline'}}
+config.SETTINGS = {'heroku': {'pipeline': '00000000-0000-0000-0000-000000000001'}}
 with patch.dict('os.environ', {'SIDEQUEST_HEROKU_TOKEN': 'fixture-only-token'}), patch('urllib.request.urlopen', return_value=io.BytesIO(b'[]')):
     result = review_app(21, run=lambda *a, **k: '')
 assert result['status'] == 'Not provisioned'

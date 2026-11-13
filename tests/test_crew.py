@@ -29,6 +29,8 @@ class WorkerPromptTests(unittest.TestCase):
         self.assertIn(DATA + " update-branch --keep-conflicts", prompt)
         self.assertLess(prompt.index("update-branch"), prompt.index(DATA + " ship-check"))
         self.assertIn("finishing the rebase or merge", prompt)
+        self.assertIn("Skip the start workflow's Jira move", prompt)
+        self.assertNotIn("configured start move", prompt)
 
     def test_qa_local_ends_with_screenshots_and_a_report(self):
         prompt = crew.worker_prompt("DEMO-9", None, DATA)
@@ -137,6 +139,17 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(len(self.launched), 1)
         self.assertIn("Continue from implement", self.launched[0][2])
 
+    def test_a_ticket_with_someone_else_is_skipped_unless_asked(self):
+        lines, failed = crew.dispatch(["DEMO-1"], self.trees.get, self.tickets,
+                                      lambda key, path, prompt: self.launched.append(key), DATA,
+                                      "2026-11-11T10:00:00+00:00", waiting=lambda key: "Jira status is In QA")
+        self.assertTrue(failed)
+        self.assertEqual(self.launched, [])
+        self.assertEqual(lines, ["skip DEMO-1: Jira status is In QA; use --again to start it anyway"])
+        crew.dispatch(["DEMO-1"], self.trees.get, self.tickets, lambda key, path, prompt: self.launched.append(key),
+                      DATA, "2026-11-11T10:00:00+00:00", again=True, waiting=lambda key: "Jira status is In QA")
+        self.assertEqual(self.launched, ["DEMO-1"])
+
     def test_dry_run_prints_and_launches_nothing(self):
         lines, failed = self.dispatch(["DEMO-1"], dry_run=True)
         self.assertFalse(failed)
@@ -204,6 +217,33 @@ class WorkerFocusTests(unittest.TestCase):
         launch = cli.worker_launcher(Flow(), "claude", DATA)
         launch("DEMO-1", "/w/demo-1", "prompt")
         self.assertEqual(calls, [("DEMO-1", False)])
+
+
+class WaitingReasonTests(unittest.TestCase):
+    def test_review_qa_and_other_assignees_are_waiting_on_someone_else(self):
+        cli = load_cli()
+        skip = cli.SKIP_STATUSES
+        mine = {"assignee": "Me", "assignee_ok": True}
+        self.assertIsNone(cli.waiting_reason({**mine, "status": "In Dev"}, skip))
+        self.assertIsNone(cli.waiting_reason({**mine, "status": "Fixing Revisions"}, skip))
+        self.assertIn("could not read", cli.waiting_reason(None, skip))
+        self.assertIsNone(cli.waiting_reason({"status": "In Dev", "assignee": "Unassigned", "assignee_ok": False}, skip))
+        self.assertIn("in qa", cli.waiting_reason({**mine, "status": "in qa"}, skip))
+        self.assertIn("Ready for Code Review", cli.waiting_reason({**mine, "status": "Ready for Code Review"}, skip))
+        self.assertIn("assigned to Eddie", cli.waiting_reason({"status": "In Dev", "assignee": "Eddie",
+                                                                "assignee_ok": False}, skip))
+        self.assertIsNone(cli.waiting_reason({**mine, "status": "In QA"}, "Done"))
+
+    def test_default_skip_statuses_cover_every_review_qa_approved_and_done_stage(self):
+        sys.path.insert(0, str(ROOT / "ticket-tui"))
+        from workflow import ALIASES
+        skip = {s.strip().casefold() for s in load_cli().SKIP_STATUSES.split(",")}
+        self.assertEqual({name for name, stage in ALIASES.items() if stage >= 2} - skip, set())
+
+    def test_status_table_shows_the_jira_status(self):
+        records = [{"key": "DEMO-4", "step": "implement", "state": "waiting", "note": "", "updated": None}]
+        line = runs.table(records, None, {"DEMO-4": "In QA"})[0]
+        self.assertIn("[Jira: In QA]", line)
 
 
 class CrewCommandTests(unittest.TestCase):

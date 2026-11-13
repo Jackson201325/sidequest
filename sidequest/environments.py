@@ -4,6 +4,7 @@ import json
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from datetime import datetime, timezone
@@ -77,6 +78,12 @@ def fetch_environments(numbers, run, pipeline=None):
         except ValueError:
             raise RuntimeError("Heroku: invalid API response; keeping cached status") from None
 
+    if not re.fullmatch(r"[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}", pipeline):
+        # The review-apps endpoint answers an empty list for a pipeline name, so resolve the ID first.
+        found = get(f"/pipelines/{urllib.parse.quote(pipeline, safe='')}")
+        if not isinstance(found, dict) or not found.get("id"):
+            raise RuntimeError("Invalid Heroku response; keeping cached status")
+        pipeline = found["id"]
     reviews = get(f"/pipelines/{pipeline}/review-apps")
     if not isinstance(reviews, list):
         raise RuntimeError("Invalid Heroku response; keeping cached status")

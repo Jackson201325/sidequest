@@ -13,8 +13,11 @@ blocks input; only the UI thread updates UI state and SQLite.
 
 Use Activity, Plan, Overview, Work log, Flow and Standup views. Activity contains
 Jira/GitHub events; work logs contain dated commit evidence. Unknown ownership or
-history remains explicitly unknown. Jira handoffs take precedence over old PR
-feedback. Business time uses the configured timezone, weekdays 09:00–17:00, with
+history remains explicitly unknown. Unresolved PR review threads take
+precedence over Jira handoffs; once every thread is resolved, the Jira handoff
+decides again, even while GitHub still shows changes requested. A failing check
+alone does not override Jira. The table's status cell then reads "<status> (PR feedback)"; a narrow
+column shortens the status and keeps the mark. Business time uses the configured timezone, weekdays 09:00–17:00, with
 first-assignment and status-transition dates supplying the waiting clock.
 
 2026-11-05: replaced account-specific defaults and PATH-based helper lookup with
@@ -128,7 +131,16 @@ Workers start in the background (detached tmux pane or window, no Herdr focus), 
 in front; Space C opens the manager in a pane below the dashboard (40% of the height), or selects it.
 Space c on a ticket without a worktree offers "Create the worktree, then start a worker": the job runs
 WorkspaceWorkflow.prepare (no window, no Jira move), then sidequest crew, then reloads worktrees.
+2026-11-11: When sidequest crew skips the ticket with "use --again to start it anyway" (Jira assignee or
+status), the status line says to press Space c again, and that next confirm box offers "Start anyway",
+which passes --again. The offer lasts for one open of the box.
 2026-11-11: AI mode has a fifth pipeline column, QA-REVIEW (cells are 11 wide below 110 columns, so
 SHIP-CHECK keeps a gap). A ready ship-check shows four ✓ and qa-review ahead.
 2026-11-11: A sixth column, CHALLENGE, sits between SHIP-CHECK and QA-REVIEW. A ticket with an open PR
 shows its row at QA-REVIEW (runs.after_ship), whatever step run.json last recorded.
+2026-11-11: AI mode hides tickets whose Jira status is in AI_HIDDEN_STATUSES (now only Blocked), even
+when they have a worker record. Lanes 1-5 still show them.
+2026-11-11: A "waiting" worker is no longer "waiting on you" when the ticket is not the person's turn:
+Jira done → "done in Jira"; court them → "with <owner>"; court unknown in a review, QA or Approved status →
+"Jira: <status>". Court me keeps "waiting on you". Such rows keep a still ◌ (layout.shown_record), sort
+after working and queued workers, and do not count in "need you". Working and failed are unchanged.

@@ -31,7 +31,7 @@ from sidequest.worktrees import parse_worktrees
 from worklog import collect_worklog
 from workflow import stage_context
 from sorting import DATE_SORTS, SORT_MODES, activity_date, last_commit, ordered
-from layout import (EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, menu_box, pipeline_header, pipeline_row, pr_glyph_offset,
+from layout import (EVENT_INDENT, HEAVY, LIGHT, TONE, border, card, columns, lane_tab, menu_box, handed_off, pipeline_header, pipeline_row, pr_glyph_offset,
                     relative, scroll_label, table_header, table_row, panel_rects)
 import standup
 import branch_state
@@ -57,12 +57,16 @@ FOOTER = [("MOVE", [("j/k", "tickets", ""), ("h/l", "pane", ""), ("1-6", "lane",
 SPACE_MENU = [("Open", [("j", "Jira"), ("o", "PR"), ("w", "worktree"), ("s", "agent")]),
               ("Work", [("n", "create/open local worktree"), ("c", "crew worker"), ("C", "crew manager")])]
 CREW = WORKFLOW / 'bin' / 'sidequest-crew.py'
+AI_HIDDEN_STATUSES = ("blocked",)
 
 
 def run_crew(args):
     """Run `sidequest crew` (the same checks as the shell command); its last line is the result."""
-    done = subprocess.run([sys.executable, '-B', str(CREW), *args], capture_output=True, text=True,
-                          timeout=60, stdin=subprocess.DEVNULL)
+    try:
+        done = subprocess.run([sys.executable, '-B', str(CREW), *args], capture_output=True, text=True,
+                              timeout=120, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return 'sidequest crew timed out; check sidequest crew --status before starting it again'
     lines = [line.strip() for line in (done.stdout + done.stderr).splitlines() if line.strip()]
     return (lines[-1] if lines else 'sidequest crew exited with status ' + str(done.returncode))[:200]
 DETAIL_WORKERS = 4
@@ -225,6 +229,7 @@ class App:
         self.refresh_status = ""
         self.refresh_started = 0
         self.jobs = {}
+        self.crew_skipped = {}
         self.foreground_target = None
         self.pending = self.space_hint = self.space_before = ""
         self.fitted_cache = None
@@ -422,7 +427,9 @@ class App:
         record = self.views.run_record(ticket.key, PLANS)
         running = bool(record and record["state"] in ("working", "queued"))
         step = crew.first_step(record, (PLANS / ticket.key / "plan.md").is_file())
+        skipped = None if create else self.crew_skipped.get(ticket.key)
         first = (f"Create the worktree, then start a worker at {step}" if create
+                 else f"Start anyway at {step} ({skipped})" if skipped
                  else f"Restart the worker at {step} (recorded as {record['state']})" if running
                  else f"Start a worker at {step}")
         choice = self.choose(f"CREW WORKER FOR {ticket.key}", [first, "Cancel"],
@@ -430,16 +437,24 @@ class App:
         if choice != 0:
             self.message = "Crew worker cancelled"
             return
-        args = [ticket.key] + (["--again"] if running else [])
+        self.crew_skipped.pop(ticket.key, None)
+        args = [ticket.key] + (["--again"] if running or skipped else [])
         workflow = self.workflow_factory() if create else None
+
+        def remember(result):
+            prefix, suffix = f"skip {ticket.key}: ", "; " + crew.AGAIN_HINT
+            if result.startswith(prefix) and result.endswith(suffix):
+                self.crew_skipped[ticket.key] = result[len(prefix):-len(suffix)]
+                return result[:-len(suffix)] + "; press Space c again to start it anyway"
+            return result
 
         def task():
             if workflow is None:
-                return run_crew(args)
+                return remember(run_crew(args))
             workflow.prepare(ticket.key, ticket.title, ticket.issue_type, apply=True)
             result = run_crew(args)
             self.events.put(("worktrees", worktrees()))
-            return result
+            return remember(result)
         self.background("crew", ("Creating the worktree and starting a worker for " if create
                                  else "Starting crew worker for ") + ticket.key, task)
 
@@ -570,13 +585,30 @@ class App:
         rows = [t for t in self.tickets if self.in_view(t, self.view)]
         if self.view == "AI":
             # Workers on tickets outside the queue still show; the person's turn comes first.
-            known = {t.key for t in rows}
+            known = {t.key for t in self.tickets}
+            rows = [t for t in rows if t.status.casefold() not in AI_HIDDEN_STATUSES]
             rows += [Ticket(record["key"], title="(not in your queue)", lane="Clarify")
                      for record in self.views.crew_records(PLANS) if record["key"] not in known]
-            order = {t.key: runs.ORDER.get((self.views.run_record(t.key, PLANS) or {}).get("state"), len(runs.ORDER))
-                     for t in rows}
+            order = {t.key: self.ai_rank(t) for t in rows}
             rows.sort(key=lambda t: order[t.key])
         return [t for t in rows if self.query.casefold() in f"{t.key} {t.title} {t.status} {t.action}".casefold()]
+
+    def ai_record(self, ticket):
+        record = self.views.run_record(ticket.key, PLANS)
+        return runs.after_ship(record) if record and ticket.prs else record
+
+    def ai_rank(self, ticket):
+        """The person's turn first; a worker waiting on someone else sorts after the busy ones."""
+        record = self.ai_record(ticket)
+        if not record:
+            return len(runs.ORDER) + 1
+        return len(runs.ORDER) if handed_off(ticket, record) else runs.ORDER[record["state"]]
+
+    def ai_needs_you(self, rows=None, shown=None):
+        rows = self.visible() if rows is None else rows
+        shown = shown or {t.key: self.ai_record(t) for t in rows}
+        return sum(bool(r) and r["state"] in ("waiting", "failed", "ready") and not handed_off(t, r)
+                   for t in rows for r in [shown[t.key]])
 
     def selected(self):
         rows = self.visible()
@@ -887,7 +919,8 @@ class App:
         inner_w, frame = list_w - 2, self.views.frame
         records = {t.key: self.views.run_record(t.key, PLANS) for t in rows}
         active = [r for r in records.values() if r]
-        needs = sum(r["state"] in ("waiting", "failed", "ready") for r in active)
+        shown = {t.key: runs.after_ship(records[t.key]) if records[t.key] and t.prs else records[t.key] for t in rows}
+        needs = self.ai_needs_you(rows, shown)
         working = sum(r["state"] == "working" for r in active)
         count = lambda n, word: f"{n} {word}" + ("" if n == 1 else "s")
         title = (f"✦ AI pipeline · {count(len(rows), 'ticket')} · {count(len(active), 'worker')} · {needs} need you"
@@ -901,7 +934,8 @@ class App:
             record = records[item.key]
             glyph, rest = pipeline_row(item, record, frame, inner_w - 2, clock)
             sel = (curses.A_REVERSE if list_active else curses.A_UNDERLINE) if i == self.index else 0
-            tone = self.style(tones.get(record["state"])) if record else curses.A_DIM
+            tone = (curses.A_DIM if not record else self.style("Waiting") if handed_off(item, shown[item.key])
+                    else self.style(tones.get(record["state"])))
             self.put(y, 1, glyph, (sel or tone) | curses.A_BOLD, 1)
             self.put(y, 2, " " + rest, sel | (0 if record else curses.A_DIM), inner_w - 1)
         if not rows:
@@ -1115,7 +1149,7 @@ class App:
                  "  h / l, Enter  List / preview pane           gl / gL   Next / previous ticket needing you",
                  "  + / -         Grow / shrink ticket section   =       Reset 30/70 split (size is remembered)",
                  "  1..5          All / Needs me / Waiting / Clarify / In Dev",
-                 "  6             ✦ AI mode: every ticket's crew pipeline; details show its worker (sidequest crew)",
+                 "  6             ✦ AI mode: every ticket's crew pipeline, Blocked hidden; details show its worker",
                  "  /             Filter while typing (Enter keeps)  Esc  Clear filter, back to list",
                  "",
                  "WAIT starts at the later of Jira status entry or first assignment to you.",

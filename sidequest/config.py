@@ -86,7 +86,7 @@ KEYS = {
             'wait_minutes'),
     'qa': ('browser', 'email'),
     'checks': ('test', 'lint'),
-    'crew': ('manager_command', 'worker_command', 'challenge_command'),
+    'crew': ('manager_command', 'worker_command', 'challenge_command', 'skip_statuses'),
     'credentials': ('jira', 'review', 'qa'),
     'sync': ('tickets_jql', 'open_prs', 'update', 'cleanup', 'every_minutes'),
     'sessions': (),  # personal tmux sessions: {name: workspace.windows-style list}; not set from the environment

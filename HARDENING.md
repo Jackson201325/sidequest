@@ -570,7 +570,7 @@ No data, refresh, network or Git behaviour changed; Esc on / restores the previo
 unknown steps and states are refused without a write. Hooks always exit 0, write nothing without a record and
 keep ready, failed and waiting states the worker set. Dispatch skips tickets without their own worktree
 (including the main checkout) and does not start a second worker while one is recorded as working or queued.
-Worker prompts forbid commits, pushes, PRs, comments and Jira changes except the start workflow's start move.
+Worker prompts forbid commits, pushes, PRs, comments and Jira changes, including the start workflow's start move.
 Limits: workers' stop points rely on the prompt and the skills; a worker that dies without a hook stays
 "working" until `--again`. Live Claude Code hooks and tmux/Herdr launches are not exercised offline.
 
@@ -610,3 +610,29 @@ same code, and workers and the challenger skip a step that already finished ther
 2026-11-11: Challenge step before shipping. tests/test_crew.py failed first. A ready ship-check starts a
 challenger (crew.challenge_command, default Opus) that assumes the work is wrong, checks each claim,
 fixes in-scope defects with a failing test, writes challenge.md and never commits, pushes or posts.
+2026-11-11: Space c could not pass --again, so a ticket that Jira shows with another assignee or in a review/QA
+status could only start from the shell. ticket-tui/test_crew_tab.py failed first. After that skip, the next
+Space c box offers "Start anyway" with the skip reason; it passes --again once, and the Jira check stays.
+2026-11-13: Crew review fixes. tests/test_crew.py and ticket-tui/test_crew_tab.py failed first. An unassigned
+ticket is no longer skipped as "assigned to Unassigned". A failed Jira lookup now skips the ticket ("could not
+read the ticket from Jira") instead of starting a worker on a ticket that may be in QA. Cancel in the Space c
+box keeps "Start anyway" for the next try. run_crew reports a timeout (now 120 s) instead of raising. The card's
+Agent line shows the same step as the AI list when a PR is open. The default crew.skip_statuses covers every
+ALIASES stage from review to done; a test fails when the two drift. dispatch prefetches Jira in parallel.
+2026-11-11: AI mode showed Blocked tickets. ticket-tui/test_crew_tab.py failed first. AI mode now drops
+tickets whose Jira status is in AI_HIDDEN_STATUSES (only "blocked"), including ones with a worker record.
+2026-11-11: AI mode said "waiting on you" for tickets in code review or QA with someone else, because only
+"ready" records checked Jira and the PR. ticket-tui/test_crew_tab.py failed first. handed_off now covers
+"waiting" too (court them or done, or an unknown court in a review, QA or Approved status); those rows stop
+blinking, sort after busy workers and leave the "need you" count. Court me still shows "waiting on you".
+2026-11-13: A PR with changes requested or unresolved review threads showed as someone else's turn when
+Jira said code review, QA or Approved, or assigned the ticket to someone else. ticket-tui/test_handoff.py
+failed first. infer() now checks unresolved review threads before the Jira handoff, so the ticket is yours
+(Needs me) until every thread is resolved; only a Done-type status wins. After that the Jira handoff decides
+again, because GitHub keeps "changes requested" until a re-review. A failing check alone still follows Jira.
+2026-11-13: tests/test_workflow_tools.py inherited HOME, TMUX and SIDEQUEST_* and created APP-12 in a real
+repository; ticket-tui/test_crew_tab.py could reach the real workflow and created DEMO-901. Both now run
+in temporary storage, and the crew tests fail if they reach the real workflow factory.
+2026-11-13: The status column did not show that a PR still had unresolved review threads.
+ticket-tui/test_layout.py failed first. stage_label() adds "(PR feedback)" while any thread is unresolved and
+shortens the Jira status, not the mark, in a narrow column.
