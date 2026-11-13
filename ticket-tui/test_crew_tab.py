@@ -298,6 +298,32 @@ class CrewTests(unittest.TestCase):
         self.assertIn(('c', 'crew worker'), [k for _, keys in tui.SPACE_MENU for k in keys])
         self.assertIn(('C', 'crew manager'), [k for _, keys in tui.SPACE_MENU for k in keys])
 
+    def test_space_shift_m_asks_ticket_or_general_then_opens_the_meeting_pane(self):
+        self.app.demo = False
+        key = self.ticket.key
+        with patch.object(tui, 'run_meeting', lambda args: calls.append(args) or 'Opened meeting in a pane below'):
+            calls = []
+            _, choose = self.space('M', choice=0)
+            title, options = choose.call_args[0][:2]
+            self.assertIn(key, options[0])
+            self.assertTrue(options[1].startswith('General meeting'), options)
+            self.assertEqual(calls, [[key]])
+            calls = []
+            self.space('M', choice=1)
+            self.assertEqual(calls, [[]])
+            calls = []
+            self.space('M', choice=None)
+            self.assertEqual(calls, [])
+            self.assertIn('cancelled', self.app.message)
+            self.space('M', environ={})
+            self.assertEqual(calls, [])
+        action = self.app.foreground_target
+        self.assertEqual(action['argv'][-3:], [str(tui.MEETING), '--here', key])
+        self.assertIn(('M', 'meeting'), [k for _, keys in tui.SPACE_MENU for k in keys])
+        self.app.demo, self.app.foreground_target = True, None
+        self.space('M')
+        self.assertIsNone(self.app.foreground_target)
+
     def test_crew_is_no_longer_a_ticket_tab(self):
         self.assertNotIn('t', tui.TAB_KEYS)
 

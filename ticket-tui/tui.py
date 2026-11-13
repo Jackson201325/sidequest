@@ -55,8 +55,10 @@ FOOTER = [("MOVE", [("j/k", "tickets", ""), ("h/l", "pane", ""), ("1-6", "lane",
                   ("o", "sort", "sort"), ("+/-", "resize sections", "size")]),
           ("", [("?", "help", "help"), ("q", "quit", "quit")])]
 SPACE_MENU = [("Open", [("j", "Jira"), ("o", "PR"), ("w", "worktree"), ("s", "agent")]),
-              ("Work", [("n", "create/open local worktree"), ("c", "crew worker"), ("C", "crew manager")])]
+              ("Work", [("n", "create/open local worktree"), ("c", "crew worker"), ("C", "crew manager"),
+                       ("M", "meeting")])]
 CREW = WORKFLOW / 'bin' / 'sidequest-crew.py'
+MEETING = WORKFLOW / 'bin' / 'sidequest-meeting.py'
 AI_HIDDEN_STATUSES = ("blocked",)
 
 
@@ -69,6 +71,19 @@ def run_crew(args):
         return 'sidequest crew timed out; check sidequest crew --status before starting it again'
     lines = [line.strip() for line in (done.stdout + done.stderr).splitlines() if line.strip()]
     return (lines[-1] if lines else 'sidequest crew exited with status ' + str(done.returncode))[:200]
+
+
+def run_meeting(args):
+    """Run `sidequest meeting` inside tmux: it opens or selects the meeting pane and returns at once."""
+    try:
+        done = subprocess.run([sys.executable, '-B', str(MEETING), *args], capture_output=True, text=True,
+                              timeout=30, stdin=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        return 'sidequest meeting timed out'
+    lines = [line.strip() for line in (done.stdout + done.stderr).splitlines() if line.strip()]
+    return (lines[-1] if lines else 'sidequest meeting exited with status ' + str(done.returncode))[:200]
+
+
 DETAIL_WORKERS = 4
 
 
@@ -470,6 +485,27 @@ class App:
             folder.mkdir(parents=True, exist_ok=True)
             self.foreground_target = {"argv": [sys.executable, "-B", str(CREW)], "cwd": str(folder),
                                       "label": "Crew manager"}
+
+    def meeting(self):
+        """Space M: the meeting companion in a tmux pane below the dashboard, else in this terminal."""
+        if self.demo:
+            self.message = "Demo: the meeting companion is disabled"
+            return
+        ticket = self.selected()
+        args = []
+        if ticket and is_key(ticket.key):
+            choice = self.choose("MEETING", [f"Ticket meeting: {ticket.key} (loads its plan, questions and meetings)",
+                                             "General meeting (no ticket context)", "Cancel"],
+                                 "Runs meeting.command in a pane below · Enter · Esc cancel")
+            if choice not in (0, 1):
+                self.message = "Meeting cancelled"
+                return
+            args = [ticket.key] if choice == 0 else []
+        if os.environ.get('TMUX'):
+            self.background("meeting", "Opening the meeting pane", lambda: run_meeting(args))
+        else:
+            self.foreground_target = {"argv": [sys.executable, "-B", str(MEETING), "--here", *args],
+                                      "cwd": str(qa.tickets_dir()), "label": "Meeting"}
 
     def start_work(self, ticket):
         if self.demo:
@@ -1124,6 +1160,9 @@ class App:
         if key == "C":
             self.crew_manager()
             return
+        if key == "M":
+            self.meeting()
+            return
         ticket = self.selected()
         if not ticket:
             return
@@ -1168,6 +1207,7 @@ class App:
                  "  j Jira   o PR   w worktree shell   s agent workflows / custom prompt",
                  "  n create/reuse the ticket worktree (fix/ for Bugs) and open it: its tmux window, else a shell",
                  "  c start (or restart) the ticket's crew worker   C open the crew manager (sidequest crew)",
+                 "  M meeting: ticket (loads its notes) or general; meeting.command in a pane below; summary in m Meetings",
                  "",
                  "DATA",
                  "  r refresh Jira + GitHub via sidequest-data   e recheck Heroku   o / O choose / reverse sort",

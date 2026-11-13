@@ -644,10 +644,24 @@ A dead or closed pane gets a new split. Herdr still opens a new pane each time.
 2026-11-13: A crew request that reused the open pane still printed "worker started". tests/test_crew.py
 failed first. The tmux launcher returns True when a pane with its role was open, and dispatch prints
 "prompt sent to the open worker pane at <step>".
+2026-11-13: `sidequest meeting [KEY]` and Space M start the person's own meeting.command (new setting) in a
+tmux pane below the dashboard, tagged "meeting" so a second request selects it; outside tmux it runs in
+place. tests/test_meeting.py and ticket-tui/test_crew_tab.py failed first. The command gets
+SIDEQUEST_TICKETS_DIR and SIDEQUEST_TICKET; Ctrl-C reaches only the command. When it exits, the pane prints
+the newest section of each meetings.md changed since the start. Recording and transcription stay outside
+Sidequest: the companion keeps its non-standard-library dependencies and company identity in the personal
+workflow. Herdr gets no pane yet; there it runs in place. Live tmux and a real companion were not exercised.
 2026-11-13: The TURN column showed the person's own first name next to "you" for a
 ticket assigned to them but waiting on a requested reviewer. ticket-tui/test_workflow.py failed first.
 workflow.ownership() no longer names the Jira assignee when Jira assigns the ticket to the person; it names
 the requested reviewers, else "?".
+2026-11-13: Space M asks "Ticket meeting: KEY" or "General meeting"; `sidequest meeting` without a KEY is a
+general meeting. A ticket meeting writes the ticket's plan.md, questions.md and earlier meetings.md (each cut
+to its last 12000 characters) to a 0600 temporary file, passed as SIDEQUEST_TICKET_CONTEXT and removed when
+the command exits. The command now gets SIDEQUEST_WORKTREES_DIR and, when jira.site is set, JIRA_URL,
+JIRA_EMAIL and JIRA_API_TOKEN, so one companion in the shared config serves every project. The token goes
+only to the person's own meeting.command and is never printed. tests/test_meeting.py and
+ticket-tui/test_crew_tab.py failed first. The companion itself lives outside this repository.
 2026-11-13: Crew pipelines stalled until the person told the crew to move. Causes: the start and implement
 skills end with a "Finish" reply that ended the worker's turn (Stop hook: waiting); a ready ship-check waited
 for a new `sidequest crew KEY` before the challenger started; an allowed permission prompt left the record

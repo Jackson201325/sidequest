@@ -164,6 +164,13 @@ Fenced code is not parsed as headings, and unrecognized sections stay in Plan.
 Tests exercise rendered views, no document writes, reload behavior and real PTY
 keyboard navigation at the approved TUI interface.
 
+`sidequest meeting` (bin/sidequest-meeting.py, sidequest/meeting.py) runs the person's meeting.command with
+/bin/sh, in a tmux pane below the caller tagged with the role "meeting" (tmux.open_below), else in place.
+It records nothing; after the command exits it prints the newest section of each meetings.md modified
+since the start. With a KEY, meeting.context writes the ticket's plan, questions and meetings to a 0600
+temporary file (SIDEQUEST_TICKET_CONTEXT), removed afterwards. The command also gets SIDEQUEST_WORKTREES_DIR
+and the project's JIRA_URL, JIRA_EMAIL and JIRA_API_TOKEN (credentials.secret). Space M asks ticket or
+general meeting, then runs it through run_meeting in a background job, or hands this terminal over.
 `sidequest crew` (bin/sidequest-crew.py, sidequest/crew.py) starts the manager (crew.manager_command)
 and one worker per ticket worktree (crew.worker_command) through WorkspaceWorkflow.agent, so tmux and
 Herdr placement stay in the terminal adapters. In tmux, worker_launcher passes a role

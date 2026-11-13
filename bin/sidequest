@@ -43,7 +43,7 @@ if sys.argv[1:2] == ['projects'] or sys.argv[1:] in ([], ['up']):
         sys.argv = [str(command)]
         runpy.run_path(str(command), run_name='__main__')
         raise SystemExit(0)
-if sys.argv[1:2] in (['up'], ['start'], ['map'], ['crew']):
+if sys.argv[1:2] in (['up'], ['start'], ['map'], ['crew'], ['meeting']):
     command = app.parents[1] / 'bin' / ('sidequest-' + sys.argv[1] + '.py')
     sys.argv = [str(command), *sys.argv[2:]]
     runpy.run_path(str(command), run_name='__main__')

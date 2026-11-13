@@ -277,7 +277,8 @@ ticket folder: what is not asked yet, what waits for an answer, and each answer 
 the decision it led to. Only `sidequest-data questions APP-123 add|asked|answer|decision|list`
 writes it; the dashboard never edits it. Meetings (`m`) shows `meetings.md` from the
 ticket folder, newest meeting first. Sidequest does not record meetings; any notes
-tool that appends `## <date> · <scope>` sections to that file works. Overview shows
+tool that appends `## <date> · <scope>` sections to that file works. `sidequest meeting`
+starts such a tool for you (see "Meeting companion"). Overview shows
 the unanswered-question count and the latest meeting.
 
 For a ticket with a local worktree, the card adds a Local line from local Git only:
@@ -545,6 +546,7 @@ environment reads and external programs. It only reads the source.
 | Space `s` | Run a bundled workflow or custom prompt with the configured agent |
 | Space `c` | Start (or restart) the selected ticket's crew worker, after a confirm box; a ticket without a worktree gets one first; after Jira skips it (another assignee or a review/QA status), the next Space `c` offers "Start anyway" (`--again`) |
 | Space `C` | Open the crew manager in a pane below the dashboard (40% of its height) in tmux/Herdr, else this terminal |
+| Space `M` | Choose a ticket meeting (loads the selected ticket's notes) or a general meeting; `meeting.command` runs in a tmux pane below the dashboard, else this terminal; see `sidequest meeting` |
 | `y` | Copy standup with macOS pbcopy; --standup prints it on any platform |
 | `?`, `q` | Help, quit |
 
@@ -780,6 +782,27 @@ worker pane" instead of "worker started". Workers need tmux
 or Herdr; outside them, `sidequest crew` runs the manager in the current terminal.
 `crew.manager_command` (default `claude --model claude-opus-5-5`) and `crew.worker_command`
 (default `claude --model claude-sonnet-5-5`) choose the agents.
+
+### Meeting companion (`sidequest meeting`)
+
+```bash
+sidequest meeting                # a general meeting: no ticket context
+sidequest meeting APP-123        # a ticket meeting: the command also gets the ticket's notes
+sidequest meeting --here APP-123 # run it in this terminal, not in a new pane
+```
+
+Sidequest does not record or transcribe. `meeting.command` is your own tool, for example
+`"meeting.command": "meeting"`. It runs with `/bin/sh` in `workspace.repository` (else the tickets
+folder) and gets `SIDEQUEST_TICKETS_DIR` and `SIDEQUEST_WORKTREES_DIR` (`workspace.worktrees_dir`, else
+the repository's parent folder). A ticket meeting also gets `SIDEQUEST_TICKET` and
+`SIDEQUEST_TICKET_CONTEXT`: a private temporary file with the ticket's `plan.md`, `questions.md` and
+earlier `meetings.md`, removed when the command exits. When the project sets `jira.site`, the command
+gets `JIRA_URL`, `JIRA_EMAIL` and `JIRA_API_TOKEN` (from `credentials.jira`). Put `meeting.command` in
+the shared `config.json` to use one companion in every project. Inside tmux it opens in a pane below
+(40% of the height), so the dashboard stays on screen; an open meeting pane is selected instead of a
+second one. When the tool exits, the pane prints the newest `## <date> · <scope>` section of every
+`meetings.md` the tool changed, then closes on Enter. The Meetings tab (`m`) shows the same file.
+Space `M` in the dashboard asks "Ticket meeting: KEY" or "General meeting", then runs `sidequest meeting`.
 
 ### Several projects
 
